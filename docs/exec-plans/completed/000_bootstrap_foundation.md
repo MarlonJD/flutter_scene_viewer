@@ -56,6 +56,10 @@ Make the starter repository mechanically healthy and ready for feature work.
   `prompts/` folder, renamed `docs/HARNESS_ENGINEERING.md` to
   `docs/REPO_TOOLING.md`, and updated current docs to point at
   `bash tools/run_checks.sh`.
+- 2026-07-01: Added a documentation rule to keep `README.md` lean and link to
+  focused `.md` files for detailed explanations.
+- 2026-07-01: Plan acceptance criteria and verification are complete; moved
+  this plan from active to completed.
 
 ## Verification log
 
@@ -115,3 +119,17 @@ Make the starter repository mechanically healthy and ready for feature work.
   14 files, 0 changed; `flutter pub get` got dependencies and reported the same
   5 constrained newer packages; `flutter analyze` found no issues; `flutter
   test` passed 4 tests; tooling script printed `== done ==`.
+- 2026-07-01: After adding the README documentation rule,
+  `bash tools/run_checks.sh` first exited 1 in the sandbox because Flutter could
+  not write SDK cache files under `/Users/marlonjd/Developer/flutter/bin/cache`.
+  Rerun with approved sandbox escalation exited 0: repo lint passed; format
+  check changed 0 files; `flutter pub get` completed with the same 5 constrained
+  newer packages; `flutter analyze` found no issues; `flutter test` passed
+  4 tests; tooling script printed `== done ==`.
+- 2026-07-01: After moving this completed plan out of `active/`,
+  `bash tools/run_checks.sh` first exited 1 in the sandbox because Flutter could
+  not write SDK cache files under `/Users/marlonjd/Developer/flutter/bin/cache`.
+  Rerun with approved sandbox escalation exited 0: repo lint passed; format
+  check changed 0 files; `flutter pub get` completed with the same 5 constrained
+  newer packages; `flutter analyze` found no issues; `flutter test` passed
+  4 tests; tooling script printed `== done ==`.

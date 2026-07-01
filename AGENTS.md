@@ -50,6 +50,11 @@ Out of scope for v1:
 - If a model lacks UVs for texture override, return diagnostics; do not invent UVs.
 - If a material feature is unsupported, report capability diagnostics; do not fake support.
 
+## Documentation rules
+
+- Keep `README.md` lean. Put detailed explanations in focused `.md` files and
+  link to them from the README instead of expanding the README.
+
 ## Verification commands
 
 ```sh
