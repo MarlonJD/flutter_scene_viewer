@@ -39,5 +39,6 @@ It differs by aiming for:
 ## Non-goal sentence
 
 This is not Unity, Unreal, BabylonJS, or a CAD tessellation pipeline. If a user
-needs complex VR materials, physics, deformation, or authored game scenes, they
-should use a dedicated 3D engine.
+needs advanced shader/material effects such as subsurface scattering, parallax,
+or displacement, physics, deformation, or authored game scenes, they should use
+a dedicated 3D engine.

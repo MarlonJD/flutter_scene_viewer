@@ -31,3 +31,6 @@ Apply, merge, persist, and reset core PBR material overrides.
 ## Progress log
 
 - 2026-07-01: Plan created.
+- 2026-07-01: README v1 non-goal wording updated to remove "VR-specific material features"; assumed this is copy-only and runtime material scope remains unchanged.
+- 2026-07-01: Added material documentation note that texture overrides require authored UV coordinates and the viewer does not generate UV unwraps.
+- 2026-07-01: Replaced vague "complex VR materials" charter wording with advanced shader/material effects and documented subsurface scattering as outside the v1 viewer core.
