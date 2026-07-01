@@ -18,8 +18,6 @@ def require(path: str) -> Path:
 
 for path in [
     'AGENTS.md',
-    'CLAUDE.md',
-    'CODEX.md',
     'docs/PROJECT_CHARTER.md',
     'docs/ARCHITECTURE.md',
     'docs/REPO_TOOLING.md',

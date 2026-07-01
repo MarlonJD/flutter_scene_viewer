@@ -15,8 +15,6 @@ This repo follows an agent-first engineering style.
 
 ```text
 AGENTS.md
-CLAUDE.md
-CODEX.md
 docs/
   PROJECT_CHARTER.md
   ARCHITECTURE.md
@@ -27,6 +25,7 @@ docs/
     completed/
     templates/
   generated/
+  project-plan-v2/   # planning source only; promote slices to active plans
   product-specs/
   references/
 tools/
@@ -37,7 +36,7 @@ tools/
 
 ## Agent-readable constraints
 
-Codex should never need chat history to understand the project. If a decision is
+Agents should never need chat history to understand the project. If a decision is
 important, put it in docs or an active plan.
 
 ## Quality loop
@@ -49,6 +48,10 @@ For each active plan:
 3. run tooling checks;
 4. update progress log;
 5. stop or continue with next verifiable slice.
+
+`docs/project-plan-v2/` is preserved for future v2 planning. It should not be
+implemented directly; move the selected slice into `docs/exec-plans/active/`
+first.
 
 ## Entropy control
 

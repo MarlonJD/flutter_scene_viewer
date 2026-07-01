@@ -24,3 +24,21 @@ and WebView/BabylonJS fairly before any performance claims.
 ## Progress log
 
 - 2026-07-01: Plan created.
+- 2026-07-01: Assumption: README positioning can mention the Flutter
+  GPU/Impeller path exposed by `flutter_scene` and WebView-free architecture,
+  but must not claim raw performance superiority before the benchmark harness
+  exists. Added README positioning and `docs/WHY.md` to explain the difference
+  from WebView-based viewers, per-platform native wrappers, raw `flutter_scene`,
+  and full 3D engines.
+- 2026-07-01: Updated GitHub repository metadata with the same bounded
+  positioning; replaced generic `pbr` topic with `flutter-gpu` because GitHub
+  allows at most 20 topics.
+- 2026-07-01: Removed agent-facing README language and replaced it with
+  professional public-facing development status and development commands.
+- 2026-07-01: Removed root starter-pack artifacts `MANIFEST.md` and
+  `SHA256SUMS.txt`.
+- 2026-07-01: Removed root agent-specific instruction files and updated repo
+  lint/tooling docs so `AGENTS.md` is the single root agent-facing entry point.
+- 2026-07-01: Kept `docs/project-plan-v2/` as v2 planning source material and
+  documented that selected v2 work must be promoted into
+  `docs/exec-plans/active/` before implementation.

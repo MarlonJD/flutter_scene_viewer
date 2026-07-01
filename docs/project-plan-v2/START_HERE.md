@@ -2,6 +2,16 @@
 
 Tarih: 23 Haziran 2026
 
+## Current repository status
+
+This directory is kept as a v2 planning source pack. It is not the active
+execution plan set for the repository.
+
+Before implementing anything from this pack, move the relevant milestone or
+task into a small, verifiable exec plan under `docs/exec-plans/active/`. The
+active exec plan then becomes the source of truth for implementation,
+verification, and progress logging.
+
 Bu paket, `flutter_scene` üzerinde kurulacak yüksek seviyeli ve WebView kullanmayan bir Flutter GLB viewer/configurator paketinin uygulanması için hazırlanmıştır.
 
 ## Tek cümlelik ürün tanımı
@@ -74,20 +84,18 @@ Hariç:
 5. `docs/05_PUBLIC_API_SPEC.md`
 6. `docs/10_IMPLEMENTATION_ROADMAP.md`
 7. `planning/task_graph.yaml`
-8. `prompts/MASTER_PROMPT.txt`
+## Bu paket nasıl kullanılmalı?
 
-## Ajanı başlatma
+Bu klasördeki dokümanlar doğrudan uygulanacak aktif görev listesi değildir.
+V2 kapsamından iş alınacağı zaman:
 
-Yeni bir repo oluştur:
+1. İlgili milestone veya task seçilir.
+2. Kapsam daraltılarak `docs/exec-plans/active/` altında küçük bir exec plan
+   haline getirilir.
+3. Varsayımlar, kabul kriterleri ve doğrulama komutları o aktif plana yazılır.
+4. Uygulama sırasında root `AGENTS.md` ve aktif exec plan izlenir.
 
-```bash
-flutter create --template=package flutter_scene_viewer
-cd flutter_scene_viewer
-```
-
-Bu paketin içeriğini repo köküne kopyala. Daha sonra Codex veya Claude Code'a `prompts/MASTER_PROMPT.txt` içeriğini ver.
-
-Ajan ilk olarak yalnızca şunları yapmalıdır:
+İlk v2 dilimi için özellikle şunlar doğrulanmalıdır:
 
 1. Uyumlu Flutter SDK revision'ını sabitlemek.
 2. Uyumlu `flutter_scene` sürümü/commit'ini sabitlemek.

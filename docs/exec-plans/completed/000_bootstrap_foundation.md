@@ -33,7 +33,7 @@ Make the starter repository mechanically healthy and ready for feature work.
 
 ## Progress log
 
-- 2026-07-01: Plan created in starter repo.
+- 2026-07-01: Plan created for initial repository setup.
 - 2026-07-01: Assumption: license selection is repository metadata work under
   the bootstrap foundation plan, not product behavior. Replaced the MIT license
   with MPL-2.0 and added a README license summary explaining commercial use and
@@ -52,8 +52,8 @@ Make the starter repository mechanically healthy and ready for feature work.
   package export, removed an unnecessary library name, removed a redundant
   `meta` import, and used `nodePath.isNotEmpty` in the assert.
 - 2026-07-01: User-requested repo surface cleanup: moved repo verification
-  scripts from top-level `harness/` to `tools/`, removed the redundant top-level
-  `prompts/` folder, renamed `docs/HARNESS_ENGINEERING.md` to
+  scripts from top-level `harness/` to `tools`, removed redundant generated
+  instruction files, renamed `docs/HARNESS_ENGINEERING.md` to
   `docs/REPO_TOOLING.md`, and updated current docs to point at
   `bash tools/run_checks.sh`.
 - 2026-07-01: Added a documentation rule to keep `README.md` lean and link to

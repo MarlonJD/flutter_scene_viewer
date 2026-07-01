@@ -1,5 +1,10 @@
 # AGENTS.md — Kalıcı Coding Agent Kuralları
 
+This file is preserved as part of the v2 planning source pack. It is not the
+canonical agent instruction file for the repository. The root `AGENTS.md`
+remains authoritative; any v2 work should first be promoted into
+`docs/exec-plans/active/`.
+
 ## Öncelik sırası
 
 1. Çalışan ve ölçülebilir küçük dilim.

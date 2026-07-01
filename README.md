@@ -1,10 +1,10 @@
 # flutter_scene_viewer
 
-A Flutter-native, WebView-free GLB viewer/configurator SDK built on top of
-[`flutter_scene`](https://pub.dev/packages/flutter_scene).
+Flutter-native GLB product viewing and configuration.
 
-This package is **not** a new 3D engine. It is a high-level viewer layer that
-turns `flutter_scene` into a production-oriented widget and controller API for:
+`flutter_scene_viewer` is a WebView-free viewer/configurator SDK built on top of
+[`flutter_scene`](https://pub.dev/packages/flutter_scene). It turns
+`flutter_scene` into a production-oriented Flutter widget and controller API for:
 
 - runtime GLB loading from network, assets, or bytes;
 - assembly/sub-assembly/part hierarchy preservation;
@@ -13,6 +13,40 @@ turns `flutter_scene` into a production-oriented widget and controller API for:
 - original material reset and serializable override state;
 - orbit/pan/zoom, auto camera fit, picking, visibility, and diagnostics;
 - viewer-controlled studio lighting and adaptive/on-demand rendering.
+
+Through `flutter_scene`, the package is designed around Flutter's own
+GPU-backed rendering path: Flutter GPU / Impeller on native platforms and
+WebGL2 on web. The goal is a Flutter-first product viewer, not a WebView-hosted
+JavaScript configurator or a separate per-platform native viewer.
+
+## Why This Exists
+
+Flutter already has ways to display 3D content, but product viewers need more
+than "draw this model." A configurator needs loading state, camera fitting,
+stable part selection, material and texture overrides, reset behavior,
+serialized state, diagnostics, and a render policy that can stop work while the
+scene is idle.
+
+`flutter_scene` provides the lower-level scene graph, material, rendering, GLB
+import, raycast, and Flutter GPU/Impeller integration. `flutter_scene_viewer`
+exists to package those capabilities into a higher-level SDK for static GLB
+product, medical, and industrial models. The full rationale is in
+[docs/WHY.md](docs/WHY.md).
+
+## What Makes It Different
+
+- It is Flutter-native and WebView-free.
+- It builds on one `flutter_scene` scene/material model instead of splitting the
+  viewer across Android Filament, iOS SceneKit, and a web-only JavaScript stack.
+- It preserves assembly/sub-assembly/part hierarchy instead of flattening a GLB
+  into anonymous meshes.
+- It uses stable `nodePath` + `primitiveIndex` part addresses for picking,
+  visibility, and material overrides.
+- It reports capability diagnostics when a material or texture requirement is
+  unsupported instead of faking support.
+- It treats performance as an architecture goal: direct Flutter rendering
+  integration, adaptive/on-demand frames, and caches first; raw "faster than X"
+  claims only after benchmark evidence.
 
 ## MVP scope
 
@@ -37,23 +71,22 @@ Explicit non-goals for v1:
 - imported glTF lights/cameras/full authored scene playback;
 - advanced shader techniques like subsurface scattering, parallax, and displacement.
 
-## Current status
+## Product Boundary
 
-This repository is a **Codex-ready starter skeleton**. The public API, tooling,
-plans, and guardrails are in place. The actual `flutter_scene` adapter is a
-stub and should be implemented by following `docs/exec-plans/active/`.
+This package is **not** a new 3D engine. It adapts `flutter_scene` into a stable
+public Flutter API for app developers. It does not tessellate CAD files, unwrap
+UVs, invent missing texture coordinates, implement custom PBR rendering, or
+claim performance superiority over Filament, `interactive_3d`, BabylonJS, or
+other viewers without benchmark evidence.
 
-## Start for Codex
+## Development Status
 
-Give Codex this prompt:
+`flutter_scene_viewer` is in early development. The public API shape,
+documentation, tooling, and validation checks are in place; the
+`flutter_scene` adapter is still being implemented. Treat the package as
+pre-release until the runtime adapter and benchmark reports are complete.
 
-```text
-Read AGENTS.md, CODEX.md, docs/PROJECT_CHARTER.md, docs/ARCHITECTURE.md, and
-then execute docs/exec-plans/active/000_bootstrap_foundation.md. Make the
-smallest verifiable changes, run tools/run_checks.sh, and update the plan log.
-```
-
-## Human quick start
+## Development
 
 ```sh
 flutter pub get
@@ -62,6 +95,15 @@ bash tools/run_checks.sh
 
 `flutter_scene` currently depends on Flutter GPU/Impeller preview capabilities;
 use the Flutter channel/version required by `flutter_scene`.
+
+## Project Docs
+
+- [Why this package exists](docs/WHY.md)
+- [Project charter](docs/PROJECT_CHARTER.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Public API](docs/PUBLIC_API.md)
+- [Runtime GLB pipeline](docs/RUNTIME_GLB_PIPELINE.md)
+- [Materials and lighting](docs/MATERIALS_AND_LIGHTING.md)
 
 ## License
 

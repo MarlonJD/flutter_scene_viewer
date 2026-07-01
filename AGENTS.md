@@ -1,7 +1,7 @@
 # AGENTS.md
 
 This file is a map, not an encyclopedia. Keep it short. Use the linked docs for
-details. The repository is optimized for Codex-style agent work: small plans,
+details. The repository is optimized for agent-assisted work: small plans,
 mechanical checks, and evidence-driven implementation.
 
 ## Start here
@@ -12,6 +12,10 @@ mechanical checks, and evidence-driven implementation.
 4. Implement the smallest verifiable slice.
 5. Run `bash tools/run_checks.sh`.
 6. Update the plan's progress log before stopping.
+
+`docs/project-plan-v2/` is preserved planning source material, not an active
+execution plan. Promote any v2 work into `docs/exec-plans/active/` before
+implementing it.
 
 ## Project intent
 
@@ -74,4 +78,5 @@ Flutter toolchain in the active plan log.
 - Runtime GLB: `docs/RUNTIME_GLB_PIPELINE.md`
 - Materials: `docs/MATERIALS_AND_LIGHTING.md`
 - Quality: `docs/QUALITY_SCORE.md`
+- V2 planning source: `docs/project-plan-v2/README.md`
 - Plans: `docs/exec-plans/active/`

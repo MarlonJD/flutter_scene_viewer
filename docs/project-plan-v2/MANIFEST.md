@@ -3,7 +3,11 @@
 Project pack version: 2
 Generated: 2026-06-23
 
+Status: preserved planning source material. Before implementation, promote the
+relevant slice into `docs/exec-plans/active/`.
+
 Files:
+- `README.md`
 - `AGENTS.md`
 - `CHANGELOG_FROM_V1.md`
 - `START_HERE.md`
