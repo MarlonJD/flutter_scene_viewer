@@ -1,0 +1,14 @@
+import 'package:flutter_scene_viewer/flutter_scene_viewer.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+void main() {
+  test('PartAddress JSON round-trips', () {
+    final address = PartAddress(
+      nodePath: <String>['Vehicle', 'DoorAssembly', 'DoorLeft'],
+      primitiveIndex: 2,
+    );
+
+    expect(PartAddress.fromJson(address.toJson()), address);
+    expect(address.debugPath, 'Vehicle/DoorAssembly/DoorLeft#2');
+  });
+}

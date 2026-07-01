@@ -1,0 +1,32 @@
+name: flutter_scene_viewer
+description: High-level Flutter-native GLB viewer/configurator SDK built on flutter_scene.
+version: 0.1.0-alpha.0
+homepage: https://github.com/your-org/flutter_scene_viewer
+repository: https://github.com/your-org/flutter_scene_viewer
+issue_tracker: https://github.com/your-org/flutter_scene_viewer/issues
+
+publish_to: none
+
+environment:
+  sdk: ">=3.6.0 <4.0.0"
+  flutter: ">=3.24.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_scene: ^0.18.1
+  http: ^1.2.2
+  meta: ^1.15.0
+  vector_math: ^2.1.4
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  lints: ^5.0.0
+
+topics:
+  - glb
+  - gltf
+  - viewer
+  - flutter-scene
+  - pbr

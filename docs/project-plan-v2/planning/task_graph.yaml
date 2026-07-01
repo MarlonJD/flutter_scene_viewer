@@ -1,0 +1,225 @@
+project: flutter_scene_viewer
+pack_version: 2
+product_scope: static_glb_viewer_configurator
+principles:
+  - build_on_flutter_scene_not_raw_flutter_gpu
+  - no_engine_or_shader_rewrite
+  - glb_is_already_tessellated
+  - preserve_transform_only_assembly_nodes
+  - stable_part_address_is_node_index_path_plus_primitive
+  - viewer_controlled_lighting_in_v1
+  - material_mutation_is_copy_on_write
+  - gpu_objects_are_not_persisted
+  - adaptive_rendering_is_default
+  - performance_claims_require_benchmarks
+
+milestones:
+  - id: M0
+    name: toolchain_and_feasibility_spike
+    tasks:
+      - id: T001
+        title: pin_exact_flutter_and_flutter_scene_revisions
+        depends_on: []
+      - id: T002
+        title: audit_upstream_runtime_import_material_raycast_and_sceneview_apis
+        depends_on: [T001]
+      - id: T003
+        title: network_glb_visible_on_android_real_device
+        depends_on: [T002]
+      - id: T004
+        title: network_glb_visible_on_second_platform
+        depends_on: [T003]
+      - id: T005
+        title: runtime_roughness_and_base_texture_mutation_spike
+        depends_on: [T003]
+      - id: T006
+        title: hierarchy_raycast_and_request_frame_spike
+        depends_on: [T003]
+    gate:
+      - no_full_architecture_before_spikes_pass
+      - blockers_reported_without_engine_rewrite
+
+  - id: M1
+    name: loader_and_session
+    tasks:
+      - id: T101
+        title: package_skeleton_and_exports
+        depends_on: [T005, T006]
+      - id: T102
+        title: model_source_and_fingerprint
+        depends_on: [T101]
+      - id: T103
+        title: typed_load_state_progress_and_errors
+        depends_on: [T101]
+      - id: T104
+        title: streaming_network_loader
+        depends_on: [T102, T103]
+      - id: T105
+        title: glb_header_and_size_validation
+        depends_on: [T104]
+      - id: T106
+        title: viewer_session_generation_cancellation_and_dispose
+        depends_on: [T104]
+
+  - id: M2
+    name: scene_adapter_assembly_and_lighting
+    tasks:
+      - id: T201
+        title: narrow_flutter_scene_adapter
+        depends_on: [T106]
+      - id: T202
+        title: viewer_controlled_studio_lighting
+        depends_on: [T201]
+      - id: T203
+        title: deterministic_node_and_part_registry
+        depends_on: [T201]
+      - id: T204
+        title: transform_only_assembly_nodes
+        depends_on: [T203]
+      - id: T205
+        title: duplicate_names_and_multiple_primitives
+        depends_on: [T203]
+      - id: T206
+        title: shared_material_usage_map
+        depends_on: [T203]
+      - id: T207
+        title: baseline_model_diagnostics
+        depends_on: [T203]
+
+  - id: M3
+    name: camera_picking_and_visibility
+    tasks:
+      - id: T301
+        title: combined_bounds_camera_fit
+        depends_on: [T201]
+      - id: T302
+        title: orbit_pan_zoom
+        depends_on: [T301]
+      - id: T303
+        title: explicit_root_transform
+        depends_on: [T201]
+      - id: T304
+        title: raycast_to_part_hit
+        depends_on: [T203, T302]
+      - id: T305
+        title: part_and_assembly_visibility
+        depends_on: [T203]
+      - id: T306
+        title: focus_part_or_assembly
+        depends_on: [T301, T305]
+
+  - id: M4
+    name: material_overrides
+    tasks:
+      - id: T401
+        title: pbr_capability_inspection
+        depends_on: [T203]
+      - id: T402
+        title: immutable_original_material_snapshot
+        depends_on: [T401]
+      - id: T403
+        title: shared_material_copy_on_write
+        depends_on: [T402, T206]
+      - id: T404
+        title: partial_scalar_patch_merge
+        depends_on: [T403]
+      - id: T405
+        title: reset_part_and_reset_all
+        depends_on: [T404]
+      - id: T406
+        title: shared_material_regression_fixture
+        depends_on: [T403]
+
+  - id: M5
+    name: runtime_textures_and_diagnostics
+    tasks:
+      - id: T501
+        title: texture_source_and_slot_semantics
+        depends_on: [T404]
+      - id: T502
+        title: bounded_decode_and_upstream_gpu_upload_adapter
+        depends_on: [T501]
+      - id: T503
+        title: missing_uv_typed_behavior
+        depends_on: [T502, T207]
+      - id: T504
+        title: texture_cache_coalescing_refcount_and_lru
+        depends_on: [T502]
+      - id: T505
+        title: last_write_wins_texture_operations
+        depends_on: [T502]
+      - id: T506
+        title: texture_clear_reset_and_failure_rollback
+        depends_on: [T504, T505]
+      - id: T507
+        title: optional_pbr_texture_slot_capability_probe
+        depends_on: [T502]
+
+  - id: M6
+    name: adaptive_rendering
+    tasks:
+      - id: T601
+        title: render_reason_state_machine
+        depends_on: [T302]
+      - id: T602
+        title: one_shot_request_frame
+        depends_on: [T601]
+      - id: T603
+        title: gesture_and_inertia_scheduler
+        depends_on: [T601]
+      - id: T604
+        title: app_lifecycle_and_idle_frame_tests
+        depends_on: [T602, T603]
+
+  - id: M7
+    name: persistence_and_model_cache
+    tasks:
+      - id: T701
+        title: viewer_state_schema_v1
+        depends_on: [T405, T506]
+      - id: T702
+        title: state_apply_report
+        depends_on: [T701]
+      - id: T703
+        title: disk_model_cache_with_http_validators
+        depends_on: [T104]
+      - id: T704
+        title: route_reopen_example
+        depends_on: [T702, T703]
+
+  - id: M8
+    name: hardening_benchmark_and_alpha
+    tasks:
+      - id: T801
+        title: malformed_and_oversized_model_tests
+        depends_on: [T105, T207]
+      - id: T802
+        title: resource_lifecycle_stress_tests
+        depends_on: [T504, T704]
+      - id: T803
+        title: visual_regression_and_dcc_orientation_fixtures
+        depends_on: [T202, T303, T401]
+      - id: T804
+        title: benchmark_harness
+        depends_on: [T604, T704]
+      - id: T805
+        title: fair_comparison_with_interactive3d_and_babylonjs
+        depends_on: [T804]
+      - id: T806
+        title: alpha_docs_capability_matrix_and_authoring_guide
+        depends_on: [T801, T802, T803, T805]
+
+post_mvp_backlog:
+  - rigid_node_animation
+  - multi_file_gltf
+  - embedded_cameras_and_khr_lights_punctual
+  - draco_meshopt_ktx2
+  - skeletal_animation_if_demanded
+  - opt_in_custom_material_resolvers
+
+not_planned_core:
+  - morph_targets
+  - vr_ar
+  - physics
+  - cad_tessellation
+  - parallax_displacement_engine
