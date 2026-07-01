@@ -28,6 +28,21 @@ buttons, panels, gestures, state, theming, and diagnostics already live in Dart.
 web it follows the `flutter_scene` WebGL2 backend. The point is not "JavaScript
 is bad"; the point is one Flutter-first SDK surface.
 
+### Compared with babylonjs_viewer
+
+[`babylonjs_viewer`](https://pub.dev/packages/babylonjs_viewer) is a simple
+Flutter wrapper around BabylonJS Viewer. It is useful when an app wants the
+BabylonJS viewer surface and is comfortable controlling behavior through a
+WebView and JavaScript bridge.
+
+`flutter_scene_viewer` is aimed at a different integration model. It avoids a
+WebView-first surface, keeps viewer state and controller behavior in Dart, and
+uses the `flutter_scene` scene/material model instead of asking the application
+to coordinate Flutter UI state with JavaScript viewer state. The intended
+product surface is not only "show this GLB URL"; it includes stable part
+addresses, material override state, reset behavior, diagnostics, cache policy,
+and adaptive rendering as Flutter package APIs.
+
 ### Compared with per-platform native viewers
 
 Native 3D stacks can be powerful, but a Flutter package that wraps different
@@ -38,6 +53,24 @@ to account for platform-specific differences.
 `flutter_scene_viewer` aims for one Dart API across Android, iOS, and web, with
 one `flutter_scene` scene/material model and explicit diagnostics when a feature
 is unavailable.
+
+### Compared with interactive_3d
+
+[`interactive_3d`](https://pub.dev/packages/interactive_3d) is a capable
+Flutter plugin for interactive `.glb` and `.gltf` viewing. Its published package
+metadata describes a native split: Filament on Android and SceneKit plus
+GLTFSceneKit on iOS. Its feature set includes part selection, visibility,
+runtime PBR overrides, runtime base-color texture uploads, IBL, and adaptive
+frame pacing.
+
+`flutter_scene_viewer` should not position itself as "faster than
+interactive_3d" without benchmark evidence. The intended difference is the
+architecture and product contract: one `flutter_scene` scene/material model
+across supported platforms, Flutter GPU / Impeller integration through
+`flutter_scene` on native platforms, WebGL2 through `flutter_scene` on web,
+assembly-aware `nodePath` + `primitiveIndex` addressing, serializable
+configurator state, and capability diagnostics when an authored model or runtime
+feature cannot support a requested override.
 
 ### Compared with raw flutter_scene
 

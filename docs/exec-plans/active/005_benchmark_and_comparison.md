@@ -42,3 +42,6 @@ and WebView/BabylonJS fairly before any performance claims.
 - 2026-07-01: Kept `docs/project-plan-v2/` as v2 planning source material and
   documented that selected v2 work must be promoted into
   `docs/exec-plans/active/` before implementation.
+- 2026-07-01: Added explicit `docs/WHY.md` comparisons against
+  `interactive_3d` and `babylonjs_viewer` based on current pub.dev package
+  descriptions, while preserving the no-benchmark/no-superiority-claim boundary.
