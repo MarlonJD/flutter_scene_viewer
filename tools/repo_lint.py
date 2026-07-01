@@ -22,7 +22,7 @@ for path in [
     'CODEX.md',
     'docs/PROJECT_CHARTER.md',
     'docs/ARCHITECTURE.md',
-    'docs/HARNESS_ENGINEERING.md',
+    'docs/REPO_TOOLING.md',
     'docs/exec-plans/active',
     'docs/exec-plans/completed',
     'docs/exec-plans/templates/EXEC_PLAN_TEMPLATE.md',

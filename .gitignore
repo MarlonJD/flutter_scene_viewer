@@ -19,5 +19,5 @@ pubspec.lock
 *.iml
 .vscode/
 
-# Harness output
-harness/out/
+# Tool output
+tools/out/

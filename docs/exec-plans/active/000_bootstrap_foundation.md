@@ -22,8 +22,8 @@ Make the starter repository mechanically healthy and ready for feature work.
    Verify: `dart format --set-exit-if-changed .` passes.
 3. Change: run analyzer/tests and fix skeleton-level issues.
    Verify: `flutter analyze` and `flutter test` pass or toolchain limitation is logged.
-4. Change: run repo harness.
-   Verify: `bash harness/run_checks.sh` completes or logs missing Flutter.
+4. Change: run repo tooling checks.
+   Verify: `bash tools/run_checks.sh` completes or logs missing Flutter.
 
 ## Acceptance criteria
 
@@ -39,7 +39,7 @@ Make the starter repository mechanically healthy and ready for feature work.
   with MPL-2.0 and added a README license summary explaining commercial use and
   source-file copyleft expectations.
 - 2026-07-01: Added a Flutter/Dart package `.gitignore` before the initial
-  commit so generated local state (`.dart_tool/`, `build/`, `harness/out/`,
+  commit so generated local state (`.dart_tool/`, `build/`, `tools/out/`,
   `.DS_Store`, and root `pubspec.lock`) stays out of source control.
 - 2026-07-01: Executed only
   `docs/exec-plans/active/000_bootstrap_foundation.md`. Assumptions/constraints:
@@ -51,6 +51,11 @@ Make the starter repository mechanically healthy and ready for feature work.
   to use non-const construction, hid internal `ViewerCommandSink` from the
   package export, removed an unnecessary library name, removed a redundant
   `meta` import, and used `nodePath.isNotEmpty` in the assert.
+- 2026-07-01: User-requested repo surface cleanup: moved repo verification
+  scripts from top-level `harness/` to `tools/`, removed the redundant top-level
+  `prompts/` folder, renamed `docs/HARNESS_ENGINEERING.md` to
+  `docs/REPO_TOOLING.md`, and updated current docs to point at
+  `bash tools/run_checks.sh`.
 
 ## Verification log
 
@@ -103,3 +108,10 @@ Make the starter repository mechanically healthy and ready for feature work.
   test` formatted 14 files, 0 changed; `flutter pub get` got dependencies and
   reported the same 5 constrained newer packages; `flutter analyze` found no
   issues; `flutter test` passed 4 tests; harness printed `== done ==`.
+- 2026-07-01: After repo-surface cleanup, `python3 tools/repo_lint.py` exited
+  0 with `repo lint passed`.
+- 2026-07-01: After repo-surface cleanup, `bash tools/run_checks.sh` exited 0:
+  repo lint passed; `dart format --set-exit-if-changed lib test` formatted
+  14 files, 0 changed; `flutter pub get` got dependencies and reported the same
+  5 constrained newer packages; `flutter analyze` found no issues; `flutter
+  test` passed 4 tests; tooling script printed `== done ==`.

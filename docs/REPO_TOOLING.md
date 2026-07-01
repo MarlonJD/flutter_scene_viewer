@@ -1,4 +1,4 @@
-# Harness engineering for this repo
+# Repository tooling
 
 This repo follows an agent-first engineering style.
 
@@ -20,7 +20,7 @@ CODEX.md
 docs/
   PROJECT_CHARTER.md
   ARCHITECTURE.md
-  HARNESS_ENGINEERING.md
+  REPO_TOOLING.md
   design-docs/
   exec-plans/
     active/
@@ -29,7 +29,7 @@ docs/
   generated/
   product-specs/
   references/
-harness/
+tools/
   run_checks.sh
   repo_lint.py
   doc_garden.py
@@ -46,12 +46,12 @@ For each active plan:
 
 1. read plan;
 2. implement smallest slice;
-3. run harness;
+3. run tooling checks;
 4. update progress log;
 5. stop or continue with next verifiable slice.
 
 ## Entropy control
 
-`harness/repo_lint.py` guards basic structure. `harness/doc_garden.py` is a
+`tools/repo_lint.py` guards basic structure. `tools/doc_garden.py` is a
 lightweight scanner for stale TODOs, broad claims, and missing plan updates.
 More checks can be added as repeated mistakes appear.

@@ -35,12 +35,11 @@ Explicit non-goals for v1:
 - morph targets / blend shapes;
 - Draco/meshopt/KTX2 compression;
 - imported glTF lights/cameras/full authored scene playback;
-- parallax/displacement/subsurface/world-aligned textures;
-- VR-specific material features.
+- advanced shader techniques like subsurface scattering, parallax, and displacement.
 
 ## Current status
 
-This repository is a **Codex-ready starter skeleton**. The public API, harness,
+This repository is a **Codex-ready starter skeleton**. The public API, tooling,
 plans, and guardrails are in place. The actual `flutter_scene` adapter is a
 stub and should be implemented by following `docs/exec-plans/active/`.
 
@@ -51,14 +50,14 @@ Give Codex this prompt:
 ```text
 Read AGENTS.md, CODEX.md, docs/PROJECT_CHARTER.md, docs/ARCHITECTURE.md, and
 then execute docs/exec-plans/active/000_bootstrap_foundation.md. Make the
-smallest verifiable changes, run harness/run_checks.sh, and update the plan log.
+smallest verifiable changes, run tools/run_checks.sh, and update the plan log.
 ```
 
 ## Human quick start
 
 ```sh
 flutter pub get
-bash harness/run_checks.sh
+bash tools/run_checks.sh
 ```
 
 `flutter_scene` currently depends on Flutter GPU/Impeller preview capabilities;

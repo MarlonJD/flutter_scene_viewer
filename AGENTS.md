@@ -10,7 +10,7 @@ mechanical checks, and evidence-driven implementation.
 2. Read `docs/ARCHITECTURE.md`.
 3. Pick exactly one active plan from `docs/exec-plans/active/`.
 4. Implement the smallest verifiable slice.
-5. Run `bash harness/run_checks.sh`.
+5. Run `bash tools/run_checks.sh`.
 6. Update the plan's progress log before stopping.
 
 ## Project intent
@@ -53,8 +53,8 @@ Out of scope for v1:
 ## Verification commands
 
 ```sh
-bash harness/run_checks.sh
-python3 harness/repo_lint.py
+bash tools/run_checks.sh
+python3 tools/repo_lint.py
 ```
 
 When Flutter is unavailable, run the Python repo lints and record the missing
@@ -64,7 +64,7 @@ Flutter toolchain in the active plan log.
 
 - Product: `docs/PROJECT_CHARTER.md`
 - Architecture: `docs/ARCHITECTURE.md`
-- Harness: `docs/HARNESS_ENGINEERING.md`
+- Tooling: `docs/REPO_TOOLING.md`
 - Public API: `docs/PUBLIC_API.md`
 - Runtime GLB: `docs/RUNTIME_GLB_PIPELINE.md`
 - Materials: `docs/MATERIALS_AND_LIGHTING.md`

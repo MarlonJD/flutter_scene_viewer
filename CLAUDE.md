@@ -61,10 +61,10 @@ For behavior changes:
 
 - write or update a test first when practical;
 - implement;
-- run `bash harness/run_checks.sh`;
+- run `bash tools/run_checks.sh`;
 - update the active plan log with results.
 
-## 5. Harness discipline
+## 5. Tooling discipline
 
 The repository is the source of truth. Put durable decisions in files, not in chat.
 
@@ -80,6 +80,6 @@ A change is done only when:
 
 - implementation is complete for the selected slice;
 - tests or lints cover the behavior;
-- harness checks were attempted;
+- tooling checks were attempted;
 - docs/plans were updated;
 - remaining limitations are explicitly logged.

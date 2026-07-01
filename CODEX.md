@@ -10,21 +10,21 @@ top of `flutter_scene`.
 ```text
 Read AGENTS.md, CLAUDE.md, docs/PROJECT_CHARTER.md, docs/ARCHITECTURE.md, and
 then execute docs/exec-plans/active/000_bootstrap_foundation.md. Make the
-smallest verifiable changes. Run bash harness/run_checks.sh. Update the plan log.
+smallest verifiable changes. Run bash tools/run_checks.sh. Update the plan log.
 ```
 
 ## Local checks
 
 ```sh
-bash harness/run_checks.sh
+bash tools/run_checks.sh
 ```
 
-The harness is designed to keep the repo agent-readable:
+The tooling is designed to keep the repo agent-readable:
 
 - `dart format` verifies style;
 - `flutter analyze` verifies static correctness;
 - `flutter test` verifies behavior;
-- `python3 harness/repo_lint.py` verifies repository knowledge structure.
+- `python3 tools/repo_lint.py` verifies repository knowledge structure.
 
 ## PR loop
 

@@ -1,11 +1,11 @@
-# Harness
+# Tools
 
-This directory contains agent-runnable verification tools.
+This directory contains repo-local verification tools.
 
 ## Main command
 
 ```sh
-bash harness/run_checks.sh
+bash tools/run_checks.sh
 ```
 
 The script attempts:
