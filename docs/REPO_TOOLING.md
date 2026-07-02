@@ -19,6 +19,10 @@ docs/
   PROJECT_CHARTER.md
   ARCHITECTURE.md
   REPO_TOOLING.md
+  agent-harness/
+    README.md
+    output-contract.md
+    entropy-cleanup-checklist.md
   design-docs/
   exec-plans/
     active/
@@ -56,5 +60,9 @@ first.
 ## Entropy control
 
 `tools/repo_lint.py` guards basic structure. `tools/doc_garden.py` is a
-lightweight scanner for stale TODOs, broad claims, and missing plan updates.
+lightweight scanner for stale markers, broad claims, and missing plan updates.
 More checks can be added as repeated mistakes appear.
+
+`docs/agent-harness/` defines the evidence and cleanup contract. Keep executable
+orchestration in `.sh`, structured repository scanning in `.py`, and policy or
+output rules in Markdown until a rule is stable enough to enforce mechanically.

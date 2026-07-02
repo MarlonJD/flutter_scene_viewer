@@ -13,6 +13,8 @@ mechanical checks, and evidence-driven implementation.
 5. Run `bash tools/run_checks.sh`.
 6. Update the plan's progress log before stopping.
 
+Harness output and entropy rules live in `docs/agent-harness/`.
+
 `docs/project-plan-v2/` is preserved planning source material, not an active
 execution plan. Promote any v2 work into `docs/exec-plans/active/` before
 implementing it.
@@ -74,6 +76,7 @@ Flutter toolchain in the active plan log.
 - Product: `docs/PROJECT_CHARTER.md`
 - Architecture: `docs/ARCHITECTURE.md`
 - Tooling: `docs/REPO_TOOLING.md`
+- Agent harness: `docs/agent-harness/README.md`
 - Public API: `docs/PUBLIC_API.md`
 - Runtime GLB: `docs/RUNTIME_GLB_PIPELINE.md`
 - Materials: `docs/MATERIALS_AND_LIGHTING.md`
