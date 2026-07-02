@@ -174,6 +174,7 @@ final class MaterialSink implements ViewerCommandSink {
   final List<ViewerDiagnostic> materialDiagnostics;
   final List<MaterialCall> materialCalls = <MaterialCall>[];
   final List<PartAddress> resetCalls = <PartAddress>[];
+  int renderRequests = 0;
 
   @override
   Future<ModelLoadResult> load(ModelSource source) async {
@@ -182,6 +183,11 @@ final class MaterialSink implements ViewerCommandSink {
 
   @override
   Future<void> fitCamera() async {}
+
+  @override
+  void requestRenderFrame() {
+    renderRequests += 1;
+  }
 
   @override
   Future<List<ViewerDiagnostic>> resetPart(PartAddress address) async {

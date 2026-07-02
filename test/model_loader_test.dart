@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter_scene_viewer/src/diagnostics.dart';
 import 'package:flutter_scene_viewer/src/internal/flutter_scene_adapter.dart';
+import 'package:flutter_scene_viewer/src/internal/render_surface.dart';
 import 'package:flutter_scene_viewer/src/model_loader.dart';
 import 'package:flutter_scene_viewer/src/model_source.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -167,6 +168,9 @@ final class FakeFlutterSceneAdapter implements FlutterSceneAdapter {
 
   @override
   AdapterNodeSnapshot? get nodeSnapshot => null;
+
+  @override
+  AdapterRenderScene? get renderScene => null;
 
   @override
   Future<void> loadGlbBytes(Uint8List bytes, {String? debugName}) async {

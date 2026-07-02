@@ -110,8 +110,8 @@ class FlutterSceneViewerController extends ChangeNotifier {
       }
       return;
     }
-    final sinkDiagnostics =
-        await _requireSink().setPartMaterial(address, patch);
+    final sink = _requireSink();
+    final sinkDiagnostics = await sink.setPartMaterial(address, patch);
     if (sinkDiagnostics.isNotEmpty) {
       for (final diagnostic in sinkDiagnostics) {
         recordDiagnostic(diagnostic);
@@ -119,6 +119,7 @@ class FlutterSceneViewerController extends ChangeNotifier {
       return;
     }
     _materialOverrides.applyPatch(address, patch);
+    sink.requestRenderFrame();
     notifyListeners();
   }
 
@@ -126,7 +127,8 @@ class FlutterSceneViewerController extends ChangeNotifier {
       setPartMaterial(address, MaterialPatch(baseColorTexture: source));
 
   Future<void> resetPart(PartAddress address) async {
-    final diagnostics = await _requireSink().resetPart(address);
+    final sink = _requireSink();
+    final diagnostics = await sink.resetPart(address);
     if (diagnostics.isNotEmpty) {
       for (final diagnostic in diagnostics) {
         recordDiagnostic(diagnostic);
@@ -134,6 +136,7 @@ class FlutterSceneViewerController extends ChangeNotifier {
       return;
     }
     _materialOverrides.resetPart(address);
+    sink.requestRenderFrame();
     notifyListeners();
   }
 
@@ -148,7 +151,15 @@ class FlutterSceneViewerController extends ChangeNotifier {
   Future<void> setPartVisibility(PartAddress address, bool visible) =>
       setPartMaterial(address, MaterialPatch(visible: visible));
 
-  Future<void> fitCamera() => _requireSink().fitCamera();
+  /// Fits the viewer camera to the loaded model and requests a fresh frame.
+  ///
+  /// The public API intentionally stays independent of flutter_scene camera
+  /// classes. The widget owns the adapter-specific camera mapping.
+  Future<void> fitCamera() async {
+    final sink = _requireSink();
+    await sink.fitCamera();
+    sink.requestRenderFrame();
+  }
 
   void recordDiagnostic(ViewerDiagnostic diagnostic) {
     _diagnostics.add(diagnostic);
@@ -218,4 +229,5 @@ abstract interface class ViewerCommandSink {
   );
   Future<List<ViewerDiagnostic>> resetPart(PartAddress address);
   Future<void> fitCamera();
+  void requestRenderFrame();
 }

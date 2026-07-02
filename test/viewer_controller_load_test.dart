@@ -117,6 +117,9 @@ final class CompletingLoadSink implements ViewerCommandSink {
       const <ViewerDiagnostic>[];
 
   @override
+  void requestRenderFrame() {}
+
+  @override
   Future<List<ViewerDiagnostic>> setPartMaterial(address, patch) async =>
       const <ViewerDiagnostic>[];
 }

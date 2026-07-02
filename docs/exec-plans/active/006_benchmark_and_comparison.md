@@ -1,9 +1,21 @@
 # Exec plan: benchmark and comparison harness
 
+## Status
+
+Deferred / not ready until the viewer can render the loaded GLB on screen.
+
 ## Goal
 
 Create a benchmark harness to compare `flutter_scene_viewer`, `interactive_3d`,
 and WebView/BabylonJS fairly before any performance claims.
+
+## Why deferred
+
+Benchmarking before render surface integration would only measure a partial
+pipeline: GLB loading, load state transitions, and `ViewerLoadStatus.success`.
+That is not a viewer benchmark. This plan should resume after
+`005_render_surface_integration.md` proves that `FlutterSceneViewer` displays
+the loaded model.
 
 ## Steps
 
@@ -17,13 +29,14 @@ and WebView/BabylonJS fairly before any performance claims.
 
 ## Acceptance criteria
 
+- [ ] render surface integration is complete before benchmark collection starts;
 - [ ] no marketing claims without benchmark evidence;
 - [ ] metrics include P50/P95/P99, not just FPS;
 - [ ] output report template exists.
 
 ## Progress log
 
-- 2026-07-01: Plan created.
+- 2026-07-01: Plan created as 005.
 - 2026-07-01: Assumption: README positioning can mention the Flutter
   GPU/Impeller path exposed by `flutter_scene` and WebView-free architecture,
   but must not claim raw performance superiority before the benchmark harness
@@ -45,3 +58,6 @@ and WebView/BabylonJS fairly before any performance claims.
 - 2026-07-01: Added explicit `docs/WHY.md` comparisons against
   `interactive_3d` and `babylonjs_viewer` based on current pub.dev package
   descriptions, while preserving the no-benchmark/no-superiority-claim boundary.
+- 2026-07-02: Renumbered from 005 to 006 and marked deferred / not ready until
+  render surface integration is complete. Benchmark collection should measure a
+  visible viewer, not only a successful GLB load state.

@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:flutter/widgets.dart' show Key, Widget;
 import 'package:flutter_scene/scene.dart' as flutter_scene;
 import 'package:http/http.dart' as http;
 import 'package:vector_math/vector_math.dart' as vm;
@@ -8,6 +9,7 @@ import '../diagnostics.dart';
 import '../material_patch.dart';
 import '../part_address.dart';
 import '../texture_source.dart';
+import 'render_surface.dart';
 
 /// Internal boundary for direct `flutter_scene` API calls.
 ///
@@ -18,6 +20,8 @@ abstract interface class FlutterSceneAdapter {
   Future<void> loadGlbBytes(Uint8List bytes, {String? debugName});
 
   AdapterNodeSnapshot? get nodeSnapshot;
+
+  AdapterRenderScene? get renderScene;
 
   Future<List<ViewerDiagnostic>> applyMaterialPatch(
     PartAddress address,
@@ -32,10 +36,14 @@ abstract interface class FlutterSceneAdapter {
 /// Runtime adapter backed by the installed `flutter_scene` package.
 final class FlutterSceneRuntimeAdapter implements FlutterSceneAdapter {
   flutter_scene.Node? _rootNode;
+  AdapterRenderScene? _renderScene;
   final Map<PartAddress, _OriginalMaterialState> _originalMaterials =
       <PartAddress, _OriginalMaterialState>{};
 
   flutter_scene.Node? get rootNode => _rootNode;
+
+  @override
+  AdapterRenderScene? get renderScene => _renderScene;
 
   @override
   AdapterNodeSnapshot? get nodeSnapshot {
@@ -50,7 +58,11 @@ final class FlutterSceneRuntimeAdapter implements FlutterSceneAdapter {
   Future<void> loadGlbBytes(Uint8List bytes, {String? debugName}) async {
     await flutter_scene.loadBaseShaderLibrary();
     await flutter_scene.Material.initializeStaticResources();
-    _rootNode = await flutter_scene.Node.fromGlbBytes(bytes);
+    final rootNode = await flutter_scene.Node.fromGlbBytes(bytes);
+    await flutter_scene.Scene.initializeStaticResources();
+    final scene = flutter_scene.Scene()..root.add(rootNode);
+    _rootNode = rootNode;
+    _renderScene = _FlutterSceneRenderScene(scene);
     _originalMaterials.clear();
   }
 
@@ -288,6 +300,33 @@ final class FlutterSceneRuntimeAdapter implements FlutterSceneAdapter {
   }
 }
 
+final class _FlutterSceneRenderScene implements AdapterRenderScene {
+  const _FlutterSceneRenderScene(this.scene);
+
+  final flutter_scene.Scene scene;
+
+  @override
+  Widget buildView({
+    Key? key,
+    required RenderCameraFrame camera,
+    required bool autoTick,
+  }) {
+    return flutter_scene.SceneView(
+      scene,
+      key: key,
+      camera: flutter_scene.PerspectiveCamera(
+        position: _vector3(camera.position),
+        target: _vector3(camera.target),
+        up: _vector3(camera.up),
+        fovRadiansY: camera.verticalFovRadians,
+        fovNear: camera.near,
+        fovFar: camera.far,
+      ),
+      autoTick: autoTick,
+    );
+  }
+}
+
 /// Adapter-owned snapshot of the scene graph fields needed by PartRegistry.
 final class AdapterNodeSnapshot {
   AdapterNodeSnapshot({
@@ -408,6 +447,10 @@ vm.Vector4 _vector4(List<double> components) {
 
 vm.Vector4 _emissiveVector(List<double> components) {
   return vm.Vector4(components[0], components[1], components[2], 1);
+}
+
+vm.Vector3 _vector3(List<double> components) {
+  return vm.Vector3(components[0], components[1], components[2]);
 }
 
 final class FlutterSceneAdapterUnavailableException implements Exception {

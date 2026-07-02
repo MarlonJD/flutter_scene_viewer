@@ -37,6 +37,14 @@ as immutable `PartTree`, `PartNode`, and `PartRecord` values. Geometry-less
 nodes remain in the tree as assembly/dummy nodes, and renderable mesh primitives
 are addressed by `PartAddress(nodePath, primitiveIndex)`.
 
+## Camera fit
+
+`controller.fitCamera()` asks the attached viewer widget to frame the currently
+loaded model and then requests a fresh render frame. The method is intentionally
+adapter-backed: callers do not pass or receive concrete `flutter_scene` camera
+types. If model bounds are unavailable in the current adapter slice, the widget
+keeps the request on the viewer side and does not expose renderer internals.
+
 ## Stable addressing
 
 ```dart
