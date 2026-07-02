@@ -1,4 +1,5 @@
 export 'src/diagnostics.dart';
+export 'src/material_override_store.dart';
 export 'src/material_patch.dart';
 export 'src/model_source.dart';
 export 'src/part_address.dart';

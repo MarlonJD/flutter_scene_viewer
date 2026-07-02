@@ -113,12 +113,10 @@ final class CompletingLoadSink implements ViewerCommandSink {
   }
 
   @override
-  Future<void> resetPart(address) {
-    throw UnimplementedError();
-  }
+  Future<List<ViewerDiagnostic>> resetPart(address) async =>
+      const <ViewerDiagnostic>[];
 
   @override
-  Future<void> setPartMaterial(address, patch) {
-    throw UnimplementedError();
-  }
+  Future<List<ViewerDiagnostic>> setPartMaterial(address, patch) async =>
+      const <ViewerDiagnostic>[];
 }

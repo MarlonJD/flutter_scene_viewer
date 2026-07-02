@@ -85,30 +85,19 @@ class _FlutterSceneViewerState extends State<FlutterSceneViewer>
   Future<ModelLoadResult> load(ModelSource source) => _loader.load(source);
 
   @override
-  Future<void> setPartMaterial(PartAddress address, MaterialPatch patch) async {
-    // TODO: Implement material patch application via adapter.
-    _controller.recordDiagnostic(
-      ViewerDiagnostic(
-        code: ViewerDiagnosticCode.adapterUnavailable,
-        message: 'Material override adapter is not implemented yet.',
-        details: <String, Object?>{
-          'part': address.debugPath,
-          'empty': patch.isEmpty
-        },
-      ),
+  Future<List<ViewerDiagnostic>> setPartMaterial(
+    PartAddress address,
+    MaterialPatch patch,
+  ) {
+    return (_adapter ??= FlutterSceneRuntimeAdapter()).applyMaterialPatch(
+      address,
+      patch,
     );
   }
 
   @override
-  Future<void> resetPart(PartAddress address) async {
-    // TODO: Implement reset via MaterialOverrideStore.
-    _controller.recordDiagnostic(
-      ViewerDiagnostic(
-        code: ViewerDiagnosticCode.adapterUnavailable,
-        message: 'Material reset adapter is not implemented yet.',
-        details: <String, Object?>{'part': address.debugPath},
-      ),
-    );
+  Future<List<ViewerDiagnostic>> resetPart(PartAddress address) {
+    return (_adapter ??= FlutterSceneRuntimeAdapter()).resetMaterial(address);
   }
 
   @override

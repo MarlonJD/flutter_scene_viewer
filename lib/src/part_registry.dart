@@ -95,9 +95,14 @@ final class PartNode {
 
 /// A renderable mesh primitive address owned by a [PartNode].
 final class PartRecord {
-  const PartRecord({required this.address});
+  const PartRecord({
+    required this.address,
+    this.hasTexCoords = true,
+  });
 
   final PartAddress address;
+
+  final bool hasTexCoords;
 
   List<String> get nodePath => address.nodePath;
 
@@ -151,13 +156,17 @@ final class _PartRegistryBuilder {
 
     final nodeRecords = <PartRecord>[];
     for (var primitiveIndex = 0;
-        primitiveIndex < snapshot.primitiveCount;
+        primitiveIndex < snapshot.primitives.length;
         primitiveIndex += 1) {
+      final primitive = snapshot.primitives[primitiveIndex];
       final address = PartAddress(
         nodePath: nodePath,
         primitiveIndex: primitiveIndex,
       );
-      final record = PartRecord(address: address);
+      final record = PartRecord(
+        address: address,
+        hasTexCoords: primitive.hasTexCoords,
+      );
       nodeRecords.add(record);
       records.add(record);
       _addressCounts[address] = (_addressCounts[address] ?? 0) + 1;

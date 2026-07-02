@@ -23,6 +23,8 @@ await controller.setPartMaterial(address, patch);
 await controller.setPartTexture(address, textureSource);
 await controller.resetPart(address);
 await controller.setPartVisibility(address, false);
+final savedOverrides = controller.materialOverrides;
+await controller.applyMaterialOverrides(savedOverrides);
 await controller.fitCamera();
 ```
 
@@ -60,3 +62,10 @@ Core patch fields:
 - `visible`
 
 Unsupported fields must be rejected with diagnostics, not silently ignored.
+
+## Material override persistence
+
+`controller.materialOverrides` returns a serializable `MaterialOverrideSnapshot`
+of the current sparse override state. Persist `snapshot.toJson()` and restore it
+with `MaterialOverrideSnapshot.fromJson(json)` followed by
+`controller.applyMaterialOverrides(snapshot)` after loading the matching model.

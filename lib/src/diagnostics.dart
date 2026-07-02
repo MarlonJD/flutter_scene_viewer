@@ -4,6 +4,7 @@ enum ViewerDiagnosticCode {
   ambiguousNodePath,
   primitiveNotFound,
   unsupportedMaterialFeature,
+  invalidMaterialOverride,
   modelTooLarge,
   textureTooLarge,
   invalidModelUrl,

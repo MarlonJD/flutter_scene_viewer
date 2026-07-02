@@ -175,17 +175,15 @@ final class FakeFlutterSceneAdapter implements FlutterSceneAdapter {
   }
 
   @override
-  Future<void> applyMaterialPatch(address, patch) {
-    throw UnimplementedError();
-  }
+  Future<List<ViewerDiagnostic>> applyMaterialPatch(address, patch) async =>
+      const <ViewerDiagnostic>[];
 
   @override
   List<ViewerDiagnostic> collectDiagnostics() => const <ViewerDiagnostic>[];
 
   @override
-  Future<void> resetMaterial(address) {
-    throw UnimplementedError();
-  }
+  Future<List<ViewerDiagnostic>> resetMaterial(address) async =>
+      const <ViewerDiagnostic>[];
 }
 
 final class MemoryAssetBundle extends CachingAssetBundle {

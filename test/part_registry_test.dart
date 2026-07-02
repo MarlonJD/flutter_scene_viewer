@@ -91,4 +91,18 @@ void main() {
       hasLength(2),
     );
   });
+
+  test('PartRegistry carries primitive texture coordinate capability', () {
+    final registry = PartRegistry.fromSnapshot(
+      AdapterNodeSnapshot(
+        name: 'Root',
+        primitives: const <AdapterPrimitiveSnapshot>[
+          AdapterPrimitiveSnapshot(hasTexCoords: false),
+        ],
+      ),
+    );
+
+    final record = registry.tree.records.single;
+    expect(record.hasTexCoords, isFalse);
+  });
 }
