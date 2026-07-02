@@ -3,9 +3,12 @@ import 'package:flutter/foundation.dart';
 /// Stable address for a renderable material slot inside a GLB node hierarchy.
 @immutable
 final class PartAddress {
-  PartAddress({required this.nodePath, required this.primitiveIndex})
-      : assert(nodePath.isNotEmpty, 'nodePath must not be empty'),
-        assert(primitiveIndex >= 0, 'primitiveIndex must be non-negative');
+  PartAddress({
+    required List<String> nodePath,
+    required this.primitiveIndex,
+  })  : assert(nodePath.isNotEmpty, 'nodePath must not be empty'),
+        assert(primitiveIndex >= 0, 'primitiveIndex must be non-negative'),
+        nodePath = List<String>.unmodifiable(nodePath);
 
   /// Path of node names from model root to the node that owns the mesh.
   final List<String> nodePath;

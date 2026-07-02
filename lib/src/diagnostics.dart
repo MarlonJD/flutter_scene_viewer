@@ -6,8 +6,12 @@ enum ViewerDiagnosticCode {
   unsupportedMaterialFeature,
   modelTooLarge,
   textureTooLarge,
+  invalidModelUrl,
+  modelLoadTimeout,
   networkFailure,
+  assetLoadFailure,
   adapterUnavailable,
+  adapterFailure,
 }
 
 /// Diagnostic emitted when the viewer cannot satisfy a requested operation.

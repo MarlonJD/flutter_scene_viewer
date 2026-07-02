@@ -3,6 +3,13 @@ include: package:lints/recommended.yaml
 analyzer:
   exclude:
     - docs/project-plan-v2/**
+    - build/**
+    - android/**
+    - ios/**
+    - web/**
+    - windows/**
+    - macos/**
+    - linux/**
   errors:
     invalid_annotation_target: ignore
 

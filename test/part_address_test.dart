@@ -11,4 +11,14 @@ void main() {
     expect(PartAddress.fromJson(address.toJson()), address);
     expect(address.debugPath, 'Vehicle/DoorAssembly/DoorLeft#2');
   });
+
+  test('PartAddress keeps nodePath immutable', () {
+    final sourcePath = <String>['Vehicle', 'Wheel'];
+    final address = PartAddress(nodePath: sourcePath, primitiveIndex: 0);
+
+    sourcePath.add('Mutated');
+
+    expect(address.nodePath, <String>['Vehicle', 'Wheel']);
+    expect(() => address.nodePath.add('Mutated'), throwsUnsupportedError);
+  });
 }

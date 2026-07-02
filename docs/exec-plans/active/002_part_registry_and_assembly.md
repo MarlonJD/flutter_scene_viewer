@@ -23,11 +23,21 @@ sub-assembly, and part addresses.
 
 ## Acceptance criteria
 
-- [ ] geometrisiz dummy nodes are preserved;
-- [ ] `PartAddress(nodePath, primitiveIndex)` resolves correctly;
-- [ ] ambiguous paths emit diagnostics;
-- [ ] tests cover nested assembly/sub-assembly/part structures.
+- [x] geometry-less dummy nodes are preserved;
+- [x] `PartAddress(nodePath, primitiveIndex)` resolves correctly;
+- [x] ambiguous paths emit diagnostics;
+- [x] tests cover nested assembly/sub-assembly/part structures.
 
 ## Progress log
 
 - 2026-07-01: Plan created.
+- 2026-07-02: Implemented the smallest part registry slice: immutable
+  `PartTree`/`PartNode`/`PartRecord` values, adapter-provided
+  `AdapterNodeSnapshot`, snapshot traversal that preserves geometry-less
+  assembly/dummy nodes, primitive `PartAddress(nodePath, primitiveIndex)`
+  records, duplicate node-path diagnostics, and controller `partTree`
+  exposure. Verified targeted red/green tests with
+  `flutter test test/part_registry_test.dart test/viewer_controller_load_test.dart test/part_address_test.dart`.
+- 2026-07-02: Verified locally with `bash tools/run_checks.sh`: repo lint
+  passed, Dart format check passed, `flutter analyze` reported no issues, and
+  `flutter test` passed 17 tests with 1 expected GPU fixture skip.

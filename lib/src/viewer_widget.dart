@@ -1,7 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/widgets.dart';
 
 import 'diagnostics.dart';
+import 'internal/flutter_scene_adapter.dart';
 import 'material_patch.dart';
+import 'model_loader.dart';
 import 'model_source.dart';
 import 'part_address.dart';
 import 'render_policy.dart';
@@ -37,44 +41,48 @@ class FlutterSceneViewer extends StatefulWidget {
 class _FlutterSceneViewerState extends State<FlutterSceneViewer>
     implements ViewerCommandSink {
   FlutterSceneViewerController? _ownedController;
+  FlutterSceneViewerController? _attachedController;
+  FlutterSceneAdapter? _adapter;
+  ModelLoader? _modelLoader;
 
   FlutterSceneViewerController get _controller =>
       widget.controller ??
       (_ownedController ??= FlutterSceneViewerController());
 
+  ModelLoader get _loader => _modelLoader ??= ModelLoader(
+        adapter: _adapter ??= FlutterSceneRuntimeAdapter(),
+      );
+
   @override
   void initState() {
     super.initState();
-    _controller.attach(this);
+    _attachController(_controller);
+    _startLoad(widget.source);
   }
 
   @override
   void didUpdateWidget(covariant FlutterSceneViewer oldWidget) {
     super.didUpdateWidget(oldWidget);
-    final oldController = oldWidget.controller ?? _ownedController;
-    final newController = widget.controller ?? _ownedController;
-    if (!identical(oldController, newController)) {
-      oldController?.detach(this);
-      newController?.attach(this);
+    var shouldLoad = !identical(widget.source, oldWidget.source);
+    if (!identical(_attachedController, _controller)) {
+      _detachController();
+      _attachController(_controller);
+      shouldLoad = true;
+    }
+    if (shouldLoad) {
+      _startLoad(widget.source);
     }
   }
 
   @override
   void dispose() {
-    _controller.detach(this);
+    _detachController();
+    _modelLoader?.dispose();
     super.dispose();
   }
 
   @override
-  Future<void> load(ModelSource source) async {
-    // TODO: Implement via ModelLoader + FlutterSceneAdapter.
-    _controller.recordDiagnostic(
-      const ViewerDiagnostic(
-        code: ViewerDiagnosticCode.adapterUnavailable,
-        message: 'flutter_scene adapter is not implemented yet.',
-      ),
-    );
-  }
+  Future<ModelLoadResult> load(ModelSource source) => _loader.load(source);
 
   @override
   Future<void> setPartMaterial(PartAddress address, MaterialPatch patch) async {
@@ -110,7 +118,45 @@ class _FlutterSceneViewerState extends State<FlutterSceneViewer>
 
   @override
   Widget build(BuildContext context) {
-    return widget.loadingBuilder?.call(context) ??
-        const Center(child: Text('flutter_scene_viewer adapter pending'));
+    final loadState = _controller.loadState;
+    if (loadState.status == ViewerLoadStatus.error &&
+        loadState.diagnostic != null) {
+      return widget.errorBuilder?.call(context, loadState.diagnostic!) ??
+          Center(child: Text(loadState.diagnostic!.message));
+    }
+    if (loadState.status == ViewerLoadStatus.success) {
+      return const SizedBox.shrink();
+    }
+    return widget.loadingBuilder?.call(context) ?? const SizedBox.shrink();
+  }
+
+  void _attachController(FlutterSceneViewerController controller) {
+    _attachedController = controller;
+    controller.attach(this);
+    controller.addListener(_handleControllerChanged);
+  }
+
+  void _detachController() {
+    final controller = _attachedController;
+    if (controller == null) {
+      return;
+    }
+    controller.removeListener(_handleControllerChanged);
+    controller.detach(this);
+    _attachedController = null;
+  }
+
+  void _handleControllerChanged() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  void _startLoad(ModelSource source) {
+    scheduleMicrotask(() {
+      if (mounted) {
+        unawaited(_controller.load(source));
+      }
+    });
   }
 }
