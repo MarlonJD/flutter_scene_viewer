@@ -1,8 +1,9 @@
-# Exec plan: benchmark and comparison harness
+# Deferred plan: benchmark and comparison harness
 
 ## Status
 
-Deferred / not ready until the viewer can render the loaded GLB on screen.
+Deferred. Do not treat this as active execution work until the viewer has a
+credible static-model viewing baseline.
 
 ## Goal
 
@@ -11,13 +12,17 @@ and WebView/BabylonJS fairly before any performance claims.
 
 ## Why deferred
 
-Benchmarking before render surface integration would only measure a partial
-pipeline: GLB loading, load state transitions, and `ViewerLoadStatus.success`.
-That is not a viewer benchmark. This plan should resume after
-`005_render_surface_integration.md` proves that `FlutterSceneViewer` displays
-the loaded model.
+Benchmarking now would measure a partial and misleading product surface. The
+viewer can render a simple `Box.glb`, but it is not yet a credible viewer for
+real model inspection: camera fit still uses a unit-sphere fallback, material
+and lighting presentation is not validated with representative assets, and
+more complex static models have not been smoke-tested.
 
-## Steps
+This plan should resume only after the active viewer-baseline plan proves that
+`FlutterSceneViewer` can display representative static GLBs with usable camera
+fit, material visibility, and non-benchmark simulator evidence.
+
+## Future steps
 
 1. Change: define benchmark metrics and fixture requirements.
    Verify: docs reviewed.
@@ -27,16 +32,17 @@ the loaded model.
    frame time percentiles, and peak memory.
    Verify: benchmark report template filled for at least one local run.
 
-## Acceptance criteria
+## Acceptance criteria before reactivation
 
-- [ ] render surface integration is complete before benchmark collection starts;
-- [ ] no marketing claims without benchmark evidence;
-- [ ] metrics include P50/P95/P99, not just FPS;
-- [ ] output report template exists.
+- [ ] viewer has model-derived bounds and fit-camera behavior;
+- [ ] viewer-controlled lighting/material presentation is validated with at
+      least one representative static GLB beyond `Box.glb`;
+- [ ] active smoke evidence shows the viewer surface, not only load success;
+- [ ] no marketing claims are made without benchmark evidence.
 
 ## Progress log
 
-- 2026-07-01: Plan created as 005.
+- 2026-07-01: Plan created as active 005.
 - 2026-07-01: Assumption: README positioning can mention the Flutter
   GPU/Impeller path exposed by `flutter_scene` and WebView-free architecture,
   but must not claim raw performance superiority before the benchmark harness
@@ -59,5 +65,7 @@ the loaded model.
   `interactive_3d` and `babylonjs_viewer` based on current pub.dev package
   descriptions, while preserving the no-benchmark/no-superiority-claim boundary.
 - 2026-07-02: Renumbered from 005 to 006 and marked deferred / not ready until
-  render surface integration is complete. Benchmark collection should measure a
-  visible viewer, not only a successful GLB load state.
+  render surface integration is complete.
+- 2026-07-02: Moved out of `docs/exec-plans/active/` into
+  `docs/exec-plans/deferred/`. Current viewer evidence is still too thin for a
+  fair benchmark: it shows a simple box render, not a representative viewer.

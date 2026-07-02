@@ -151,6 +151,8 @@ void main() {
     expect(result.diagnostic, isNull);
     expect(result.isSuccess, isTrue);
     expect(adapter.rootNode, isNotNull);
+    expect(adapter.modelBounds, isNotNull);
+    expect(adapter.modelBounds!.radius, greaterThan(0));
   }, skip: _runFlutterSceneGpuTests ? false : _flutterSceneGpuSkipReason);
 }
 
@@ -171,6 +173,9 @@ final class FakeFlutterSceneAdapter implements FlutterSceneAdapter {
 
   @override
   AdapterRenderScene? get renderScene => null;
+
+  @override
+  AdapterModelBounds? get modelBounds => null;
 
   @override
   Future<void> loadGlbBytes(Uint8List bytes, {String? debugName}) async {

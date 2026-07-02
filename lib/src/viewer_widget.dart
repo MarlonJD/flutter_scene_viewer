@@ -137,7 +137,15 @@ class _FlutterSceneViewerState extends State<FlutterSceneViewer>
 
   @override
   Future<void> fitCamera() async {
-    _cameraController.fitBounds(const ViewerBounds(radius: 1));
+    final modelBounds = _activeAdapter.modelBounds;
+    _cameraController.fitBounds(
+      modelBounds == null
+          ? const ViewerBounds(radius: 1)
+          : ViewerBounds(
+              center: modelBounds.center,
+              radius: modelBounds.radius,
+            ),
+    );
   }
 
   @override

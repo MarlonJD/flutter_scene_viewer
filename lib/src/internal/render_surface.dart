@@ -21,6 +21,18 @@ final class RenderCameraFrame {
   final double far;
 }
 
+/// Adapter-neutral model bounds used for camera fitting.
+@internal
+final class AdapterModelBounds {
+  const AdapterModelBounds({
+    required this.center,
+    required this.radius,
+  });
+
+  final List<double> center;
+  final double radius;
+}
+
 /// Opaque adapter-owned render surface for a loaded scene.
 @internal
 abstract interface class AdapterRenderScene {

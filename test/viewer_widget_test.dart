@@ -133,6 +133,10 @@ void main() {
     final adapter = FakeViewerAdapter(
       snapshot: AdapterNodeSnapshot(name: 'Root', primitiveCount: 1),
       renderScene: renderScene,
+      modelBounds: const AdapterModelBounds(
+        center: <double>[10, 20, 30],
+        radius: 3,
+      ),
     );
 
     await tester.pumpWidget(
@@ -157,20 +161,33 @@ void main() {
     expect(initialPosition[1], closeTo(2, 1e-9));
     expect(initialPosition[2], closeTo(2.4494897427831783, 1e-9));
     expect(
-        renderScene.cameras.last.position[0], closeTo(1.224744871391589, 1e-9));
-    expect(renderScene.cameras.last.position[1], closeTo(1, 1e-9));
-    expect(renderScene.cameras.last.position[2],
-        closeTo(1.2247448713915892, 1e-9));
+      renderScene.cameras.last.target,
+      <double>[10, 20, 30],
+    );
+    expect(
+      renderScene.cameras.last.position[0],
+      closeTo(13.674234614174767, 1e-9),
+    );
+    expect(renderScene.cameras.last.position[1], closeTo(23, 1e-9));
+    expect(
+        renderScene.cameras.last.position[2], closeTo(33.67423461417477, 1e-9));
   });
 }
 
 final class FakeViewerAdapter implements FlutterSceneAdapter {
-  FakeViewerAdapter({this.snapshot, this.loadFailure, this.renderScene});
+  FakeViewerAdapter({
+    this.snapshot,
+    this.loadFailure,
+    this.renderScene,
+    this.modelBounds,
+  });
 
   final AdapterNodeSnapshot? snapshot;
   final ViewerDiagnostic? loadFailure;
   @override
   final AdapterRenderScene? renderScene;
+  @override
+  final AdapterModelBounds? modelBounds;
   final List<PartAddress> materialCalls = <PartAddress>[];
 
   @override

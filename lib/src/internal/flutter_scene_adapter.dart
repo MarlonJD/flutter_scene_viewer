@@ -23,6 +23,8 @@ abstract interface class FlutterSceneAdapter {
 
   AdapterRenderScene? get renderScene;
 
+  AdapterModelBounds? get modelBounds;
+
   Future<List<ViewerDiagnostic>> applyMaterialPatch(
     PartAddress address,
     MaterialPatch patch,
@@ -44,6 +46,23 @@ final class FlutterSceneRuntimeAdapter implements FlutterSceneAdapter {
 
   @override
   AdapterRenderScene? get renderScene => _renderScene;
+
+  @override
+  AdapterModelBounds? get modelBounds {
+    final rootNode = _rootNode;
+    final localBounds = rootNode?.combinedLocalBounds;
+    if (rootNode == null || localBounds == null) {
+      return null;
+    }
+    final bounds = vm.Aabb3.copy(localBounds)
+      ..transform(rootNode.localTransform);
+    final center = bounds.center;
+    final radius = (bounds.max - center).length;
+    return AdapterModelBounds(
+      center: <double>[center.x, center.y, center.z],
+      radius: radius,
+    );
+  }
 
   @override
   AdapterNodeSnapshot? get nodeSnapshot {
