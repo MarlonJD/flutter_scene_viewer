@@ -78,6 +78,8 @@ Then the callback returns a stable PartAddress
   tap slop gestures as pick candidates and cancels picking for orbit/drag,
   multitouch, scroll, and pan-zoom. Public/runtime docs were updated to label
   this as static render-geometry picking, not physics or selection UI.
+- 2026-07-03: Acceptance criteria and verification are complete; archived this
+  completed plan with the other finished v1 active plans.
 
 ## Verification log
 
@@ -94,3 +96,10 @@ Then the callback returns a stable PartAddress
   repo lint passed; dart format check formatted 39 files with 0 changed;
   `flutter pub get` succeeded; `flutter analyze` reported no issues;
   `flutter test` passed 105 tests with 3 existing GPU-gated skips.
+- 2026-07-03: Archive audit confirmed all acceptance criteria are checked and
+  no unchecked checklist items remain in this plan.
+- 2026-07-03: Post-archive full harness: `bash tools/run_checks.sh` passed
+  after moving completed active plans to `docs/exec-plans/completed/`: repo
+  lint passed; Dart format check reported 41 files with 0 changed;
+  `flutter pub get` completed; `flutter analyze` reported no issues; and
+  `flutter test` passed 108 tests with 3 existing GPU-gated skips.

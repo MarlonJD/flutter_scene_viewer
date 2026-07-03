@@ -46,3 +46,15 @@ Apply, merge, persist, and reset core PBR material overrides.
 - 2026-07-02: verified locally: `flutter test`.
 - 2026-07-02: verified locally: `python3 tools/repo_lint.py`.
 - 2026-07-02: verified locally: `bash tools/run_checks.sh`.
+- 2026-07-03: Acceptance criteria and verification are complete; archived this
+  completed plan with the other finished v1 active plans.
+
+## Verification log
+
+- 2026-07-03: Archive audit confirmed all acceptance criteria are checked and
+  no unchecked checklist items remain in this plan.
+- 2026-07-03: Post-archive full harness: `bash tools/run_checks.sh` passed
+  after moving completed active plans to `docs/exec-plans/completed/`: repo
+  lint passed; Dart format check reported 41 files with 0 changed;
+  `flutter pub get` completed; `flutter analyze` reported no issues; and
+  `flutter test` passed 108 tests with 3 existing GPU-gated skips.

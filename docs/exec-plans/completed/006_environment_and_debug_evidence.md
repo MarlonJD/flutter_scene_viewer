@@ -325,6 +325,8 @@ state without making benchmark or performance superiority claims.
   state, auto-orbit state, camera state, diagnostics count/last code, and
   known model load/counter fields on `ModelLoadResult`. The docs describe
   these values as smoke/debug evidence only, not benchmark results.
+- 2026-07-03: Acceptance criteria and verification are complete; archived this
+  completed plan with the other finished v1 active plans.
 
 ## Verification log
 
@@ -399,3 +401,10 @@ state without making benchmark or performance superiority claims.
   reported 0 changed files, `flutter pub get` completed, `flutter analyze`
   reported no issues, and `flutter test` passed with 102 tests and
   3 GPU-gated skips.
+- 2026-07-03: Archive audit confirmed all acceptance criteria are checked and
+  no unchecked checklist items remain in this plan.
+- 2026-07-03: Post-archive full harness: `bash tools/run_checks.sh` passed
+  after moving completed active plans to `docs/exec-plans/completed/`: repo
+  lint passed; Dart format check reported 41 files with 0 changed;
+  `flutter pub get` completed; `flutter analyze` reported no issues; and
+  `flutter test` passed 108 tests with 3 existing GPU-gated skips.

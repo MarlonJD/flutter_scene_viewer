@@ -41,8 +41,6 @@ if agents.exists():
 active_dir = ROOT / 'docs/exec-plans/active'
 if active_dir.exists():
     plans = sorted(active_dir.glob('*.md'))
-    if not plans:
-        errors.append('no active exec plans found')
     for plan in plans:
         text = plan.read_text(encoding='utf-8')
         for heading in ['## Goal', '## Steps', '## Acceptance criteria', '## Progress log']:

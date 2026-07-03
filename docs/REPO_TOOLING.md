@@ -53,6 +53,11 @@ For each active plan:
 4. update progress log;
 5. stop or continue with next verifiable slice.
 
+When no work is actively selected, `docs/exec-plans/active/` may be empty.
+Completed plans with all acceptance criteria checked belong in
+`docs/exec-plans/completed/`; future work should be promoted back into
+`active/` before implementation.
+
 `docs/project-plan-v2/` is preserved for future v2 planning. It should not be
 implemented directly; move the selected slice into `docs/exec-plans/active/`
 first.

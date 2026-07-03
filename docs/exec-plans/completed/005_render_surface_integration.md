@@ -352,3 +352,15 @@ GLBs rather than only show that the render surface is wired.
   primitives through the viewer API, and adding structured debug evidence
   snapshots. Benchmark comparison remains deferred and outside active
   implementation work.
+- 2026-07-03: Acceptance criteria and verification are complete; archived this
+  completed plan with the other finished v1 active plans.
+
+## Verification log
+
+- 2026-07-03: Archive audit confirmed all acceptance criteria are checked and
+  no unchecked checklist items remain in this plan.
+- 2026-07-03: Post-archive full harness: `bash tools/run_checks.sh` passed
+  after moving completed active plans to `docs/exec-plans/completed/`: repo
+  lint passed; Dart format check reported 41 files with 0 changed;
+  `flutter pub get` completed; `flutter analyze` reported no issues; and
+  `flutter test` passed 108 tests with 3 existing GPU-gated skips.

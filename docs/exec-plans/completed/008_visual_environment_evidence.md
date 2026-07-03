@@ -65,6 +65,8 @@ Add honest visual smoke evidence for environment lighting:
   cascade count, and cascade split lambda. Updated docs to separate HDRI
   reflection evidence, skylight/shadow-readability evidence, and curated HDRI
   preset workflows.
+- 2026-07-03: Acceptance criteria and verification are complete; archived this
+  completed plan with the other finished v1 active plans.
 
 ## Verification log
 
@@ -99,3 +101,10 @@ Add honest visual smoke evidence for environment lighting:
   Output stages: repo lint passed; dart format check formatted 41 files with
   0 changed; `flutter pub get` succeeded; `flutter analyze` reported no
   issues; `flutter test` passed 108 tests with 3 existing GPU-gated skips.
+- 2026-07-03: Archive audit confirmed all acceptance criteria are checked and
+  no unchecked checklist items remain in this plan.
+- 2026-07-03: Post-archive full harness: `bash tools/run_checks.sh` passed
+  after moving completed active plans to `docs/exec-plans/completed/`: repo
+  lint passed; Dart format check reported 41 files with 0 changed;
+  `flutter pub get` completed; `flutter analyze` reported no issues; and
+  `flutter test` passed 108 tests with 3 existing GPU-gated skips.
