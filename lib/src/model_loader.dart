@@ -5,8 +5,12 @@ import 'package:http/http.dart' as http;
 
 import 'diagnostics.dart';
 import 'internal/flutter_scene_adapter.dart';
+import 'internal/glb_material_extension_reader.dart';
+import 'material_extension_policy.dart';
+import 'material_patch.dart';
 import 'material_shading_mode.dart';
 import 'model_source.dart';
+import 'part_address.dart';
 import 'part_registry.dart';
 
 /// Configuration for runtime GLB loading.
@@ -31,6 +35,7 @@ final class ModelLoadResult {
     this.meshCount,
     this.materialCount,
     this.primitiveCount,
+    this.authoredMaterialPatches = const <PartAddress, MaterialPatch>{},
   }) : diagnostic = null;
 
   const ModelLoadResult.failure(
@@ -42,7 +47,8 @@ final class ModelLoadResult {
         nodeCount = null,
         meshCount = null,
         materialCount = null,
-        primitiveCount = null;
+        primitiveCount = null,
+        authoredMaterialPatches = const <PartAddress, MaterialPatch>{};
 
   final ViewerDiagnostic? diagnostic;
   final List<ViewerDiagnostic> diagnostics;
@@ -53,6 +59,7 @@ final class ModelLoadResult {
   final int? meshCount;
   final int? materialCount;
   final int? primitiveCount;
+  final Map<PartAddress, MaterialPatch> authoredMaterialPatches;
 
   bool get isSuccess => diagnostic == null;
 }
@@ -64,6 +71,8 @@ final class ModelLoader {
     AssetBundle? assetBundle,
     http.Client? httpClient,
     this.options = const ModelLoaderOptions(),
+    this.materialExtensionPolicy =
+        const ViewerMaterialExtensionPolicy.diagnosticsOnly(),
   })  : assetBundle = assetBundle ?? rootBundle,
         _httpClient = httpClient ?? http.Client(),
         _ownsHttpClient = httpClient == null;
@@ -71,6 +80,7 @@ final class ModelLoader {
   final FlutterSceneAdapter adapter;
   final AssetBundle assetBundle;
   final ModelLoaderOptions options;
+  final ViewerMaterialExtensionPolicy materialExtensionPolicy;
   final http.Client _httpClient;
   final bool _ownsHttpClient;
 
@@ -97,6 +107,13 @@ final class ModelLoader {
       return ModelLoadResult.failure(sizeDiagnostic);
     }
 
+    final authoredExtensionResult = isBinaryGlb(loaded.bytes)
+        ? readGlbMaterialExtensionIntent(
+            loaded.bytes,
+            debugName: loaded.debugName,
+          )
+        : GlbMaterialExtensionReaderResult.empty;
+
     try {
       await adapter
           .loadGlbBytes(
@@ -112,9 +129,13 @@ final class ModelLoader {
           message: error.message,
           details: <String, Object?>{'source': loaded.debugName},
         ),
+        diagnostics: authoredExtensionResult.diagnostics,
       );
     } on TimeoutException {
-      return ModelLoadResult.failure(_timeoutDiagnostic(source));
+      return ModelLoadResult.failure(
+        _timeoutDiagnostic(source),
+        diagnostics: authoredExtensionResult.diagnostics,
+      );
     } on Object catch (error) {
       return ModelLoadResult.failure(
         ViewerDiagnostic(
@@ -125,6 +146,7 @@ final class ModelLoader {
             'error': error.toString(),
           },
         ),
+        diagnostics: authoredExtensionResult.diagnostics,
       );
     }
 
@@ -134,6 +156,7 @@ final class ModelLoader {
     final adapterStats = adapter.modelStats;
     return ModelLoadResult.success(
       diagnostics: <ViewerDiagnostic>[
+        ...authoredExtensionResult.diagnostics,
         ...adapter.collectDiagnostics(),
         ...registry.diagnostics,
       ],
@@ -145,6 +168,7 @@ final class ModelLoader {
       materialCount: adapterStats?.materialCount,
       primitiveCount:
           adapterStats?.primitiveCount ?? fallbackStats?.primitiveCount,
+      authoredMaterialPatches: authoredExtensionResult.patches,
     );
   }
 

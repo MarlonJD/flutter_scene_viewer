@@ -25,20 +25,21 @@ This package supplies that layer.
 
 ## Competitive positioning
 
-This package should not claim raw performance superiority over Filament or
-`interactive_3d` without benchmark evidence.
+This package should not claim raw performance superiority over other viewers
+without benchmark evidence.
 
 It differs by aiming for:
 
 - one Flutter/Dart viewer API across Android, iOS, and web;
-- one `flutter_scene` scene/material model rather than Android Filament + iOS SceneKit;
+- one `flutter_scene` scene/material model rather than split per-platform
+  renderer stacks;
 - assembly-aware node hierarchy and stable part addressing;
 - Flutter-native composition instead of WebView/PlatformView-first integration;
 - serializable configurator state and diagnostics.
 
 ## Non-goal sentence
 
-This is not Unity, Unreal, BabylonJS, or a CAD tessellation pipeline. If a user
-needs advanced shader/material effects such as subsurface scattering, parallax,
-or displacement, physics, deformation, or full game-engine scene systems, they
+This is not a full game engine or CAD tessellation pipeline. If a user needs
+advanced shader/material effects such as subsurface scattering, parallax, or
+displacement, physics, deformation, or full game-engine scene systems, they
 should use a dedicated 3D engine.

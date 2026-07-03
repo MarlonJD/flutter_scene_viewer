@@ -1,5 +1,7 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
+import 'dart:typed_data';
 import 'package:flutter/services.dart';
 import 'package:flutter_scene/scene.dart' as flutter_scene;
 import 'package:flutter_scene_viewer/src/diagnostics.dart';
@@ -90,6 +92,55 @@ void main() {
     expect(
       adapter.materialShadingPolicies.single,
       MaterialShadingPolicy.forceLit,
+    );
+  });
+
+  test('merges authored material extension reader diagnostics', () async {
+    final adapter = FakeFlutterSceneAdapter();
+    final loader = ModelLoader(adapter: adapter);
+
+    final result = await loader.load(
+      ModelSource.bytes(
+        _glb(<String, Object?>{
+          'asset': <String, Object?>{'version': '2.0'},
+          'scene': 0,
+          'scenes': <Object?>[
+            <String, Object?>{
+              'nodes': <Object?>[0],
+            },
+          ],
+          'nodes': <Object?>[
+            <String, Object?>{'name': 'GlassPanel', 'mesh': 0},
+          ],
+          'meshes': <Object?>[
+            <String, Object?>{
+              'primitives': <Object?>[
+                <String, Object?>{
+                  'attributes': <String, Object?>{'TEXCOORD_0': 0},
+                  'material': 0,
+                },
+              ],
+            },
+          ],
+          'materials': <Object?>[
+            <String, Object?>{
+              'extensions': <String, Object?>{
+                'KHR_materials_transmission': <String, Object?>{
+                  'transmissionFactor': 'opaque',
+                },
+              },
+            },
+          ],
+        }),
+        debugName: 'bad-extension.glb',
+      ),
+    );
+
+    expect(result.isSuccess, isTrue);
+    expect(result.diagnostics, hasLength(1));
+    expect(
+      result.diagnostics.single.code,
+      ViewerDiagnosticCode.invalidMaterialOverride,
     );
   });
 
@@ -378,3 +429,24 @@ final class MemoryAssetBundle extends CachingAssetBundle {
     return ByteData.sublistView(bytes);
   }
 }
+
+Uint8List _glb(Map<String, Object?> json) {
+  final jsonBytes = utf8.encode(jsonEncode(json));
+  final paddedJsonLength = _align4(jsonBytes.length);
+  final totalLength = 12 + 8 + paddedJsonLength;
+  final bytes = Uint8List(totalLength);
+  final data = ByteData.sublistView(bytes);
+  data
+    ..setUint32(0, 0x46546C67, Endian.little)
+    ..setUint32(4, 2, Endian.little)
+    ..setUint32(8, totalLength, Endian.little)
+    ..setUint32(12, paddedJsonLength, Endian.little)
+    ..setUint32(16, 0x4E4F534A, Endian.little);
+  bytes.setRange(20, 20 + jsonBytes.length, jsonBytes);
+  for (var index = 20 + jsonBytes.length; index < bytes.length; index += 1) {
+    bytes[index] = 0x20;
+  }
+  return bytes;
+}
+
+int _align4(int value) => (value + 3) & ~3;

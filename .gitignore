@@ -10,6 +10,12 @@ build/
 coverage/
 pubspec.lock
 
+# Node/npm dependencies for local reference-renderer harnesses
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
 # Flutter generated plugin metadata
 .flutter-plugins
 .flutter-plugins-dependencies

@@ -23,6 +23,44 @@ void main() {
     expect(merged.isEmpty, isFalse);
   });
 
+  test('MaterialPatch merges alpha mode fields', () {
+    const first = MaterialPatch(alphaMode: MaterialAlphaMode.opaque);
+    const second = MaterialPatch(alphaMode: MaterialAlphaMode.mask);
+    const third = MaterialPatch(alphaMode: MaterialAlphaMode.blend);
+
+    expect(
+        first.merge(const MaterialPatch()).alphaMode, MaterialAlphaMode.opaque);
+    expect(first.merge(second).alphaMode, MaterialAlphaMode.mask);
+    expect(second.merge(third).alphaMode, MaterialAlphaMode.blend);
+  });
+
+  test('MaterialPatch merges alpha cutoff', () {
+    const first = MaterialPatch(alphaCutoff: 0.35);
+    const second = MaterialPatch(alphaCutoff: 0.8);
+
+    expect(first.merge(const MaterialPatch()).alphaCutoff, 0.35);
+    expect(first.merge(second).alphaCutoff, 0.8);
+  });
+
+  test('MaterialPatch merges effect mask', () {
+    const first = MaterialPatch(roughness: 0.5);
+    const second = MaterialPatch(
+      effectMask: MaterialEffectMask(
+        texture: TextureSource.asset('assets/masks/material_mask.png'),
+        channels: <MaterialMaskChannel, MaterialEffectTarget>{
+          MaterialMaskChannel.red: MaterialEffectTarget.paintRegion,
+        },
+      ),
+    );
+
+    final merged = first.merge(second);
+
+    expect(merged.roughness, 0.5);
+    expect(merged.effectMask, isNotNull);
+    expect(merged.effectMask!.channels[MaterialMaskChannel.red],
+        MaterialEffectTarget.paintRegion);
+  });
+
   test('empty patch is empty', () {
     expect(const MaterialPatch().isEmpty, isTrue);
   });
@@ -43,6 +81,43 @@ void main() {
       everyElement(ViewerDiagnosticCode.invalidMaterialOverride),
     );
     expect(diagnostics, hasLength(3));
+  });
+
+  test('MaterialPatch reports invalid alpha cutoff values', () {
+    const patch = MaterialPatch(alphaCutoff: 1.2);
+
+    final diagnostics = patch.validate(
+      PartAddress(nodePath: <String>['Root', 'Leaf'], primitiveIndex: 0),
+    );
+
+    expect(diagnostics, hasLength(1));
+    expect(
+        diagnostics.single.code, ViewerDiagnosticCode.invalidMaterialOverride);
+    expect(diagnostics.single.details['field'], 'alphaCutoff');
+    expect(diagnostics.single.details['value'], 1.2);
+  });
+
+  test('MaterialPatch reports effect mask outside opaque family unsupported',
+      () {
+    const patch = MaterialPatch(
+      alphaMode: MaterialAlphaMode.blend,
+      effectMask: MaterialEffectMask(
+        texture: TextureSource.asset('assets/masks/material_mask.png'),
+        channels: <MaterialMaskChannel, MaterialEffectTarget>{
+          MaterialMaskChannel.red: MaterialEffectTarget.paintRegion,
+        },
+      ),
+    );
+
+    final diagnostics = patch.validate(
+      PartAddress(nodePath: <String>['Root', 'Paint'], primitiveIndex: 0),
+    );
+
+    expect(diagnostics, hasLength(1));
+    expect(diagnostics.single.code,
+        ViewerDiagnosticCode.unsupportedMaterialFeature);
+    expect(diagnostics.single.details['feature'], 'effectMask');
+    expect(diagnostics.single.details['requiredFamily'], 'opaque');
   });
 
   test('MaterialPatch reports glass fields as unsupported for current adapter',
@@ -131,6 +206,14 @@ void main() {
       emissiveTexture: const TextureSource.asset('assets/emissive.png'),
       occlusionTexture: const TextureSource.asset('assets/ao.png'),
       occlusionStrength: 0.8,
+      alphaMode: MaterialAlphaMode.mask,
+      alphaCutoff: 0.42,
+      effectMask: const MaterialEffectMask(
+        texture: TextureSource.asset('assets/masks/material_mask.png'),
+        channels: <MaterialMaskChannel, MaterialEffectTarget>{
+          MaterialMaskChannel.red: MaterialEffectTarget.paintRegion,
+        },
+      ),
       transmission: 0.7,
       transmissionTexture: const TextureSource.asset('assets/transmission.png'),
       ior: 1.45,
@@ -166,6 +249,11 @@ void main() {
     expect(roundTripped.emissiveTexture, isA<AssetTextureSource>());
     expect(roundTripped.occlusionTexture, isA<AssetTextureSource>());
     expect(roundTripped.occlusionStrength, 0.8);
+    expect(roundTripped.alphaMode, MaterialAlphaMode.mask);
+    expect(roundTripped.alphaCutoff, 0.42);
+    expect(roundTripped.effectMask, isNotNull);
+    expect(roundTripped.effectMask!.channels[MaterialMaskChannel.red],
+        MaterialEffectTarget.paintRegion);
     expect(roundTripped.transmission, 0.7);
     expect(roundTripped.transmissionTexture, isA<AssetTextureSource>());
     expect(roundTripped.ior, 1.45);
@@ -180,6 +268,28 @@ void main() {
     expect(roundTripped.clearcoatNormalTexture, isA<AssetTextureSource>());
     expect(roundTripped.clearcoatNormalScale, 0.7);
     expect(roundTripped.visible, isFalse);
+  });
+
+  test('MaterialPatch serializes explicit alpha modes to JSON and back', () {
+    for (final mode in MaterialAlphaMode.values) {
+      final patch = MaterialPatch(alphaMode: mode);
+
+      final json = patch.toJson();
+      final roundTripped = MaterialPatch.fromJson(json);
+
+      expect(json['alphaMode'], mode.name);
+      expect(roundTripped.alphaMode, mode);
+    }
+  });
+
+  test('MaterialPatch serializes alpha cutoff to JSON and back', () {
+    const patch = MaterialPatch(alphaCutoff: 0.28);
+
+    final json = patch.toJson();
+    final roundTripped = MaterialPatch.fromJson(json);
+
+    expect(json['alphaCutoff'], 0.28);
+    expect(roundTripped.alphaCutoff, 0.28);
   });
 
   test('TextureSource serializes byte textures to JSON and back', () {

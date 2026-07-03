@@ -86,6 +86,10 @@ final class FitCameraSink implements ViewerCommandSink {
   double? lastPitchRadians;
 
   @override
+  MaterialExtensionSupport get materialExtensionSupport =>
+      MaterialExtensionSupport.unsupported;
+
+  @override
   Future<ModelLoadResult> load(ModelSource source) {
     throw UnimplementedError();
   }

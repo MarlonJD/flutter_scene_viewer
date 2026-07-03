@@ -106,10 +106,9 @@ discussed.
 
 ## Persistent non-goals
 
-- VR, AR, OpenXR, WebXR, ARKit, and ARCore integrations;
+- VR, AR, OpenXR, WebXR, and platform-specific AR integrations;
 - UV unwrap, mesh repair, and DCC-specific axis guessing;
 - parallax and displacement mapping;
 - terrain rendering;
 - arbitrary custom shader graphs or a custom PBR renderer;
-- claims that this is faster than Filament, `interactive_3d`, BabylonJS, or
-  other viewers without benchmark evidence.
+- claims that this is faster than other viewers without benchmark evidence.

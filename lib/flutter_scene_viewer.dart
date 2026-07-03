@@ -1,4 +1,6 @@
 export 'src/diagnostics.dart';
+export 'src/material_effect_mask.dart';
+export 'src/material_extension_policy.dart';
 export 'src/material_override_store.dart';
 export 'src/material_patch.dart';
 export 'src/material_shading_mode.dart';

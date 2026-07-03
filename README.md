@@ -10,6 +10,8 @@ Flutter-native GLB product viewing and configuration.
 - assembly/sub-assembly/part hierarchy preservation;
 - node-path + primitive-index part addressing;
 - runtime base-color texture and core PBR material overrides;
+- alpha opaque/masked cutout/translucent blend overrides and material/effect
+  mask intent with capability diagnostics;
 - original material reset and serializable override state;
 - orbit/pan/zoom, auto camera fit, picking, visibility, and diagnostics;
 - viewer-controlled studio lighting and adaptive/on-demand rendering.
@@ -37,7 +39,7 @@ product, medical, and industrial models. The full rationale is in
 
 - It is Flutter-native and WebView-free.
 - It builds on one `flutter_scene` scene/material model instead of splitting the
-  viewer across Android Filament, iOS SceneKit, and a web-only JavaScript stack.
+  viewer across separate per-platform rendering stacks.
 - It preserves assembly/sub-assembly/part hierarchy instead of flattening a GLB
   into anonymous meshes.
 - It uses stable `nodePath` + `primitiveIndex` part addresses for picking,
@@ -51,8 +53,8 @@ product, medical, and industrial models. The full rationale is in
 ## MVP scope
 
 The first implementation targets **static GLB product/medical/industrial models**.
-It does not tessellate CAD formats, unwrap UVs, write custom shaders, or implement
-Unity/Unreal-style animation systems.
+It does not tessellate CAD formats, unwrap UVs, ship a production custom PBR
+renderer, or implement game-engine-style animation systems.
 
 MVP core material support:
 
@@ -62,16 +64,27 @@ MVP core material support:
 - occlusion texture;
 - emissive factor/texture;
 - alpha mode and double-sided handling where supported by `flutter_scene`.
+- opaque-family material/effect mask intent, validated as material data rather
+  than visibility.
 
 Transmission/glass support is a v1.0 release blocker. It requires real
 `KHR_materials_transmission`, `KHR_materials_ior`, and `KHR_materials_volume`
-behavior from `flutter_scene`; the viewer must not present alpha blending as
-glass.
+behavior; the viewer must not present alpha blending as glass. A package-local
+shader backend is available behind
+`ViewerMaterialExtensionPolicy.productionShaders()`, with shader preflight,
+typed diagnostics, local visual-matrix evidence, and three.js reference trends.
+It has verified local iOS Simulator visual evidence for the 011 target scope;
+macOS, Android, Web, and physical iOS evidence remain deferred.
 
 Clearcoat support is also a v1.0 release blocker for automotive paint,
 varnished wood, carbon fiber, and premium coated surfaces. It requires real
 `KHR_materials_clearcoat`-style behavior; the viewer must not present lower
-roughness as clearcoat.
+roughness as clearcoat. A package-local lit clearcoat backend is available
+behind the same production policy opt-in, preserves base PBR lighting, and adds
+a separate coating lobe. It has verified local iOS Simulator shader-load and
+synthetic visual-matrix evidence, but real textured GLB evidence remains
+candidate-only and not production-ready; macOS, Android, Web, and physical iOS
+evidence remain deferred.
 
 Explicit non-goals for v1:
 
@@ -79,7 +92,7 @@ Explicit non-goals for v1:
 - morph targets / blend shapes, which are v3+ or later work;
 - Draco/meshopt/KTX2 compression;
 - imported glTF lights/cameras/full authored scene playback;
-- VR, AR, OpenXR, WebXR, ARKit, and ARCore features;
+- VR, AR, OpenXR, WebXR, and platform-specific AR features;
 - advanced shader techniques like subsurface scattering, parallax, and displacement.
 
 ## Product Boundary
@@ -87,10 +100,9 @@ Explicit non-goals for v1:
 This package is **not** a new 3D engine. It adapts `flutter_scene` into a stable
 public Flutter API for app developers. It does not tessellate CAD files, unwrap
 UVs, invent missing texture coordinates, implement custom PBR rendering, or
-claim performance superiority over Filament, `interactive_3d`, BabylonJS, or
-other viewers without benchmark evidence. CAD tessellation would require a
-future OCCT FFI plus STEP/IGES import track before tessellation could even be
-considered.
+claim performance superiority over other viewers without benchmark evidence.
+CAD tessellation would require a future OCCT FFI plus STEP/IGES import track
+before tessellation could even be considered.
 
 ## Development Status
 
@@ -98,7 +110,10 @@ considered.
 documentation, tooling, and validation checks are in place; the
 `flutter_scene` adapter is still being implemented. Treat the package as
 pre-release until runtime adapter checks pass and the transmission/glass and
-clearcoat release blockers are resolved with real upstream renderer support.
+clearcoat release blockers are resolved with production-ready renderer
+evidence on the documented target scope or real upstream renderer support.
+As of Task 011, glass has local iOS Simulator evidence, while clearcoat is still
+candidate-only on real textured GLBs.
 
 ## Development
 

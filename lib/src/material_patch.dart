@@ -1,8 +1,17 @@
 import 'package:flutter/foundation.dart';
 
 import 'diagnostics.dart';
+import 'material_effect_mask.dart';
+import 'material_extension_policy.dart';
 import 'part_address.dart';
 import 'texture_source.dart';
+
+/// How a material patch should interpret alpha.
+enum MaterialAlphaMode {
+  opaque,
+  mask,
+  blend,
+}
 
 /// Runtime patch for core glTF metallic-roughness material controls.
 @immutable
@@ -19,6 +28,9 @@ final class MaterialPatch {
     this.emissiveTexture,
     this.occlusionTexture,
     this.occlusionStrength,
+    this.alphaMode,
+    this.alphaCutoff,
+    this.effectMask,
     this.transmission,
     this.transmissionTexture,
     this.ior,
@@ -64,6 +76,12 @@ final class MaterialPatch {
   final TextureSource? occlusionTexture;
 
   final double? occlusionStrength;
+
+  final MaterialAlphaMode? alphaMode;
+
+  final double? alphaCutoff;
+
+  final MaterialEffectMask? effectMask;
 
   /// KHR_materials_transmission scalar.
   ///
@@ -157,6 +175,9 @@ final class MaterialPatch {
       emissiveTexture == null &&
       occlusionTexture == null &&
       occlusionStrength == null &&
+      alphaMode == null &&
+      alphaCutoff == null &&
+      effectMask == null &&
       transmission == null &&
       transmissionTexture == null &&
       ior == null &&
@@ -195,6 +216,7 @@ final class MaterialPatch {
       normalTexture != null ||
       emissiveTexture != null ||
       occlusionTexture != null ||
+      effectMask != null ||
       transmissionTexture != null ||
       thicknessTexture != null ||
       clearcoatTexture != null ||
@@ -214,6 +236,9 @@ final class MaterialPatch {
         emissiveTexture: next.emissiveTexture ?? emissiveTexture,
         occlusionTexture: next.occlusionTexture ?? occlusionTexture,
         occlusionStrength: next.occlusionStrength ?? occlusionStrength,
+        alphaMode: next.alphaMode ?? alphaMode,
+        alphaCutoff: next.alphaCutoff ?? alphaCutoff,
+        effectMask: next.effectMask ?? effectMask,
         transmission: next.transmission ?? transmission,
         transmissionTexture: next.transmissionTexture ?? transmissionTexture,
         ior: next.ior ?? ior,
@@ -232,13 +257,25 @@ final class MaterialPatch {
         visible: next.visible ?? visible,
       );
 
-  List<ViewerDiagnostic> validate(PartAddress address) {
+  List<ViewerDiagnostic> validate(
+    PartAddress address, {
+    MaterialExtensionSupport support = MaterialExtensionSupport.unsupported,
+  }) {
     final unsupportedDiagnostics = <ViewerDiagnostic>[
-      if (hasGlassOverride) _glassUnsupportedDiagnostic(address),
-      if (hasClearcoatOverride) _clearcoatUnsupportedDiagnostic(address),
+      ..._glassSupportDiagnostics(address, support),
+      if (hasClearcoatOverride && !support.clearcoat)
+        _clearcoatUnsupportedDiagnostic(address),
     ];
     if (unsupportedDiagnostics.isNotEmpty) {
       return unsupportedDiagnostics;
+    }
+    final effectMaskDiagnostics = <ViewerDiagnostic>[
+      if (effectMask != null) ...effectMask!.validate(address),
+      if (effectMask != null && !_effectMaskAllowedInResolvedFamily())
+        _effectMaskFamilyDiagnostic(address),
+    ];
+    if (effectMaskDiagnostics.isNotEmpty) {
+      return effectMaskDiagnostics;
     }
     return <ViewerDiagnostic>[
       if (!_isUnitInterval(metallic))
@@ -247,6 +284,8 @@ final class MaterialPatch {
         _rangeDiagnostic(address, 'roughness', roughness!),
       if (!_isUnitInterval(occlusionStrength))
         _rangeDiagnostic(address, 'occlusionStrength', occlusionStrength!),
+      if (!_isUnitInterval(alphaCutoff))
+        _rangeDiagnostic(address, 'alphaCutoff', alphaCutoff!),
     ];
   }
 
@@ -268,6 +307,9 @@ final class MaterialPatch {
         if (occlusionTexture != null)
           'occlusionTexture': occlusionTexture!.toJson(),
         if (occlusionStrength != null) 'occlusionStrength': occlusionStrength,
+        if (alphaMode != null) 'alphaMode': alphaMode!.name,
+        if (alphaCutoff != null) 'alphaCutoff': alphaCutoff,
+        if (effectMask != null) 'effectMask': effectMask!.toJson(),
         if (transmission != null) 'transmission': transmission,
         if (transmissionTexture != null)
           'transmissionTexture': transmissionTexture!.toJson(),
@@ -308,6 +350,9 @@ final class MaterialPatch {
       occlusionTexture: _textureSource(json, 'occlusionTexture'),
       occlusionStrength:
           _doubleValue(json['occlusionStrength'], 'occlusionStrength'),
+      alphaMode: _alphaMode(json['alphaMode']),
+      alphaCutoff: _doubleValue(json['alphaCutoff'], 'alphaCutoff'),
+      effectMask: _effectMask(json, 'effectMask'),
       transmission: _doubleValue(json['transmission'], 'transmission'),
       transmissionTexture: _textureSource(json, 'transmissionTexture'),
       ior: _doubleValue(json['ior'], 'ior'),
@@ -329,6 +374,63 @@ final class MaterialPatch {
       visible: json['visible'] as bool?,
     );
   }
+
+  bool _effectMaskAllowedInResolvedFamily() {
+    if (hasGlassOverride) {
+      return false;
+    }
+    if (alphaMode == MaterialAlphaMode.mask ||
+        alphaMode == MaterialAlphaMode.blend) {
+      return false;
+    }
+    if (alphaMode == MaterialAlphaMode.opaque) {
+      return true;
+    }
+    final factor = baseColorFactor;
+    return factor == null || factor.length < 4 || factor[3] >= 1.0;
+  }
+
+  List<ViewerDiagnostic> _glassSupportDiagnostics(
+    PartAddress address,
+    MaterialExtensionSupport support,
+  ) {
+    final missingExtensions = <String>[
+      if ((transmission != null || transmissionTexture != null) &&
+          !support.transmission)
+        'KHR_materials_transmission',
+      if (ior != null && !support.ior) 'KHR_materials_ior',
+      if ((thickness != null ||
+              thicknessTexture != null ||
+              attenuationColor != null ||
+              attenuationDistance != null) &&
+          !support.volume)
+        'KHR_materials_volume',
+    ];
+    if (missingExtensions.isEmpty) {
+      return const <ViewerDiagnostic>[];
+    }
+    return <ViewerDiagnostic>[
+      _glassUnsupportedDiagnostic(
+        address,
+        extensions: List<String>.unmodifiable(missingExtensions),
+      ),
+    ];
+  }
+}
+
+MaterialAlphaMode? _alphaMode(Object? value) {
+  if (value == null) {
+    return null;
+  }
+  if (value is! String) {
+    throw ArgumentError.value(value, 'alphaMode', 'Expected a string');
+  }
+  for (final mode in MaterialAlphaMode.values) {
+    if (mode.name == value) {
+      return mode;
+    }
+  }
+  throw ArgumentError.value(value, 'alphaMode', 'Unsupported alpha mode');
 }
 
 bool _isUnitInterval(double? value) =>
@@ -352,18 +454,17 @@ ViewerDiagnostic _rangeDiagnostic(
   );
 }
 
-ViewerDiagnostic _glassUnsupportedDiagnostic(PartAddress address) {
+ViewerDiagnostic _glassUnsupportedDiagnostic(
+  PartAddress address, {
+  required List<String> extensions,
+}) {
   return ViewerDiagnostic(
     code: ViewerDiagnosticCode.unsupportedMaterialFeature,
     message:
         'Transmission/glass material overrides require flutter_scene support for transmission, IOR, and volume attenuation.',
     details: <String, Object?>{
       'part': address.debugPath,
-      'extensions': const <String>[
-        'KHR_materials_transmission',
-        'KHR_materials_ior',
-        'KHR_materials_volume',
-      ],
+      'extensions': extensions,
       'upstreamPackage': 'flutter_scene',
       'status': 'unsupported',
     },
@@ -380,6 +481,19 @@ ViewerDiagnostic _clearcoatUnsupportedDiagnostic(PartAddress address) {
       'extensions': const <String>['KHR_materials_clearcoat'],
       'upstreamPackage': 'flutter_scene',
       'status': 'unsupported',
+    },
+  );
+}
+
+ViewerDiagnostic _effectMaskFamilyDiagnostic(PartAddress address) {
+  return ViewerDiagnostic(
+    code: ViewerDiagnosticCode.unsupportedMaterialFeature,
+    message:
+        'Material effect masks are opaque-family data maps and cannot be combined with alpha cutout, alpha blend, or glass material families.',
+    details: <String, Object?>{
+      'part': address.debugPath,
+      'feature': 'effectMask',
+      'requiredFamily': 'opaque',
     },
   );
 }
@@ -426,4 +540,11 @@ TextureSource? _textureSource(Map<String, Object?> json, String name) {
   return rawTexture == null
       ? null
       : TextureSource.fromJson(_objectMap(rawTexture, name));
+}
+
+MaterialEffectMask? _effectMask(Map<String, Object?> json, String name) {
+  final rawMask = json[name];
+  return rawMask == null
+      ? null
+      : MaterialEffectMask.fromJson(_objectMap(rawMask, name));
 }

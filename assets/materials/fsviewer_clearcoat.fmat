@@ -1,0 +1,119 @@
+material {
+  name: "FSViewerClearcoat",
+  shading_model: lit,
+  blending: opaque,
+  culling: back,
+  parameters: [
+    { type: sampler2D, name: baseColorTexture, hint: default_white },
+    { type: sampler2D, name: metallicRoughnessTexture, hint: default_white },
+    { type: sampler2D, name: normalTexture, hint: default_normal },
+    { type: sampler2D, name: occlusionTexture, hint: default_white },
+    { type: sampler2D, name: emissiveTexture, hint: default_black },
+    { type: sampler2D, name: clearcoatTexture, hint: default_white },
+    { type: sampler2D, name: clearcoatRoughnessTexture, hint: default_white },
+    { type: sampler2D, name: clearcoatNormalTexture, hint: default_normal },
+    { type: vec4, name: baseColorFactor, hint: source_color, default: [1.0, 1.0, 1.0, 1.0] },
+    { type: vec4, name: materialFactors, default: [1.0, 1.0, 0.0, 0.0] },
+    { type: vec4, name: normalFactors, default: [1.0, 1.0, 0.0, 0.0] },
+    { type: vec4, name: emissiveFactor, default: [0.0, 0.0, 0.0, 0.0] },
+  ],
+}
+
+fragment {
+  vec3 ScaledNormal(sampler2D normal_tex, vec3 geometric_normal,
+                    vec2 texcoord, float scale) {
+    vec3 map = texture(normal_tex, texcoord).xyz;
+    map = map * 255.0 / 127.0 - 128.0 / 127.0;
+    map.xy *= scale;
+    map.z = max(map.z, 0.0);
+    mat3 tbn = CotangentFrame(geometric_normal, -v_viewvector, texcoord);
+    return normalize(tbn * normalize(map)).xyz;
+  }
+
+  vec3 ClearcoatLobe(vec3 normal, vec3 view_direction, float clearcoat,
+                     float roughness, float occlusion) {
+    float n_dot_v = max(dot(normal, view_direction), 0.0);
+    vec3 reflection = reflect(-view_direction, normal);
+    mat3 environment_transform = mat3(frag_info.environment_transform);
+    vec3 env_reflection = environment_transform * reflection;
+    vec3 prefiltered_color =
+        SamplePrefilteredRadiance(prefiltered_radiance, env_reflection,
+                                  roughness) *
+        frag_info.environment_intensity;
+    vec3 reflectance = vec3(0.04);
+    vec3 fresnel = FresnelSchlickRoughness(n_dot_v, reflectance, roughness);
+    vec2 f_ab =
+        texture(brdf_lut, clamp(vec2(n_dot_v, roughness), 0.0, 0.99)).rg;
+    vec3 indirect = (fresnel * f_ab.x + vec3(f_ab.y)) * prefiltered_color *
+                    occlusion;
+
+    vec3 direct = vec3(0.0);
+    if (frag_info.has_directional_light > 0.5) {
+      vec3 light_vector = -normalize(frag_info.directional_light_direction.xyz);
+      float n_dot_l = max(dot(normal, light_vector), 0.0);
+      if (n_dot_l > 0.0) {
+        vec3 half_vector = normalize(light_vector + view_direction);
+        float distribution = DistributionGGX(normal, half_vector, roughness);
+        float visibility =
+            VisibilitySmithGGXCorrelated(max(n_dot_v, 1e-4), n_dot_l,
+                                         roughness);
+        vec3 specular_fresnel =
+            FresnelSchlick(max(dot(half_vector, view_direction), 0.0),
+                           reflectance);
+        float shadow = frag_info.casts_shadow > 0.5
+            ? SampleShadow(v_position, normal)
+            : 1.0;
+        direct = distribution * visibility * specular_fresnel *
+                 frag_info.directional_light_color.rgb * n_dot_l * shadow;
+      }
+    }
+
+    float roughness_energy = mix(1.0, 0.1, roughness);
+    return (indirect + direct) * clearcoat * roughness_energy * 0.25;
+  }
+
+  void Surface(inout MaterialInputs material) {
+    vec2 uv = v_texture_coords;
+    vec4 base_color_tex = texture(baseColorTexture, uv);
+    vec3 albedo = SRGBToLinear(base_color_tex.rgb) *
+                  material_params.baseColorFactor.rgb * v_color.rgb;
+    float alpha = base_color_tex.a * material_params.baseColorFactor.a *
+                  v_color.a;
+    vec4 metallic_roughness = texture(metallicRoughnessTexture, uv);
+    float metallic = clamp(material_params.materialFactors.x *
+                           metallic_roughness.b, 0.0, 1.0);
+    float roughness = clamp(material_params.materialFactors.y *
+                            metallic_roughness.g, kMinRoughness, 1.0);
+    float clearcoat = clamp(material_params.materialFactors.z *
+                            texture(clearcoatTexture, uv).r, 0.0, 1.0);
+    float clearcoat_roughness =
+        clamp(material_params.materialFactors.w *
+              texture(clearcoatRoughnessTexture, uv).g, kMinRoughness, 1.0);
+
+    vec3 geometric_normal = normalize(v_normal);
+    vec3 view_direction = normalize(v_viewvector);
+    vec3 base_normal = ScaledNormal(normalTexture, geometric_normal, uv,
+                                    material_params.normalFactors.x);
+    vec3 clearcoat_texture_normal =
+        ScaledNormal(clearcoatNormalTexture, geometric_normal, uv,
+                     material_params.normalFactors.y);
+    vec3 clearcoat_normal =
+        normalize(mix(base_normal, clearcoat_texture_normal,
+                      material_params.normalFactors.z));
+
+    float occlusion = texture(occlusionTexture, uv).r;
+    vec3 clearcoat_specular = ClearcoatLobe(
+        clearcoat_normal, view_direction, clearcoat, clearcoat_roughness,
+        occlusion);
+    vec3 emissive = SRGBToLinear(texture(emissiveTexture, uv).rgb) *
+                    material_params.emissiveFactor.rgb;
+
+    material.base_color = vec4(albedo, alpha);
+    material.metallic = metallic;
+    material.roughness = roughness;
+    material.normal = base_normal;
+    material.occlusion = occlusion;
+    material.emissive = emissive + clearcoat_specular;
+    PrepareMaterial(material);
+  }
+}

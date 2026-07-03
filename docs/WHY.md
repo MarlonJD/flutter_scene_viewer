@@ -28,12 +28,11 @@ buttons, panels, gestures, state, theming, and diagnostics already live in Dart.
 web it follows the `flutter_scene` WebGL2 backend. The point is not "JavaScript
 is bad"; the point is one Flutter-first SDK surface.
 
-### Compared with babylonjs_viewer
+### Compared with WebView-hosted viewer packages
 
-[`babylonjs_viewer`](https://pub.dev/packages/babylonjs_viewer) is a simple
-Flutter wrapper around BabylonJS Viewer. It is useful when an app wants the
-BabylonJS viewer surface and is comfortable controlling behavior through a
-WebView and JavaScript bridge.
+Some Flutter viewer packages wrap a mature web viewer surface. That can be
+useful when an app wants a web-rendered viewer and is comfortable controlling
+behavior through a WebView and JavaScript bridge.
 
 `flutter_scene_viewer` is aimed at a different integration model. It avoids a
 WebView-first surface, keeps viewer state and controller behavior in Dart, and
@@ -54,23 +53,21 @@ to account for platform-specific differences.
 one `flutter_scene` scene/material model and explicit diagnostics when a feature
 is unavailable.
 
-### Compared with interactive_3d
+### Compared with per-platform native viewer packages
 
-[`interactive_3d`](https://pub.dev/packages/interactive_3d) is a capable
-Flutter plugin for interactive `.glb` and `.gltf` viewing. Its published package
-metadata describes a native split: Filament on Android and SceneKit plus
-GLTFSceneKit on iOS. Its feature set includes part selection, visibility,
-runtime PBR overrides, runtime base-color texture uploads, IBL, and adaptive
+Some Flutter viewer packages wrap different native renderer stacks on each
+platform. Their feature sets can include part selection, visibility, runtime
+PBR overrides, runtime texture uploads, image-based lighting, and adaptive
 frame pacing.
 
-`flutter_scene_viewer` should not position itself as "faster than
-interactive_3d" without benchmark evidence. The intended difference is the
-architecture and product contract: one `flutter_scene` scene/material model
-across supported platforms, Flutter GPU / Impeller integration through
-`flutter_scene` on native platforms, WebGL2 through `flutter_scene` on web,
-assembly-aware `nodePath` + `primitiveIndex` addressing, serializable
-configurator state, and capability diagnostics when an authored model or runtime
-feature cannot support a requested override.
+`flutter_scene_viewer` should not position itself as faster than other viewers
+without benchmark evidence. The intended difference is the architecture and
+product contract: one `flutter_scene` scene/material model across supported
+platforms, Flutter GPU / Impeller integration through `flutter_scene` on native
+platforms, WebGL2 through `flutter_scene` on web, assembly-aware `nodePath` +
+`primitiveIndex` addressing, serializable configurator state, and capability
+diagnostics when an authored model or runtime feature cannot support a
+requested override.
 
 ### Compared with raw flutter_scene
 
@@ -84,10 +81,10 @@ diagnostics, and render scheduling that product viewers repeatedly need.
 
 ### Compared with full 3D engines
 
-This package is not Unity, Unreal, BabylonJS, or a CAD pipeline. It does not
-tessellate CAD files, unwrap UVs, simulate physics, author game scenes, or
-implement advanced custom shader effects. GLB assets should already be authored
-for runtime viewing.
+This package is not a full game engine or CAD pipeline. It does not tessellate
+CAD files, unwrap UVs, simulate physics, author game scenes, or implement
+advanced custom shader effects. GLB assets should already be authored for
+runtime viewing.
 
 ## Performance position
 
@@ -98,9 +95,9 @@ surface, builds on the Flutter GPU/Impeller path exposed by `flutter_scene`,
 keeps viewer state in Dart, uses cacheable model/texture resources, and targets
 adaptive/on-demand rendering so a static scene can stop requesting frames.
 
-The README should not claim that this package is faster than Filament,
-`interactive_3d`, BabylonJS, or any other viewer until the benchmark harness
-produces fair evidence. The right claim before benchmarks is that
+The README should not claim that this package is faster than any other viewer
+until the benchmark harness produces fair evidence. The right claim before
+benchmarks is that
 `flutter_scene_viewer` is Flutter-native, WebView-free, and designed around
 Flutter's GPU-backed rendering path.
 

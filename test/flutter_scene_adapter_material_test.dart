@@ -1,0 +1,108 @@
+import 'package:flutter_scene/scene.dart' as flutter_scene;
+import 'package:flutter_scene_viewer/flutter_scene_viewer.dart';
+import 'package:flutter_scene_viewer/src/internal/flutter_scene_adapter.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+void main() {
+  test('adapter maps public alpha modes to flutter_scene alpha modes', () {
+    expect(
+      debugFlutterSceneAlphaModeFor(MaterialAlphaMode.opaque),
+      flutter_scene.AlphaMode.opaque,
+    );
+    expect(
+      debugFlutterSceneAlphaModeFor(MaterialAlphaMode.mask),
+      flutter_scene.AlphaMode.mask,
+    );
+    expect(
+      debugFlutterSceneAlphaModeFor(MaterialAlphaMode.blend),
+      flutter_scene.AlphaMode.blend,
+    );
+  });
+
+  test('adapter routes mask and blend through family replacement', () {
+    expect(
+      debugRequiresPbrFamilyReplacement(
+        const MaterialPatch(alphaMode: MaterialAlphaMode.mask),
+      ),
+      isTrue,
+    );
+    expect(
+      debugRequiresPbrFamilyReplacement(
+        const MaterialPatch(alphaMode: MaterialAlphaMode.blend),
+      ),
+      isTrue,
+    );
+    expect(
+      debugRequiresPbrFamilyReplacement(const MaterialPatch(roughness: 0.5)),
+      isFalse,
+    );
+  });
+
+  test(
+      'adapter routes only supported transmission patches to extension backend',
+      () {
+    expect(
+      debugUsesMaterialExtensionBackendFor(
+        const ViewerMaterialExtensionPolicy.diagnosticsOnly(),
+        const MaterialPatch(transmission: 1.0, ior: 1.45),
+      ),
+      isFalse,
+    );
+    expect(
+      debugUsesMaterialExtensionBackendFor(
+        const ViewerMaterialExtensionPolicy.experimentalShaders(),
+        const MaterialPatch(transmission: 1.0, ior: 1.45),
+      ),
+      isTrue,
+    );
+    expect(
+      debugUsesMaterialExtensionBackendFor(
+        const ViewerMaterialExtensionPolicy.experimentalShaders(),
+        const MaterialPatch(clearcoat: 1.0),
+      ),
+      isFalse,
+    );
+    expect(
+      debugUsesMaterialExtensionBackendFor(
+        const ViewerMaterialExtensionPolicy.experimentalShaders(
+          enableClearcoat: true,
+        ),
+        const MaterialPatch(clearcoat: 1.0, clearcoatRoughness: 0.18),
+      ),
+      isTrue,
+    );
+    expect(
+      debugUsesMaterialExtensionBackendFor(
+        const ViewerMaterialExtensionPolicy.experimentalShaders(
+          enableClearcoat: true,
+        ),
+        const MaterialPatch(transmission: 1.0, clearcoat: 1.0),
+      ),
+      isFalse,
+    );
+  });
+
+  test('production support is not advertised without backend preflight', () {
+    expect(
+      debugUsesMaterialExtensionBackendFor(
+        const ViewerMaterialExtensionPolicy.productionShaders(),
+        const MaterialPatch(transmission: 1.0, ior: 1.45),
+      ),
+      isFalse,
+    );
+  });
+
+  test('glass on one primitive of a multi-primitive node reports limitation',
+      () {
+    final diagnostic = debugGlassNodeIsolationDiagnostic(
+      primitiveCount: 2,
+      selectedPrimitiveIndex: 0,
+    );
+
+    expect(diagnostic, isNotNull);
+    expect(diagnostic!.code, ViewerDiagnosticCode.unsupportedMaterialFeature);
+    expect(diagnostic.details['limitation'], 'nodeLayerIsolation');
+    expect(diagnostic.details['primitiveCount'], 2);
+    expect(diagnostic.details['primitiveIndex'], 0);
+  });
+}

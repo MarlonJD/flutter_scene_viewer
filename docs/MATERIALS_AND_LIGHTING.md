@@ -18,17 +18,28 @@ glTF-style transmission/refraction behavior with IOR and volume attenuation
 where requested, not an alpha-blended approximation. The current installed
 `flutter_scene` 0.18.1 material/importer API does not expose
 `KHR_materials_transmission`, `KHR_materials_ior`, or `KHR_materials_volume`,
-so v1.0 glass rendering is blocked on upstream capability. Until that exists,
-`MaterialPatch` glass fields return `unsupportedMaterialFeature` diagnostics
-and are not applied or persisted.
+so the default viewer policy keeps glass diagnostic-only. `MaterialPatch`
+glass fields return `unsupportedMaterialFeature` diagnostics and are not
+applied or persisted unless an opt-in material extension backend advertises
+real transmission, IOR, and volume support. Task 011 adds
+`ViewerMaterialExtensionPolicy.productionShaders()` as the hardened shader
+backend opt-in. Task 011 has verified local iOS Simulator shader-load and
+visual-matrix evidence for this backend; other targets remain deferred/not run.
 
 Clearcoat is also required before v1.0 release. It covers two-layer coated
 materials such as automotive paint, varnished wood, carbon fiber under gloss
 coat, and other premium product surfaces. It must mean real clearcoat behavior
 such as `KHR_materials_clearcoat`, not a fake fallback that only lowers base
-roughness or boosts environment intensity. Until upstream support exists, the
-`MaterialPatch` clearcoat fields return `unsupportedMaterialFeature`
-diagnostics and are not applied or persisted.
+roughness or boosts environment intensity. Clearcoat remains diagnostic-only
+by default. Task 011 adds `ViewerMaterialExtensionPolicy.productionShaders()`
+as the hardened shader backend opt-in for a lit clearcoat material that
+preserves base PBR lighting and adds a separate coating lobe from clearcoat
+factor, clearcoat roughness, clearcoat textures, and clearcoat normal inputs.
+Task 011 has verified local iOS Simulator shader-load and synthetic
+visual-matrix evidence for this backend, but follow-up real textured GLB
+evidence remains candidate-only and not production-ready. Other targets remain
+deferred/not run. This is not claimed as upstream `flutter_scene` clearcoat
+support.
 
 PBR and lit/unlit are separate concepts. PBR describes the material parameter
 model and available inputs such as base color, metallic, roughness, normal,
@@ -36,6 +47,65 @@ occlusion, and emissive data. Lit/unlit describes whether the material shader
 responds to scene lighting. A lit material can still use scalar metallic and
 roughness values without texture maps, and an unlit material can still display
 its authored texture without reacting to any light.
+
+Alpha is supported as its own material behavior, not as glass. Opaque, masked
+cutout, and translucent blend are separate base-material family intents in the
+viewer. Masked cutout uses alpha discard for authored cutout surfaces such as
+grilles, labels, or foliage-like product details; it must not be used as a
+visibility system. Translucent blend is ordinary source-over alpha blending and
+does not imply IOR, Fresnel, refraction, or volume attenuation. With the
+current installed `flutter_scene` target, unlit alpha mask requests are
+diagnostic-only because upstream unlit mask currently behaves like blend.
+
+Material/effect masks are separate from alpha. They are opaque-family packed
+texture data for regional material parameters such as paint regions, dirt,
+roughness variation, metallic variation, or clearcoat masks once a real
+clearcoat shader exists. They never discard pixels, never route a material into
+the translucent family, and never hide parts. The current standard
+`flutter_scene` PBR shader does not consume these packed channels, so the
+viewer preserves the public intent and reports unsupported-feature diagnostics
+rather than pretending the mask changed rendered output.
+
+Material extension policy is capability-aware. The default policy is
+diagnostics-only, so unsupported glass and clearcoat requests are rejected
+before persistence. Experimental policy may let transmission/glass intent reach
+an attached candidate backend, and may let clearcoat intent reach the candidate
+clearcoat shader when `enableClearcoat: true` is set. Production policy is an
+explicit opt-in that requires shader preflight and target support before
+advertising glass or clearcoat support. The backend must still report
+diagnostics rather than fall back to alpha blend or roughness changes when it
+cannot render the requested feature.
+
+Realistic glass is verified locally for iOS Simulator only. The repository
+contains a production-policy-gated transmission backend that uses a background
+`RenderTexture` and `RenderView.layerMask` separation for bounded screen-space
+refraction. Local GPU-gated verification loads the generated transmission
+shader bundle entry and captures a visual matrix for transmission, IOR,
+thickness, roughness, and normal trends against a striped-behind-glass
+fixture. The same fixture GLB is compared directionally against a three.js
+reference render. Task 011 has verified local iOS Simulator visual evidence
+for the bounded glass backend; macOS, Android, Web, and physical iOS evidence
+remain deferred/not run.
+
+The current background-capture path isolates glass at node layer granularity.
+For production glass evidence, authored GLB assets should place glass geometry
+on separate nodes from opaque geometry. A glass override targeting one
+primitive on a multi-primitive node reports an `unsupportedMaterialFeature`
+diagnostic with `limitation: nodeLayerIsolation` rather than hiding the
+node's other primitives from the background pass and producing misleading
+output.
+
+Clearcoat is candidate-only for real textured GLBs on iOS Simulator. The
+repository contains `assets/materials/fsviewer_clearcoat.fmat` and a
+production-policy-gated backend path that loads `FSViewerClearcoat` through
+generated `.fmat` metadata as a lit `PreprocessedMaterial`. Local GPU-gated
+verification captures a visual matrix for clearcoat factor, clearcoat
+roughness, texture influence, and clearcoat normal highlight movement. The
+same fixture GLB is compared directionally against a three.js reference render.
+This verifies shader wiring and trend direction, but a DamagedHelmet
+manual-clearcoat iOS Simulator run still shows overly stylized/striped
+behavior, so clearcoat must remain candidate-only rather than production-ready.
+macOS, Android, Web, and physical iOS evidence remain deferred/not run.
 
 ## Texture UV requirement
 
@@ -47,14 +117,18 @@ texture overrides; those channels are reserved for authored asset uses such as
 lightmaps.
 
 `MaterialPatch` currently exposes runtime override slots for base color,
-metallic-roughness, normal, emissive, and occlusion textures, plus normal scale
-and occlusion strength where `flutter_scene` exposes matching PBR material
-fields. Transmission and volume texture requests also require UV0 once renderer
-support exists; the current adapter reports them as unsupported first because
-`flutter_scene` has no real glass material surface to bind. Clearcoat texture
-and clearcoat normal texture requests likewise require UV0 once renderer support
-exists; the current adapter reports them as unsupported first because
-`flutter_scene` has no real clearcoat material surface to bind.
+metallic-roughness, normal, emissive, occlusion, and material/effect mask
+textures, plus normal scale and occlusion strength where `flutter_scene`
+exposes matching PBR material fields. Transmission and volume texture requests
+also require UV0; the default adapter reports them as unsupported first unless
+an opt-in backend advertises glass support. Clearcoat texture, clearcoat
+roughness texture, and clearcoat normal texture requests likewise require UV0;
+the default policy reports them as unsupported first unless an opt-in backend
+advertises clearcoat support.
+
+Authored GLB extension texture slots follow the same UV0 rule. UV1 is never
+substituted for `transmissionTexture`, `thicknessTexture`, clearcoat textures,
+or material/effect masks, and the viewer never generates UVs.
 
 ## Excluded from v1
 

@@ -8,6 +8,7 @@ import 'package:flutter/widgets.dart';
 import 'diagnostics.dart';
 import 'internal/flutter_scene_adapter.dart';
 import 'internal/render_surface.dart';
+import 'material_extension_policy.dart';
 import 'material_patch.dart';
 import 'material_shading_mode.dart';
 import 'model_loader.dart';
@@ -30,6 +31,8 @@ class FlutterSceneViewer extends StatefulWidget {
     this.lighting = const ViewerLighting.studio(),
     this.environment = const ViewerEnvironment.studio(),
     this.materialShadingPolicy = MaterialShadingPolicy.authored,
+    this.materialExtensionPolicy =
+        const ViewerMaterialExtensionPolicy.diagnosticsOnly(),
     this.debugShowStatsOverlay = false,
     this.onStats,
     this.autoOrbit = false,
@@ -50,6 +53,8 @@ class FlutterSceneViewer extends StatefulWidget {
     this.lighting = const ViewerLighting.studio(),
     this.environment = const ViewerEnvironment.studio(),
     this.materialShadingPolicy = MaterialShadingPolicy.authored,
+    this.materialExtensionPolicy =
+        const ViewerMaterialExtensionPolicy.diagnosticsOnly(),
     this.debugShowStatsOverlay = false,
     this.onStats,
     this.autoOrbit = false,
@@ -67,6 +72,7 @@ class FlutterSceneViewer extends StatefulWidget {
   final ViewerLighting lighting;
   final ViewerEnvironment environment;
   final MaterialShadingPolicy materialShadingPolicy;
+  final ViewerMaterialExtensionPolicy materialExtensionPolicy;
   final bool debugShowStatsOverlay;
   final ValueChanged<ViewerStatsSnapshot>? onStats;
   final bool autoOrbit;
@@ -123,10 +129,14 @@ class _FlutterSceneViewerState extends State<FlutterSceneViewer>
 
   ModelLoader get _loader => _modelLoader ??= ModelLoader(
         adapter: _activeAdapter,
+        materialExtensionPolicy: widget.materialExtensionPolicy,
       );
 
   FlutterSceneAdapter get _activeAdapter =>
-      _adapter ??= widget._adapterOverride ?? FlutterSceneRuntimeAdapter();
+      _adapter ??= widget._adapterOverride ??
+          FlutterSceneRuntimeAdapter(
+            materialExtensionPolicy: widget.materialExtensionPolicy,
+          );
 
   @override
   void initState() {
@@ -142,7 +152,8 @@ class _FlutterSceneViewerState extends State<FlutterSceneViewer>
   void didUpdateWidget(covariant FlutterSceneViewer oldWidget) {
     super.didUpdateWidget(oldWidget);
     var shouldLoad = widget.source != oldWidget.source ||
-        widget.materialShadingPolicy != oldWidget.materialShadingPolicy;
+        widget.materialShadingPolicy != oldWidget.materialShadingPolicy ||
+        widget.materialExtensionPolicy != oldWidget.materialExtensionPolicy;
     if (!identical(_attachedController, _controller)) {
       _detachController();
       _attachController(_controller);
@@ -153,6 +164,13 @@ class _FlutterSceneViewerState extends State<FlutterSceneViewer>
       _modelLoader = null;
       _adapter = widget._adapterOverride;
       shouldLoad = true;
+    } else if (widget.materialExtensionPolicy !=
+        oldWidget.materialExtensionPolicy) {
+      _modelLoader?.dispose();
+      _modelLoader = null;
+      if (widget._adapterOverride == null) {
+        _adapter = null;
+      }
     }
     _renderScheduler.policy = widget.renderPolicy;
     _syncDebugStatsTimer();
@@ -186,6 +204,19 @@ class _FlutterSceneViewerState extends State<FlutterSceneViewer>
     );
     _lastModelLoadResult = result.isSuccess ? result : null;
     return result;
+  }
+
+  @override
+  MaterialExtensionSupport get materialExtensionSupport {
+    final adapter = _activeAdapter;
+    if (adapter is FlutterSceneRuntimeAdapter) {
+      return adapter.materialExtensionSupport;
+    }
+    if (widget.materialExtensionPolicy.mode ==
+        ViewerMaterialExtensionMode.productionFlutterSceneShaders) {
+      return MaterialExtensionSupport.unsupported;
+    }
+    return widget.materialExtensionPolicy.support;
   }
 
   @override
@@ -285,6 +316,8 @@ class _FlutterSceneViewerState extends State<FlutterSceneViewer>
                 camera: _cameraController.state.toRenderCameraFrame(),
                 lighting: _renderLightingFrame(widget.lighting),
                 environment: _renderEnvironmentFrame(widget.environment),
+                viewportSize: _viewportSize,
+                devicePixelRatio: View.of(context).devicePixelRatio,
                 autoTick: widget.renderPolicy == RenderPolicy.always,
               ) ??
               const SizedBox.expand(),

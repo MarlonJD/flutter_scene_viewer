@@ -7,7 +7,7 @@ API changes. Keep adapters isolated.
 
 ## Performance claims
 
-Do not claim superiority over Filament or `interactive_3d` until benchmarked.
+Do not claim superiority over other viewers until benchmarked.
 
 ## Runtime import jank
 

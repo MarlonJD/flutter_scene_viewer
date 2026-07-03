@@ -115,7 +115,8 @@ implements a second clearcoat specular lobe.
   correctness, order-independent transparency, or CAD/UV/tangent generation.
 - No VR, AR, OpenXR, WebXR, ARKit, or ARCore work.
 - No removal of existing HDR/EXR or Poly Haven environment code.
-- No public production-ready claim until GPU-gated visual evidence exists.
+- No public production-ready claim from local visual smoke alone; broader
+  backend/platform evidence is still required.
 
 ## File structure
 
@@ -260,12 +261,12 @@ Expected: all tests pass.
 - Test `test/material_patch_test.dart`
 - Test `test/viewer_controller_material_test.dart`
 
-- [ ] Write failing JSON and merge tests for:
+- [x] Write failing JSON and merge tests for:
   - `MaterialAlphaMode.opaque`
   - `MaterialAlphaMode.mask`
   - `MaterialAlphaMode.blend`
   - `alphaCutoff`
-- [ ] Add the enum and fields:
+- [x] Add the enum and fields:
 
 ```dart
 enum MaterialAlphaMode {
@@ -286,9 +287,9 @@ final class MaterialPatch {
 }
 ```
 
-- [ ] Validate `alphaCutoff` with the same invalid material diagnostic pattern
+- [x] Validate `alphaCutoff` with the same invalid material diagnostic pattern
   used by metallic, roughness, and occlusion strength.
-- [ ] Map alpha in the runtime adapter by family:
+- [x] Map alpha in the runtime adapter by family:
   - `MaterialAlphaMode.opaque` -> `flutter_scene.AlphaMode.opaque`
   - `MaterialAlphaMode.mask` -> a newly constructed masked cutout family
     material using `flutter_scene.AlphaMode.mask` only for PBR materials with
@@ -296,19 +297,19 @@ final class MaterialPatch {
   - `MaterialAlphaMode.blend` -> a newly constructed translucent blend family
     material using `flutter_scene.AlphaMode.blend`
   - `alphaCutoff` -> `material.alphaCutoff`
-- [ ] Add a diagnostic for `MaterialAlphaMode.mask` on unlit materials while
+- [x] Add a diagnostic for `MaterialAlphaMode.mask` on unlit materials while
   the installed `flutter_scene` unlit path treats mask like blend.
-- [ ] Add docs stating that alpha mask is for authored cutout/discard use, not
+- [x] Add docs stating that alpha mask is for authored cutout/discard use, not
   for object visibility or partial configurator show/hide behavior.
-- [ ] Add a test proving `MaterialAlphaMode.mask` does not mutate an existing
+- [x] Add a test proving `MaterialAlphaMode.mask` does not mutate an existing
   opaque family material in place.
-- [ ] Add a test proving `MaterialAlphaMode.blend` does not mutate an existing
+- [x] Add a test proving `MaterialAlphaMode.blend` does not mutate an existing
   opaque family material in place.
-- [ ] Add a controller test proving alpha patches apply and persist because
+- [x] Add a controller test proving alpha patches apply and persist because
   they are supported translucent blend behavior, not glass.
-- [ ] Update docs to say alpha transparency is supported separately from
+- [x] Update docs to say alpha transparency is supported separately from
   transmission/glass.
-- [ ] Run:
+- [x] Run:
 
 ```sh
 flutter test test/material_patch_test.dart test/viewer_controller_material_test.dart
@@ -333,7 +334,7 @@ Expected: all tests pass.
 - Test `test/material_patch_test.dart`
 - Test `test/viewer_controller_material_test.dart`
 
-- [ ] Add public channel and target enums:
+- [x] Add public channel and target enums:
 
 ```dart
 enum MaterialMaskChannel {
@@ -353,7 +354,7 @@ enum MaterialEffectTarget {
 }
 ```
 
-- [ ] Add the public effect-mask value type:
+- [x] Add the public effect-mask value type:
 
 ```dart
 final class MaterialEffectMask {
@@ -367,10 +368,10 @@ final class MaterialEffectMask {
 }
 ```
 
-- [ ] Add `MaterialPatch.effectMask` and JSON round-trip tests. The field is a
+- [x] Add `MaterialPatch.effectMask` and JSON round-trip tests. The field is a
   V1 opaque-family feature and must not imply alpha discard, blend, glass, or
   part visibility.
-- [ ] Add resolver validation:
+- [x] Add resolver validation:
   - effect masks require authored UV0;
   - effect masks are accepted only when the resolved base family is
     `MaterialBaseFamily.opaque`;
@@ -379,19 +380,19 @@ final class MaterialEffectMask {
     `unsupportedMaterialFeature`;
   - duplicate target mappings in one mask return `invalidMaterialOverride`;
   - unsupported channel names in JSON return `invalidMaterialOverride`.
-- [ ] Add adapter behavior for the first V1 slice:
+- [x] Add adapter behavior for the first V1 slice:
   - preserve and persist the effect-mask intent;
   - do not send the mask to a fake shader path unless a real opaque shader
     consumes it;
   - if the installed `flutter_scene` standard PBR shader cannot consume the
     requested channel mapping, return `unsupportedMaterialFeature` rather than
     pretending the mask changed material output.
-- [ ] Add docs with the exact distinction:
+- [x] Add docs with the exact distinction:
   - material/effect mask: packed data inside opaque material, used for regional
     material parameters;
   - alpha cutout / masked cutout: separate family using discard;
   - visibility: node/part visibility, not mask textures.
-- [ ] Run:
+- [x] Run:
 
 ```sh
 flutter test test/material_effect_mask_test.dart test/material_patch_test.dart test/viewer_controller_material_test.dart
@@ -412,7 +413,7 @@ Expected: all tests pass.
 - Test `test/material_extension_policy_test.dart`
 - Test `test/viewer_controller_material_test.dart`
 
-- [ ] Add this public policy shape:
+- [x] Add this public policy shape:
 
 ```dart
 enum ViewerMaterialExtensionMode {
@@ -437,7 +438,7 @@ final class ViewerMaterialExtensionPolicy {
 }
 ```
 
-- [ ] Add an internal support value used by validation:
+- [x] Add an internal support value used by validation:
 
 ```dart
 final class MaterialExtensionSupport {
@@ -457,7 +458,7 @@ final class MaterialExtensionSupport {
 }
 ```
 
-- [ ] Change `MaterialPatch.validate` to accept support with a default:
+- [x] Change `MaterialPatch.validate` to accept support with a default:
 
 ```dart
 List<ViewerDiagnostic> validate(
@@ -466,18 +467,18 @@ List<ViewerDiagnostic> validate(
 })
 ```
 
-- [ ] Preserve current default behavior: glass and clearcoat patches still
+- [x] Preserve current default behavior: glass and clearcoat patches still
   return `unsupportedMaterialFeature` when support is omitted.
-- [ ] Add `MaterialExtensionSupport get materialExtensionSupport` to
+- [x] Add `MaterialExtensionSupport get materialExtensionSupport` to
   `ViewerCommandSink` so `FlutterSceneViewerController` can validate against
   the attached viewer's backend.
-- [ ] Add controller tests proving:
+- [x] Add controller tests proving:
   - default policy rejects and does not persist glass and clearcoat;
   - experimental transmission policy allows transmission intent to reach the
     sink;
   - experimental policy does not allow clearcoat when `enableClearcoat` is
     false.
-- [ ] Run:
+- [x] Run:
 
 ```sh
 flutter test test/material_patch_test.dart test/viewer_controller_material_test.dart test/material_extension_policy_test.dart
@@ -494,19 +495,19 @@ Expected: all tests pass.
 - Test `test/glb_material_extension_reader_test.dart`
 - Test `test/model_loader_test.dart`
 
-- [ ] Write a unit test that builds a minimal binary GLB in memory with:
+- [x] Write a unit test that builds a minimal binary GLB in memory with:
   - one node named `GlassPanel`;
   - one mesh primitive at primitive index `0`;
   - `TEXCOORD_0`;
   - a material containing `KHR_materials_transmission`,
     `KHR_materials_ior`, and `KHR_materials_volume`.
-- [ ] Implement a GLB JSON chunk reader that verifies:
+- [x] Implement a GLB JSON chunk reader that verifies:
   - magic is `glTF`;
   - version is `2`;
   - JSON chunk exists;
   - JSON is a map;
   - missing or malformed extension values produce diagnostics, not throws.
-- [ ] Map supported extension fields into `MaterialPatch`:
+- [x] Map supported extension fields into `MaterialPatch`:
   - `transmissionFactor` -> `transmission`
   - `transmissionTexture` -> `transmissionTexture`
   - `ior` -> `ior`
@@ -519,14 +520,14 @@ Expected: all tests pass.
   - `clearcoatRoughnessFactor` -> `clearcoatRoughness`
   - `clearcoatRoughnessTexture` -> `clearcoatRoughnessTexture`
   - `clearcoatNormalTexture` -> `clearcoatNormalTexture`
-- [ ] Keep texture object parsing minimal in this slice: record texture-bearing
+- [x] Keep texture object parsing minimal in this slice: record texture-bearing
   extension intent and require UV0, but do not implement image extraction until
   the runtime texture loader path is wired to it.
-- [ ] Build `PartAddress` keys from GLB node names and mesh primitive indices.
+- [x] Build `PartAddress` keys from GLB node names and mesh primitive indices.
   If duplicate paths make an authored extension address ambiguous, emit
   `ambiguousNodePath` and do not auto-apply that authored extension.
-- [ ] Merge reader diagnostics into `ModelLoadResult.diagnostics`.
-- [ ] Run:
+- [x] Merge reader diagnostics into `ModelLoadResult.diagnostics`.
+- [x] Run:
 
 ```sh
 flutter test test/glb_material_extension_reader_test.dart test/model_loader_test.dart
@@ -544,19 +545,19 @@ Expected: all tests pass.
 - Test `test/viewer_controller_material_test.dart`
 - Test `test/viewer_widget_test.dart`
 
-- [ ] Extend `ModelLoadResult.success` with an internal authored extension
+- [x] Extend `ModelLoadResult.success` with an internal authored extension
   patch list. Keep the public `PartTree` API stable.
-- [ ] After a successful load and part-tree creation, apply authored extension
+- [x] After a successful load and part-tree creation, apply authored extension
   patches through the same validation and adapter path as runtime patches.
-- [ ] Do not add rejected authored patches to
+- [x] Do not add rejected authored patches to
   `controller.materialOverrides`; authored GLB material state is source data,
   not user override state.
-- [ ] Add tests proving:
+- [x] Add tests proving:
   - default policy records unsupported diagnostics for authored glass;
   - experimental transmission policy sends authored glass to the adapter;
   - missing UV0 on an authored texture-bearing extension records `missingUvSet`;
   - rejected authored patches do not appear in persisted override snapshots.
-- [ ] Run:
+- [x] Run:
 
 ```sh
 flutter test test/viewer_controller_material_test.dart test/viewer_widget_test.dart
@@ -573,19 +574,20 @@ Expected: all tests pass.
 - Modify `pubspec.yaml` only when the shader asset path needs explicit listing.
 - Test `test/flutter_scene_material_extension_backend_test.dart`
 
-- [ ] Add a minimal `.fmat` material that returns a visible tint and consumes a
+- [x] Add a minimal `.fmat` material that returns a visible tint and consumes a
   scalar uniform.
-- [ ] Add `hook/build.dart`:
+- [x] Add `hook/build.dart`:
 
 ```dart
 import 'package:flutter_scene/build_hooks.dart';
 import 'package:hooks/hooks.dart';
 
-void main(List<String> args) {
-  build(args, (config, output) async {
+void main(List<String> args) async {
+  await build(args, (config, output) async {
     await buildMaterials(
       buildInput: config,
       buildOutput: output,
+      assetMode: MaterialAssetMode.dataAssetsRequired,
       materials: const <String>[
         'assets/materials/fsviewer_debug_tint.fmat',
       ],
@@ -594,12 +596,12 @@ void main(List<String> args) {
 }
 ```
 
-- [ ] Add a GPU-gated smoke test that loads the generated material through the
+- [x] Add a GPU-gated smoke test that loads the generated material through the
   documented `flutter_scene` material path. Skip with a clear message unless
   `FLUTTER_SCENE_GPU_TESTS=true`.
-- [ ] Record the exact shader build/load evidence in
+- [x] Record the exact shader build/load evidence in
   `docs/references/flutter_scene_capability_notes.md`.
-- [ ] Run:
+- [x] Run:
 
 ```sh
 flutter test test/flutter_scene_material_extension_backend_test.dart --dart-define=FLUTTER_SCENE_GPU_TESTS=true --enable-impeller --enable-flutter-gpu
@@ -618,9 +620,9 @@ Expected: the GPU-gated shader smoke passes on a compatible Flutter master.
 - Update `docs/MATERIALS_AND_LIGHTING.md`
 - Update `docs/RUNTIME_GLB_PIPELINE.md`
 
-- [ ] Allocate one internal render layer bit for transmissive primitives and
+- [x] Allocate one internal render layer bit for transmissive primitives and
   one background layer mask that excludes that bit.
-- [ ] When a transmission patch is accepted:
+- [x] When a transmission patch is accepted:
   - capture the original material and node layer state;
   - assign the node to include the transmissive layer;
   - create or reuse a background `RenderTexture`;
@@ -628,7 +630,7 @@ Expected: the GPU-gated shader smoke passes on a compatible Flutter master.
     transmissive primitives;
   - replace the primitive material with a realistic glass family
     `ShaderMaterial`.
-- [ ] Bind the transmission shader inputs:
+- [x] Bind the transmission shader inputs:
   - opaque/background render texture;
   - base color factor/texture where available;
   - normal texture and normal scale when provided;
@@ -638,20 +640,20 @@ Expected: the GPU-gated shader smoke passes on a compatible Flutter master.
   - attenuation color/distance;
   - roughness;
   - viewport size or inverse viewport size.
-- [ ] The shader must sample the background texture with a normal/IOR-derived
+- [x] The shader must sample the background texture with a normal/IOR-derived
   offset. With transmission `0.0`, output behaves like the base material; with
   transmission `1.0`, the background contribution is visibly refracted and
   attenuated.
-- [ ] The glass material must use its own realistic-glass shader and
+- [x] The glass material must use its own realistic-glass shader and
   `isOpaqueOverride = false`; it must not reuse the translucent blend family
   material or treat alpha blending as refraction.
-- [ ] Reset restores the original material and node layers.
-- [ ] Add unit tests around backend state transitions using adapter-test fakes
+- [x] Reset restores the original material and node layers.
+- [x] Add unit tests around backend state transitions using adapter-test fakes
   where possible, and GPU-gated smoke for the real shader path.
-- [ ] Add a visual smoke fixture or generated runtime scene with an obvious
+- [x] Add a visual smoke fixture or generated runtime scene with an obvious
   striped/checker object behind glass. The screenshot must make refraction
   readable without relying on alpha alone.
-- [ ] Run:
+- [x] Run:
 
 ```sh
 flutter test test/flutter_scene_material_extension_backend_test.dart
@@ -672,32 +674,38 @@ master.
 - Update `docs/MATERIALS_AND_LIGHTING.md`
 - Update `docs/generated/capability_matrix.md`
 
-- [ ] Keep `ViewerMaterialExtensionPolicy.experimentalShaders()` defaulting to
-  `enableClearcoat: false` until this task is complete.
-- [ ] Implement a clearcoat shader that adds a second dielectric specular lobe
-  controlled by:
+- [x] Keep `ViewerMaterialExtensionPolicy.experimentalShaders()` defaulting to
+  `enableClearcoat: false` and keep clearcoat support disabled until a real
+  clearcoat shader backend exists.
+- [x] Add `assets/materials/fsviewer_clearcoat.fmat` only after implementing a
+  real second dielectric specular lobe. The shader samples environment
+  specular separately from the base material and consumes:
   - `clearcoat`;
   - `clearcoatTexture`;
   - `clearcoatRoughness`;
   - `clearcoatRoughnessTexture`;
   - `clearcoatNormalTexture`;
   - `clearcoatNormalScale`.
-- [ ] Bind environment IBL through `ShaderMaterial.useEnvironment = true` so
-  the coat reflection responds to the active viewer environment.
-- [ ] Prove with tests that clearcoat fields are accepted only when
-  `enableClearcoat` is true and the shader asset loads.
-- [ ] Add visual smoke that compares:
+- [x] Bind environment IBL for clearcoat through
+  `ShaderMaterial.useEnvironment = true`.
+- [x] Prove with tests that clearcoat fields are rejected by default and are
+  accepted only when `experimentalShaders(enableClearcoat: true)` advertises
+  clearcoat support.
+- [x] Add a clearcoat visual smoke comparing:
   - base glossy material;
   - clearcoat `0.0`;
   - clearcoat `1.0` with lower clearcoat roughness.
-- [ ] Run:
+- [x] Run the clearcoat verification:
 
 ```sh
+flutter test test/material_extension_policy_test.dart test/flutter_scene_adapter_material_test.dart test/viewer_controller_material_test.dart test/flutter_scene_material_extension_backend_test.dart
 flutter test test/flutter_scene_material_extension_backend_test.dart --dart-define=FLUTTER_SCENE_GPU_TESTS=true --enable-impeller --enable-flutter-gpu
+flutter test test/flutter_scene_material_extension_backend_test.dart --plain-name "clearcoat shader renders distinct second specular lobe smoke" --dart-define=FLUTTER_SCENE_GPU_TESTS=true --dart-define=FLUTTER_SCENE_VISUAL_SMOKE=true --enable-impeller --enable-flutter-gpu
 ```
 
-Expected: clearcoat changes are visually and programmatically applied by the
-custom shader path, not by core roughness mutation.
+Expected: default clearcoat remains diagnostic-only, opt-in experimental
+clearcoat routes through a real shader path, and local GPU visual evidence is
+recorded without making a production-ready claim.
 
 ### Task 10: Final docs, capability matrix, and PR-ready notes
 
@@ -711,30 +719,32 @@ custom shader path, not by core roughness mutation.
 - Modify `README.md` only if top-level scope wording is stale.
 - Modify this plan's progress and verification logs.
 
-- [ ] Document the material categories:
+- [x] Document the material categories:
   - opaque base material: core PBR with no alpha discard or blend;
   - material/effect mask: opaque-family packed data map for regional material
     parameters, not visibility;
   - masked cutout base material: alpha-test/discard for authored cutout only;
   - translucent blend base material: current transparency, not glass;
   - realistic glass base material: opt-in screen-space refraction backend;
-  - clearcoat: diagnostic-only until the real clearcoat shader task lands.
-- [ ] Document platform gates and fallback diagnostics.
-- [ ] Document that authored extension texture slots require UV0 and that UV1
+  - clearcoat: opt-in experimental clearcoat shader backend; diagnostic-only
+    by default.
+- [x] Document platform gates and fallback diagnostics.
+- [x] Document that authored extension texture slots require UV0 and that UV1
   is never substituted.
-- [ ] Record exact `flutter_scene` PR candidates:
+- [x] Record exact `flutter_scene` PR candidates:
   - importer support for `KHR_materials_transmission`;
   - importer support for `KHR_materials_ior`;
   - importer support for `KHR_materials_volume`;
   - importer support for `KHR_materials_clearcoat`;
   - first-class PBR extension material fields or a stable material-extension
     hook that avoids package-local GLB parsing.
-- [ ] Run:
+- [x] Run:
 
 ```sh
-flutter test test/material_effect_mask_test.dart test/material_patch_test.dart test/viewer_controller_material_test.dart test/material_extension_policy_test.dart test/glb_material_extension_reader_test.dart test/flutter_scene_material_extension_backend_test.dart
+flutter test test/material_effect_mask_test.dart test/material_patch_test.dart test/viewer_controller_material_test.dart test/material_base_family_test.dart test/material_extension_policy_test.dart test/glb_material_extension_reader_test.dart test/flutter_scene_material_extension_backend_test.dart test/flutter_scene_adapter_material_test.dart
 bash tools/run_checks.sh
 python3 tools/repo_lint.py
+git diff --check
 ```
 
 Expected: all non-GPU checks pass. GPU-gated material-extension smoke evidence
@@ -742,28 +752,30 @@ is recorded when available.
 
 ## Acceptance criteria
 
-- [ ] Opaque base material, masked cutout base material, translucent blend base
+- [x] Opaque base material, masked cutout base material, translucent blend base
   material, and realistic glass base material are represented as separate
   internal material families.
-- [ ] Material/effect masks are represented as opaque-family packed channel
+- [x] Material/effect masks are represented as opaque-family packed channel
   data, require UV0, never discard pixels, and are not usable for visibility.
-- [ ] Alpha behavior is represented explicitly in `MaterialPatch`; mask maps to
+- [x] Alpha behavior is represented explicitly in `MaterialPatch`; mask maps to
   the masked cutout family, blend maps to the translucent blend family, and
   both are documented separately from glass.
-- [ ] Default policy keeps current honest behavior: unsupported glass and
+- [x] Default policy keeps current honest behavior: unsupported glass and
   clearcoat return `unsupportedMaterialFeature`, are not applied, and are not
   persisted.
-- [ ] Experimental policy is public, opt-in, and capability-aware.
-- [ ] GLB-authored material extension metadata is read from binary GLB JSON and
+- [x] Experimental policy is public, opt-in, and capability-aware.
+- [x] GLB-authored material extension metadata is read from binary GLB JSON and
   mapped to `PartAddress` without using UV1 or generating UVs.
-- [ ] Texture-bearing transmission, volume, and clearcoat extension fields
+- [x] Texture-bearing transmission, volume, and clearcoat extension fields
   require authored UV0 before they can be applied.
-- [ ] Transmission has GPU-gated visual evidence showing the realistic glass
+- [x] Transmission has GPU-gated visual evidence showing the realistic glass
   family performing real background sampling/refraction behavior, not
   alpha-only transparency or the translucent blend family.
-- [ ] Clearcoat remains diagnostic-only until a shader implements real
-  clearcoat behavior; when enabled, tests prove it is not a roughness fallback.
-- [ ] Docs and capability matrix reflect default support, experimental support,
+- [x] Clearcoat remains diagnostic-only by default and becomes available only
+  through `experimentalShaders(enableClearcoat: true)` after a shader
+  implements real clearcoat behavior; tests prove it does not fall back to
+  roughness changes.
+- [x] Docs and capability matrix reflect default support, experimental support,
   platform gates, and upstream `flutter_scene` PR candidates.
 
 ## Progress log
@@ -799,6 +811,81 @@ is recorded when available.
   masks, compression, or clearcoat rendering. Assumption: until Task 2 adds
   public alpha patch fields, alpha mask/blend intent is represented by an
   internal resolver input and visibility remains separate node/part state.
+- 2026-07-03: Implemented Task 2 alpha API slice. Added public
+  `MaterialAlphaMode`, `MaterialPatch.alphaMode`, and
+  `MaterialPatch.alphaCutoff`; wired JSON, merge, validation, resolver
+  mapping, controller persistence, and runtime adapter alpha routing for
+  supported PBR alpha behavior. Assumption: unlit alpha mask remains
+  diagnostic-only because installed `flutter_scene` treats unlit mask like
+  blend, and the viewer must not fake mask by falling back to blend.
+- 2026-07-03: Implemented Task 3 material/effect mask API slice. Added public
+  `MaterialEffectMask`, `MaterialMaskChannel`, and `MaterialEffectTarget`;
+  exported the model; added `MaterialPatch.effectMask` JSON, merge,
+  validation, UV0 checks, and opaque-family-only diagnostics. Runtime adapter
+  behavior remains honest: the standard `flutter_scene` PBR shader cannot
+  consume effect-mask channels, so the adapter reports
+  `unsupportedMaterialFeature` instead of faking rendered output.
+- 2026-07-03: Implemented Task 4 material extension policy slice. Added public
+  `ViewerMaterialExtensionPolicy` and `MaterialExtensionSupport`; made
+  `MaterialPatch.validate` capability-aware with a default unsupported support
+  matrix; wired `ViewerCommandSink.materialExtensionSupport` into controller
+  validation; and added `FlutterSceneViewer.materialExtensionPolicy` so
+  experimental transmission/IOR/volume intent can reach an attached backend
+  while default glass and clearcoat remain diagnostic-only.
+- 2026-07-03: Implemented Task 5 authored GLB material extension reader slice.
+  Added a bounded binary GLB JSON chunk reader for transmission, IOR, volume,
+  and clearcoat intent; mapped authored material extension fields into
+  `MaterialPatch` values; reported malformed extension values as diagnostics;
+  rejected texture-bearing authored extension intent without UV0; skipped
+  ambiguous duplicate node paths; and merged reader diagnostics into
+  `ModelLoadResult.diagnostics`.
+- 2026-07-03: Implemented Task 6 authored extension lifecycle slice. Extended
+  `ModelLoadResult.success` with internal authored material patches, applied
+  accepted authored patches after load through the same controller validation
+  and adapter diagnostic path as runtime patches, and kept authored source
+  material state out of `controller.materialOverrides`.
+- 2026-07-03: Implemented Task 7 packaging scaffold. Added
+  `assets/materials/fsviewer_debug_tint.fmat`, `hook/build.dart` with
+  `buildMaterials(...)`, and a GPU-gated `.fmat` material load smoke test.
+  After the initial GPU-gated run exposed that Dart DataAssets were not
+  enabled locally, enabled `enable-dart-data-assets`, required DataAssets in
+  the build hook, listed the generated shaderbundle and sidecar as test
+  assets, and verified the debug material through the
+  `PreprocessedMaterial` shaderbundle path. Assumption: this proves minimal
+  `.fmat` build/load packaging only; it is not production glass support.
+- 2026-07-03: Implemented the Task 8 experimental transmission backend core.
+  Added `assets/materials/fsviewer_transmission.fmat` and
+  `FlutterSceneMaterialExtensionBackend`; routed supported experimental glass
+  patches from `FlutterSceneRuntimeAdapter` into a separate
+  `ShaderMaterial`/`RenderTexture`/`RenderView.layerMask` path; bound
+  background, base color, normal, transmission, thickness, IOR, attenuation,
+  roughness, and inverse-viewport inputs; and restored original material and
+  node layers on reset. Assumption: the current public `flutter_scene` layer
+  API is node-level, so one glass primitive on a multi-primitive node moves
+  the node for background-capture exclusion.
+- 2026-07-03: Resolved the Task 8 visual evidence blocker. Root cause was not
+  PNG/readback itself: the visual smoke initially replaced
+  `MeshPrimitive.material` after the node was mounted, but `flutter_scene`
+  `RenderItem.material` is captured when the mesh component registers render
+  items. The backend now refreshes the mounted mesh wrapper after replacing or
+  restoring the primitive material so render items see the glass
+  `ShaderMaterial`. The visual smoke now uses direct `Scene.render` /
+  `PictureRecorder` capture instead of `SceneView` widget teardown, which hung
+  locally after producing the screenshot. The opt-in GPU visual smoke writes a
+  readable striped-behind-glass screenshot to
+  `tools/out/fsviewer_transmission_smoke.png`.
+- 2026-07-03: Completed Task 9 with an experimental clearcoat shader/backend
+  instead of leaving it diagnostic-only. Root cause for the earlier blocked
+  assessment was that the standard `flutter_scene` lit fmat path exposes only
+  core `MaterialInputs` and cannot add a clearcoat field to engine
+  `EvaluateLighting`; however, public `ShaderMaterial.useEnvironment` can bind
+  the active environment specular textures to a package-local shader. Added
+  `assets/materials/fsviewer_clearcoat.fmat`, routed
+  `experimentalShaders(enableClearcoat: true)` clearcoat-only patches through
+  `FlutterSceneMaterialExtensionBackend`, kept default clearcoat
+  diagnostic-only, and kept combined glass+clearcoat unsupported until a
+  combined shader exists. Local visual evidence writes
+  `tools/out/fsviewer_clearcoat_smoke.png`.
 
 ## Verification log
 
@@ -831,3 +918,187 @@ is recorded when available.
   stages: repo lint passed; Dart format check reported 43 files with 0
   changed; `flutter pub get` completed; `flutter analyze` reported no issues;
   `flutter test` passed 119 tests with 3 GPU-gated skips.
+- 2026-07-03: verified red for Task 2:
+  `flutter test test/material_base_family_test.dart test/material_patch_test.dart
+  test/viewer_controller_material_test.dart` failed before implementation
+  because `MaterialAlphaMode`, `MaterialPatch.alphaMode`, and
+  `MaterialPatch.alphaCutoff` did not exist. The first sandboxed attempt was
+  blocked by Flutter SDK cache writes and was rerun with escalation.
+- 2026-07-03: verified locally for Task 2:
+  `flutter test test/material_base_family_test.dart test/material_patch_test.dart
+  test/viewer_controller_material_test.dart` passed 34 tests after the first
+  sandboxed attempt was blocked by Flutter SDK cache writes and was rerun with
+  escalation.
+- 2026-07-03: verified locally for expanded Task 2 adapter-facing coverage:
+  `flutter test test/flutter_scene_adapter_material_test.dart
+  test/material_base_family_test.dart test/material_patch_test.dart
+  test/viewer_controller_material_test.dart` passed 36 tests after the first
+  sandboxed attempt was blocked by Flutter SDK cache writes and was rerun with
+  escalation.
+- 2026-07-03: verified red for Task 3:
+  `flutter test test/material_effect_mask_test.dart test/material_patch_test.dart
+  test/viewer_controller_material_test.dart` failed before implementation
+  because `MaterialEffectMask`, `MaterialMaskChannel`,
+  `MaterialEffectTarget`, and `MaterialPatch.effectMask` did not exist. The
+  first sandboxed attempt was blocked by Flutter SDK cache writes and was rerun
+  with escalation.
+- 2026-07-03: verified locally for Task 3:
+  `flutter test test/material_effect_mask_test.dart test/material_patch_test.dart
+  test/viewer_controller_material_test.dart` passed 36 tests after the first
+  sandboxed attempt was blocked by Flutter SDK cache writes and was rerun with
+  escalation.
+- 2026-07-03: verified red for Task 4:
+  `flutter test test/material_extension_policy_test.dart test/material_patch_test.dart
+  test/viewer_controller_material_test.dart test/viewer_widget_test.dart`
+  failed before implementation because `ViewerMaterialExtensionPolicy`,
+  `ViewerMaterialExtensionMode`, `MaterialExtensionSupport`,
+  `MaterialPatch.validate(... support:)`, and
+  `FlutterSceneViewer.materialExtensionPolicy` did not exist. The first
+  sandboxed attempt was blocked by Flutter SDK cache writes and was rerun with
+  escalation.
+- 2026-07-03: verified locally for Task 4:
+  `flutter test test/material_extension_policy_test.dart test/material_patch_test.dart
+  test/viewer_controller_material_test.dart test/viewer_widget_test.dart`
+  passed 67 tests after the first sandboxed attempt was blocked by Flutter SDK
+  cache writes and was rerun with escalation.
+- 2026-07-03: verified red for Task 5:
+  `flutter test test/glb_material_extension_reader_test.dart
+  test/model_loader_test.dart` failed before implementation because
+  `lib/src/internal/glb_material_extension_reader.dart` and
+  `readGlbMaterialExtensionIntent` did not exist. The model-loader test also
+  exposed a missing `dart:typed_data` import in the new test helper.
+- 2026-07-03: verified locally for Task 5:
+  `flutter test test/glb_material_extension_reader_test.dart
+  test/model_loader_test.dart` passed 16 tests with 3 GPU-gated skips after
+  rerunning with escalation for Flutter SDK cache access.
+- 2026-07-03: verified red for Task 6:
+  `flutter test test/viewer_controller_material_test.dart
+  test/viewer_widget_test.dart` failed before implementation because
+  `ModelLoadResult.success` had no `authoredMaterialPatches` argument and
+  authored patches were not applied during widget/controller load.
+- 2026-07-03: verified locally for Task 6:
+  `flutter test test/viewer_controller_material_test.dart
+  test/viewer_widget_test.dart` passed 52 tests after rerunning with
+  escalation for Flutter SDK cache access.
+- 2026-07-03: verified locally for Task 7 non-GPU path:
+  `flutter test test/flutter_scene_material_extension_backend_test.dart`
+  passed with 1 GPU-gated skip after rerunning with escalation for Flutter SDK
+  cache/build access.
+- 2026-07-03: verified locally for Task 7 GPU-gated shader load:
+  `flutter test test/flutter_scene_material_extension_backend_test.dart
+  --dart-define=FLUTTER_SCENE_GPU_TESTS=true --enable-impeller
+  --enable-flutter-gpu` passed 1 test after enabling Dart DataAssets with
+  `flutter config --enable-dart-data-assets`. The first GPU-gated attempt
+  failed because `flutter_scene.loadFmatMaterial` could not find a
+  DataAssets-backed `.fmat` index while `flutter config --list` reported
+  `enable-dart-data-assets: (Not set)`. After the config change, the hook
+  generated `build/shaderbundles/materials.shaderbundle`,
+  `build/shaderbundles/materials.fmat.json`, and
+  `build/shaderbundles/materials.index.json`; the test loads the generated
+  shader bundle and sidecar through `PreprocessedMaterial`. No production
+  glass support is claimed from this packaging smoke. Re-run before starting
+  Task 8 passed after the first sandboxed attempt was blocked by Flutter SDK
+  cache writes and was rerun with escalation.
+- 2026-07-03: verified red for Task 8 backend state transitions:
+  `flutter test test/flutter_scene_material_extension_backend_test.dart`
+  failed because
+  `lib/src/internal/flutter_scene_material_extension_backend.dart` and
+  `FlutterSceneMaterialExtensionBackend` did not exist. The first sandboxed
+  attempt was blocked by Flutter SDK cache writes and was rerun with
+  escalation.
+- 2026-07-03: verified locally for Task 8 backend state transitions:
+  `flutter test test/flutter_scene_material_extension_backend_test.dart`
+  passed 2 CPU tests with 3 GPU-gated skips after rerunning with escalation.
+- 2026-07-03: verified red for Task 8 adapter routing:
+  `flutter test test/flutter_scene_adapter_material_test.dart` failed because
+  `debugUsesMaterialExtensionBackendFor` did not exist.
+- 2026-07-03: verified locally for Task 8 adapter routing:
+  `flutter test test/flutter_scene_adapter_material_test.dart` passed 3 tests.
+- 2026-07-03: verified red for Task 8 transmission shader packaging:
+  `flutter test test/flutter_scene_material_extension_backend_test.dart
+  --dart-define=FLUTTER_SCENE_GPU_TESTS=true --enable-impeller
+  --enable-flutter-gpu` failed because the generated shader bundle did not
+  contain `FSViewerTransmission`.
+- 2026-07-03: verified locally for Task 8 transmission shader packaging:
+  `flutter test test/flutter_scene_material_extension_backend_test.dart
+  --dart-define=FLUTTER_SCENE_GPU_TESTS=true --enable-impeller
+  --enable-flutter-gpu` passed 4 tests with 1 visual-smoke skip after adding
+  `assets/materials/fsviewer_transmission.fmat` to the build hook and
+  verifying the generated shader bundle entry.
+- 2026-07-03: verified red for Task 8 mounted material replacement:
+  `flutter test test/flutter_scene_material_extension_backend_test.dart
+  --plain-name "refreshes mounted render items when replacing and restoring
+  material"` failed because the mounted `RenderItem` still referenced the
+  original material after `MeshPrimitive.material` was replaced.
+- 2026-07-03: verified locally for Task 8 mounted material replacement:
+  `flutter test test/flutter_scene_material_extension_backend_test.dart
+  --plain-name "refreshes mounted render items when replacing and restoring
+  material"` passed after rerunning with escalation. The backend refreshes the
+  node mesh wrapper after material replace/restore so mounted render items
+  re-register with the current primitive material.
+- 2026-07-03: verified locally for Task 8 visual screenshot evidence:
+  `flutter test test/flutter_scene_material_extension_backend_test.dart
+  --dart-define=FLUTTER_SCENE_GPU_TESTS=true
+  --dart-define=FLUTTER_SCENE_VISUAL_SMOKE=true --enable-impeller
+  --enable-flutter-gpu` passed 1 focused visual-smoke test after rerunning with
+  escalation. The direct `Scene.render` capture wrote
+  `tools/out/fsviewer_transmission_smoke.png`, and the test verified color
+  spread plus red/green/blue dominant samples through the glass panel.
+- 2026-07-03: re-verified locally after Task 8 cleanup:
+  `flutter test test/flutter_scene_material_extension_backend_test.dart
+  test/flutter_scene_adapter_material_test.dart` passed 6 tests with 3
+  GPU-gated skips, and `flutter test
+  test/flutter_scene_material_extension_backend_test.dart --plain-name
+  "transmission shader renders readable background refraction smoke"
+  --dart-define=FLUTTER_SCENE_GPU_TESTS=true
+  --dart-define=FLUTTER_SCENE_VISUAL_SMOKE=true --enable-impeller
+  --enable-flutter-gpu` passed 1 focused opt-in visual smoke after rerunning
+  with escalation.
+- 2026-07-03: verified red for Task 9 clearcoat backend:
+  `flutter test test/material_extension_policy_test.dart
+  test/flutter_scene_adapter_material_test.dart
+  test/viewer_controller_material_test.dart
+  test/flutter_scene_material_extension_backend_test.dart` failed before
+  implementation because `createClearcoatMaterial`, `applyClearcoatPatch`,
+  `resetClearcoatPatch`, and `clearcoatShaderName` did not exist, and the
+  policy still returned `support.clearcoat == false` when
+  `enableClearcoat: true` was requested.
+- 2026-07-03: verified locally for Task 9 CPU/controller/adapter coverage:
+  `flutter test test/material_extension_policy_test.dart
+  test/flutter_scene_adapter_material_test.dart
+  test/viewer_controller_material_test.dart
+  test/flutter_scene_material_extension_backend_test.dart` passed 38 tests
+  with 4 GPU-gated skips after rerunning with escalation for Flutter SDK cache
+  access.
+- 2026-07-03: verified locally for Task 9 GPU-gated shader load:
+  `flutter test test/flutter_scene_material_extension_backend_test.dart
+  --dart-define=FLUTTER_SCENE_GPU_TESTS=true --enable-impeller
+  --enable-flutter-gpu` passed 8 tests with 2 opt-in visual-smoke skips after
+  rerunning with escalation. The generated shader bundle contains and loads
+  `FSViewerClearcoat`.
+- 2026-07-03: verified locally for Task 9 clearcoat visual evidence:
+  `flutter test test/flutter_scene_material_extension_backend_test.dart
+  --plain-name "clearcoat shader renders distinct second specular lobe smoke"
+  --dart-define=FLUTTER_SCENE_GPU_TESTS=true
+  --dart-define=FLUTTER_SCENE_VISUAL_SMOKE=true --enable-impeller
+  --enable-flutter-gpu` passed 1 focused opt-in visual smoke after rerunning
+  with escalation and wrote `tools/out/fsviewer_clearcoat_smoke.png`.
+- 2026-07-03: verified locally for final focused suite:
+  `flutter test test/material_effect_mask_test.dart test/material_patch_test.dart
+  test/viewer_controller_material_test.dart test/material_base_family_test.dart
+  test/material_extension_policy_test.dart
+  test/glb_material_extension_reader_test.dart
+  test/flutter_scene_material_extension_backend_test.dart
+  test/flutter_scene_adapter_material_test.dart` passed 68 tests with 5
+  GPU-gated skips after the first sandboxed attempt was blocked by Flutter SDK
+  cache writes and was rerun with escalation.
+- 2026-07-03: verified locally for final repo checks:
+  `bash tools/run_checks.sh` passed after the first sandboxed attempts were
+  blocked by Flutter SDK cache writes and after one intermediate run formatted
+  three existing files and one analyzer run exposed dependency/hygiene fixes.
+  Final output: repo lint passed; Dart format changed 0 files; `flutter pub
+  get` completed; `flutter analyze` reported no issues; `flutter test` passed
+  166 tests with 8 GPU-gated skips.
+- 2026-07-03: verified locally after final docs update:
+  `python3 tools/repo_lint.py` passed and `git diff --check` reported no
+  whitespace errors.

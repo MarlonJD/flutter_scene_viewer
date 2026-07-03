@@ -1,0 +1,940 @@
+import 'dart:convert';
+
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_scene/gpu.dart' as flutter_scene_gpu;
+import 'package:flutter_scene/scene.dart' as flutter_scene;
+import 'package:vector_math/vector_math.dart' as vm;
+
+import '../diagnostics.dart';
+import '../material_extension_policy.dart';
+import '../material_patch.dart';
+import '../part_address.dart';
+import 'render_surface.dart';
+
+typedef CreateTransmissionMaterial = Future<flutter_scene.ShaderMaterial>
+    Function(FlutterSceneTransmissionMaterialConfig config);
+
+typedef CreateClearcoatMaterial = Future<flutter_scene.Material> Function(
+    FlutterSceneClearcoatMaterialConfig config);
+
+typedef LoadMaterialExtensionShaderLibrary
+    = Future<MaterialExtensionShaderLibrary?> Function(String assetPath);
+
+abstract interface class MaterialExtensionShaderLibrary {
+  Object? operator [](String shaderName);
+}
+
+final class MaterialExtensionPreflightResult {
+  const MaterialExtensionPreflightResult({
+    required this.support,
+    this.diagnostics = const <ViewerDiagnostic>[],
+  });
+
+  final MaterialExtensionSupport support;
+  final List<ViewerDiagnostic> diagnostics;
+}
+
+/// Experimental flutter_scene custom-material backend for material extensions.
+///
+/// This owns only backend state that cannot be expressed through standard PBR
+/// fields: render-texture capture, layer separation, and shader-material
+/// replacement. It is intentionally internal and capability-gated by
+/// [ViewerMaterialExtensionPolicy].
+final class FlutterSceneMaterialExtensionBackend {
+  FlutterSceneMaterialExtensionBackend({
+    int renderTextureWidth = 1024,
+    int renderTextureHeight = 1024,
+    bool bindFallbackTextures = true,
+    CreateTransmissionMaterial? createTransmissionMaterial,
+    CreateClearcoatMaterial? createClearcoatMaterial,
+    LoadMaterialExtensionShaderLibrary? loadShaderLibrary,
+  })  : assert(renderTextureWidth > 0),
+        assert(renderTextureHeight > 0),
+        _renderTextureWidth = renderTextureWidth,
+        _renderTextureHeight = renderTextureHeight,
+        _bindFallbackTextures = bindFallbackTextures,
+        _createTransmissionMaterial =
+            createTransmissionMaterial ?? _loadTransmissionMaterial,
+        _createClearcoatMaterial =
+            createClearcoatMaterial ?? _loadClearcoatMaterial,
+        _loadShaderLibrary =
+            loadShaderLibrary ?? _loadMaterialExtensionShaderLibrary;
+
+  static const int transmissiveLayer = 1 << 30;
+  static const int backgroundLayerMask =
+      flutter_scene.kRenderLayerAll ^ transmissiveLayer;
+  static const String shaderBundleAsset =
+      'build/shaderbundles/materials.shaderbundle';
+  static const String packagedShaderBundleAsset =
+      'packages/flutter_scene_viewer/build/shaderbundles/materials.shaderbundle';
+  static const String transmissionShaderName = 'FSViewerTransmission';
+  static const String clearcoatShaderName = 'FSViewerClearcoat';
+  static const String materialParamsBlockName = 'MaterialParams';
+  static const String backgroundTextureName = 'backgroundTexture';
+  static const int maxBackgroundTextureExtent = 4096;
+
+  int _renderTextureWidth;
+  int _renderTextureHeight;
+  final bool _bindFallbackTextures;
+  final CreateTransmissionMaterial _createTransmissionMaterial;
+  final CreateClearcoatMaterial _createClearcoatMaterial;
+  final LoadMaterialExtensionShaderLibrary _loadShaderLibrary;
+  final Map<flutter_scene.MeshPrimitive, _MaterialExtensionState> _states =
+      <flutter_scene.MeshPrimitive, _MaterialExtensionState>{};
+  final Set<flutter_scene.MeshPrimitive> _transmissionPrimitives =
+      Set<flutter_scene.MeshPrimitive>.identity();
+
+  flutter_scene.RenderTexture? _backgroundTexture;
+  flutter_scene.RenderView? _backgroundView;
+  RenderCameraFrame? _cameraFrame;
+  MaterialExtensionPreflightResult? _productionPreflightResult;
+
+  (int width, int height) get debugBackgroundTextureSize =>
+      (_renderTextureWidth, _renderTextureHeight);
+
+  int get debugActivePatchCount => _states.length;
+
+  bool get debugHasProductionPreflight => _productionPreflightResult != null;
+
+  Future<MaterialExtensionPreflightResult> preflightProductionSupport() async {
+    final cached = _productionPreflightResult;
+    if (cached != null) {
+      return cached;
+    }
+
+    Object? lastError;
+    String? lastAssetPath;
+    List<String> lastMissingShaders = const <String>[];
+    for (final assetPath in _shaderBundleAssetCandidates) {
+      lastAssetPath = assetPath;
+      try {
+        final library = await _loadShaderLibrary(assetPath);
+        if (library == null) {
+          lastMissingShaders = _requiredProductionShaders;
+          continue;
+        }
+        final missingShaders = <String>[
+          for (final shaderName in _requiredProductionShaders)
+            if (library[shaderName] == null) shaderName,
+        ];
+        if (missingShaders.isEmpty) {
+          return _productionPreflightResult =
+              const MaterialExtensionPreflightResult(
+            support: MaterialExtensionSupport(
+              transmission: true,
+              ior: true,
+              volume: true,
+              clearcoat: true,
+              productionReady: true,
+            ),
+          );
+        }
+        lastMissingShaders = List<String>.unmodifiable(missingShaders);
+      } on Object catch (error) {
+        lastError = error;
+        lastMissingShaders = _requiredProductionShaders;
+      }
+    }
+
+    return _productionPreflightResult = MaterialExtensionPreflightResult(
+      support: MaterialExtensionSupport.unsupported,
+      diagnostics: <ViewerDiagnostic>[
+        _productionPreflightDiagnostic(
+          assetPath: lastAssetPath,
+          missingShaders: lastMissingShaders,
+          error: lastError,
+        ),
+      ],
+    );
+  }
+
+  List<ViewerDiagnostic> updateViewport({
+    required double width,
+    required double height,
+    required double pixelRatio,
+  }) {
+    if (!width.isFinite ||
+        !height.isFinite ||
+        !pixelRatio.isFinite ||
+        width <= 0 ||
+        height <= 0 ||
+        pixelRatio <= 0) {
+      return <ViewerDiagnostic>[
+        ViewerDiagnostic(
+          code: ViewerDiagnosticCode.invalidMaterialOverride,
+          message:
+              'Production material extension viewport size must be positive and finite.',
+          details: <String, Object?>{
+            'stage': 'renderTextureResize',
+            'width': width,
+            'height': height,
+            'pixelRatio': pixelRatio,
+            'status': 'invalid',
+          },
+        ),
+      ];
+    }
+
+    final requestedWidth = (width * pixelRatio).ceil();
+    final requestedHeight = (height * pixelRatio).ceil();
+    final nextWidth =
+        requestedWidth.clamp(1, maxBackgroundTextureExtent).toInt();
+    final nextHeight =
+        requestedHeight.clamp(1, maxBackgroundTextureExtent).toInt();
+    final clamped =
+        nextWidth != requestedWidth || nextHeight != requestedHeight;
+    if (nextWidth != _renderTextureWidth ||
+        nextHeight != _renderTextureHeight) {
+      _renderTextureWidth = nextWidth;
+      _renderTextureHeight = nextHeight;
+      _backgroundTexture?.resize(nextWidth, nextHeight);
+    }
+    if (!clamped) {
+      return const <ViewerDiagnostic>[];
+    }
+    return <ViewerDiagnostic>[
+      ViewerDiagnostic(
+        code: ViewerDiagnosticCode.unsupportedMaterialFeature,
+        message:
+            'Production material extension background texture size was clamped.',
+        details: <String, Object?>{
+          'stage': 'renderTextureResize',
+          'requestedWidth': requestedWidth,
+          'requestedHeight': requestedHeight,
+          'width': nextWidth,
+          'height': nextHeight,
+          'maxTextureExtent': maxBackgroundTextureExtent,
+          'status': 'clamped',
+        },
+      ),
+    ];
+  }
+
+  Future<List<ViewerDiagnostic>> applyTransmissionPatch({
+    required List<flutter_scene.RenderView> sceneViews,
+    required flutter_scene.Node node,
+    required flutter_scene.MeshPrimitive primitive,
+    required PartAddress address,
+    required MaterialPatch patch,
+    Object? baseColorTexture,
+    Object? normalTexture,
+    Object? transmissionTexture,
+    Object? thicknessTexture,
+  }) async {
+    final backgroundTexture = _ensureBackgroundTexture();
+    final materialConfig = FlutterSceneTransmissionMaterialConfig(
+      patch: patch,
+      backgroundTexture: backgroundTexture,
+      renderTextureWidth: _renderTextureWidth,
+      renderTextureHeight: _renderTextureHeight,
+      bindFallbackTextures: _bindFallbackTextures,
+      baseColorTexture: baseColorTexture,
+      normalTexture: normalTexture,
+      transmissionTexture: transmissionTexture,
+      thicknessTexture: thicknessTexture,
+    );
+
+    final flutter_scene.ShaderMaterial material;
+    try {
+      material = await _createTransmissionMaterial(materialConfig);
+    } on Object catch (error) {
+      return <ViewerDiagnostic>[_shaderUnavailableDiagnostic(address, error)];
+    }
+
+    _configureTransmissionMaterial(material, materialConfig);
+    _states.putIfAbsent(
+      primitive,
+      () => _MaterialExtensionState(
+        node: node,
+        primitive: primitive,
+        originalLayers: node.layers,
+        originalMaterial: primitive.material,
+      ),
+    );
+    _transmissionPrimitives.add(primitive);
+    node.layers = transmissiveLayer;
+    primitive.material = material;
+    _refreshMountedMesh(node);
+    _ensureBackgroundView(sceneViews, backgroundTexture);
+    return const <ViewerDiagnostic>[];
+  }
+
+  Future<List<ViewerDiagnostic>> applyClearcoatPatch({
+    required flutter_scene.Node node,
+    required flutter_scene.MeshPrimitive primitive,
+    required PartAddress address,
+    required MaterialPatch patch,
+    Object? baseColorTexture,
+    Object? metallicRoughnessTexture,
+    Object? normalTexture,
+    Object? occlusionTexture,
+    Object? emissiveTexture,
+    Object? clearcoatTexture,
+    Object? clearcoatRoughnessTexture,
+    Object? clearcoatNormalTexture,
+  }) async {
+    final baseMaterial = primitive.material;
+    final materialConfig = FlutterSceneClearcoatMaterialConfig(
+      patch: patch,
+      sourceMaterial: baseMaterial is flutter_scene.PhysicallyBasedMaterial
+          ? baseMaterial
+          : null,
+      bindFallbackTextures: _bindFallbackTextures,
+      baseColorTexture: baseColorTexture,
+      metallicRoughnessTexture: metallicRoughnessTexture,
+      normalTexture: normalTexture,
+      occlusionTexture: occlusionTexture,
+      emissiveTexture: emissiveTexture,
+      clearcoatTexture: clearcoatTexture,
+      clearcoatRoughnessTexture: clearcoatRoughnessTexture,
+      clearcoatNormalTexture: clearcoatNormalTexture,
+    );
+
+    final flutter_scene.Material material;
+    try {
+      material = await _createClearcoatMaterial(materialConfig);
+    } on Object catch (error) {
+      return <ViewerDiagnostic>[
+        _clearcoatShaderUnavailableDiagnostic(address, error),
+      ];
+    }
+
+    _configureClearcoatMaterial(material, materialConfig);
+    _states.putIfAbsent(
+      primitive,
+      () => _MaterialExtensionState(
+        node: node,
+        primitive: primitive,
+        originalLayers: node.layers,
+        originalMaterial: primitive.material,
+      ),
+    );
+    primitive.material = material;
+    _refreshMountedMesh(node);
+    return const <ViewerDiagnostic>[];
+  }
+
+  void updateCamera(RenderCameraFrame camera) {
+    _cameraFrame = camera;
+    final backgroundView = _backgroundView;
+    if (backgroundView != null) {
+      backgroundView.camera = _camera(camera);
+    }
+  }
+
+  void resetTransmissionPatch({
+    required List<flutter_scene.RenderView> sceneViews,
+    required flutter_scene.Node node,
+    required flutter_scene.MeshPrimitive primitive,
+  }) {
+    final state = _states.remove(primitive);
+    _transmissionPrimitives.remove(primitive);
+    if (state != null) {
+      state.restore();
+      _refreshMountedMesh(state.node);
+    }
+    if (_transmissionPrimitives.isEmpty) {
+      final backgroundView = _backgroundView;
+      if (backgroundView != null) {
+        sceneViews.remove(backgroundView);
+      }
+      _backgroundView = null;
+    }
+  }
+
+  void resetClearcoatPatch({
+    required flutter_scene.Node node,
+    required flutter_scene.MeshPrimitive primitive,
+  }) {
+    final state = _states.remove(primitive);
+    if (state != null) {
+      state.restore();
+      _refreshMountedMesh(state.node);
+    }
+  }
+
+  void clear({List<flutter_scene.RenderView>? sceneViews}) {
+    final backgroundView = _backgroundView;
+    if (sceneViews != null && backgroundView != null) {
+      sceneViews.remove(backgroundView);
+    }
+    for (final state in _states.values) {
+      state.restore();
+      _refreshMountedMesh(state.node);
+    }
+    _states.clear();
+    _transmissionPrimitives.clear();
+    _backgroundView = null;
+    _backgroundTexture = null;
+    _productionPreflightResult = null;
+  }
+
+  static void _refreshMountedMesh(flutter_scene.Node node) {
+    final mesh = node.mesh;
+    if (mesh == null) {
+      return;
+    }
+    node.mesh = flutter_scene.Mesh.primitives(
+      primitives: List<flutter_scene.MeshPrimitive>.of(mesh.primitives),
+    );
+  }
+
+  flutter_scene.RenderTexture _ensureBackgroundTexture() {
+    return _backgroundTexture ??= flutter_scene.RenderTexture(
+      width: _renderTextureWidth,
+      height: _renderTextureHeight,
+      update: flutter_scene.RenderTextureUpdate.everyFrame,
+    );
+  }
+
+  void _ensureBackgroundView(
+    List<flutter_scene.RenderView> sceneViews,
+    flutter_scene.RenderTexture backgroundTexture,
+  ) {
+    final view = _backgroundView ??= flutter_scene.RenderView(
+      camera: _camera(_cameraFrame ?? _defaultCameraFrame),
+      target: backgroundTexture,
+      layerMask: backgroundLayerMask,
+      order: -100,
+    );
+    if (!sceneViews.contains(view)) {
+      sceneViews.add(view);
+    }
+  }
+
+  static Future<flutter_scene.ShaderMaterial> _loadTransmissionMaterial(
+    FlutterSceneTransmissionMaterialConfig config,
+  ) async {
+    Object? lastError;
+    for (final assetPath in _shaderBundleAssetCandidates) {
+      try {
+        final library =
+            await flutter_scene_gpu.loadShaderLibraryAsync(assetPath);
+        final shader = library?[transmissionShaderName];
+        if (shader != null) {
+          return flutter_scene.ShaderMaterial(
+            fragmentShader: shader,
+            isOpaqueOverride: false,
+          );
+        }
+        lastError = StateError(
+          'Shader entry "$transmissionShaderName" was not found in $assetPath.',
+        );
+      } on Object catch (error) {
+        lastError = error;
+      }
+    }
+    throw StateError(lastError?.toString() ?? 'Transmission shader not found.');
+  }
+
+  static Future<flutter_scene.Material> _loadClearcoatMaterial(
+    FlutterSceneClearcoatMaterialConfig config,
+  ) async {
+    Object? lastError;
+    for (final assetPath in _shaderBundleAssetCandidates) {
+      try {
+        final library =
+            await flutter_scene_gpu.loadShaderLibraryAsync(assetPath);
+        final shader = library?[clearcoatShaderName];
+        if (shader != null) {
+          final metadata = await _loadFmatMetadata(
+            assetPath: assetPath,
+            materialName: clearcoatShaderName,
+          );
+          return flutter_scene.PreprocessedMaterial(
+            fragmentShader: shader,
+            metadata: metadata,
+          );
+        }
+        lastError = StateError(
+          'Shader entry "$clearcoatShaderName" was not found in $assetPath.',
+        );
+      } on Object catch (error) {
+        lastError = error;
+      }
+    }
+    throw StateError(lastError?.toString() ?? 'Clearcoat shader not found.');
+  }
+
+  static void _configureTransmissionMaterial(
+    flutter_scene.ShaderMaterial material,
+    FlutterSceneTransmissionMaterialConfig config,
+  ) {
+    material
+      ..isOpaqueOverride = false
+      ..setTexture(backgroundTextureName, config.backgroundTexture)
+      ..setUniformBlockFromFloats(
+        materialParamsBlockName,
+        _materialParams(config),
+      );
+    material
+      ..setTexture(
+        'baseColorTexture',
+        config.baseColorTexture ?? config.whiteFallbackTexture,
+      )
+      ..setTexture(
+        'normalTexture',
+        config.normalTexture ?? config.normalFallbackTexture,
+      )
+      ..setTexture(
+        'transmissionTexture',
+        config.transmissionTexture ?? config.whiteFallbackTexture,
+      )
+      ..setTexture(
+        'thicknessTexture',
+        config.thicknessTexture ?? config.whiteFallbackTexture,
+      );
+  }
+
+  static List<double> _materialParams(
+    FlutterSceneTransmissionMaterialConfig config,
+  ) {
+    final patch = config.patch;
+    final baseColor = patch.baseColorFactor ?? const <double>[1, 1, 1, 1];
+    final attenuationColor = patch.attenuationColor ?? const <double>[1, 1, 1];
+    return <double>[
+      baseColor[0],
+      baseColor[1],
+      baseColor[2],
+      baseColor[3],
+      attenuationColor[0],
+      attenuationColor[1],
+      attenuationColor[2],
+      patch.attenuationDistance ?? 0.0,
+      patch.transmission ?? 0.0,
+      patch.ior ?? 1.5,
+      patch.thickness ?? 0.0,
+      patch.roughness ?? 0.0,
+      1.0 / config.renderTextureWidth,
+      1.0 / config.renderTextureHeight,
+      patch.normalScale ?? 1.0,
+      0.0,
+    ];
+  }
+
+  static void _configureClearcoatMaterial(
+    flutter_scene.Material material,
+    FlutterSceneClearcoatMaterialConfig config,
+  ) {
+    if (material is flutter_scene.PreprocessedMaterial) {
+      _configurePreprocessedClearcoatMaterial(material, config);
+      return;
+    }
+    if (material is! flutter_scene.ShaderMaterial) {
+      return;
+    }
+    material
+      ..useEnvironment = true
+      ..isOpaqueOverride = true
+      ..setUniformBlockFromFloats(
+        materialParamsBlockName,
+        _clearcoatMaterialParams(config),
+      );
+    material
+      ..setTexture(
+        'baseColorTexture',
+        config.baseColorTexture ??
+            config.sourceBaseColorTexture ??
+            config.whiteFallbackTexture,
+      )
+      ..setTexture(
+        'metallicRoughnessTexture',
+        config.metallicRoughnessTexture ??
+            config.sourceMetallicRoughnessTexture ??
+            config.whiteFallbackTexture,
+      )
+      ..setTexture(
+        'normalTexture',
+        config.normalTexture ??
+            config.sourceNormalTexture ??
+            config.normalFallbackTexture,
+      )
+      ..setTexture(
+        'occlusionTexture',
+        config.occlusionTexture ??
+            config.sourceOcclusionTexture ??
+            config.whiteFallbackTexture,
+      )
+      ..setTexture(
+        'emissiveTexture',
+        config.emissiveTexture ??
+            config.sourceEmissiveTexture ??
+            config.blackFallbackTexture,
+      )
+      ..setTexture(
+        'clearcoatTexture',
+        config.clearcoatTexture ?? config.whiteFallbackTexture,
+      )
+      ..setTexture(
+        'clearcoatRoughnessTexture',
+        config.clearcoatRoughnessTexture ?? config.whiteFallbackTexture,
+      )
+      ..setTexture(
+        'clearcoatNormalTexture',
+        config.clearcoatNormalTexture ?? config.normalFallbackTexture,
+      );
+  }
+
+  static void _configurePreprocessedClearcoatMaterial(
+    flutter_scene.PreprocessedMaterial material,
+    FlutterSceneClearcoatMaterialConfig config,
+  ) {
+    final params = material.parameters;
+    final values = _clearcoatMaterialParams(config);
+    params
+      ..setVec4(
+        'baseColorFactor',
+        vm.Vector4(values[0], values[1], values[2], values[3]),
+      )
+      ..setVec4(
+        'materialFactors',
+        vm.Vector4(values[4], values[5], values[6], values[7]),
+      )
+      ..setVec4(
+        'normalFactors',
+        vm.Vector4(values[8], values[9], values[10], values[11]),
+      )
+      ..setVec4(
+        'emissiveFactor',
+        _emissiveFactor(config),
+      );
+    _setPreprocessedTexture(
+      params,
+      'baseColorTexture',
+      config.baseColorTexture ?? config.sourceBaseColorTexture,
+    );
+    _setPreprocessedTexture(
+      params,
+      'metallicRoughnessTexture',
+      config.metallicRoughnessTexture ?? config.sourceMetallicRoughnessTexture,
+    );
+    _setPreprocessedTexture(
+      params,
+      'normalTexture',
+      config.normalTexture ?? config.sourceNormalTexture,
+    );
+    _setPreprocessedTexture(
+      params,
+      'occlusionTexture',
+      config.occlusionTexture ?? config.sourceOcclusionTexture,
+    );
+    _setPreprocessedTexture(
+      params,
+      'emissiveTexture',
+      config.emissiveTexture ?? config.sourceEmissiveTexture,
+    );
+    _setPreprocessedTexture(
+      params,
+      'clearcoatTexture',
+      config.clearcoatTexture,
+    );
+    _setPreprocessedTexture(
+      params,
+      'clearcoatRoughnessTexture',
+      config.clearcoatRoughnessTexture,
+    );
+    _setPreprocessedTexture(
+      params,
+      'clearcoatNormalTexture',
+      config.clearcoatNormalTexture,
+    );
+  }
+
+  static void _setPreprocessedTexture(
+    flutter_scene.MaterialParameters params,
+    String name,
+    Object? texture,
+  ) {
+    if (texture is flutter_scene_gpu.Texture) {
+      params.setTexture(name, texture);
+    }
+  }
+
+  static List<double> _clearcoatMaterialParams(
+    FlutterSceneClearcoatMaterialConfig config,
+  ) {
+    final patch = config.patch;
+    final source = config.sourceMaterial;
+    final baseColor =
+        patch.baseColorFactor ?? _vector4List(source?.baseColorFactor);
+    return <double>[
+      baseColor[0],
+      baseColor[1],
+      baseColor[2],
+      baseColor[3],
+      patch.metallic ?? source?.metallicFactor ?? 1.0,
+      patch.roughness ?? source?.roughnessFactor ?? 1.0,
+      patch.clearcoat ?? 0.0,
+      patch.clearcoatRoughness ?? 0.0,
+      patch.normalScale ?? source?.normalScale ?? 1.0,
+      patch.clearcoatNormalScale ?? 1.0,
+      config.clearcoatNormalTexture == null ? 0.0 : 1.0,
+      0.0,
+    ];
+  }
+
+  static vm.Vector4 _emissiveFactor(
+    FlutterSceneClearcoatMaterialConfig config,
+  ) {
+    final patch = config.patch.emissiveFactor;
+    if (patch != null) {
+      return vm.Vector4(patch[0], patch[1], patch[2], 1.0);
+    }
+    return config.sourceMaterial?.emissiveFactor.clone() ?? vm.Vector4.zero();
+  }
+
+  static ViewerDiagnostic _shaderUnavailableDiagnostic(
+    PartAddress address,
+    Object error,
+  ) {
+    return ViewerDiagnostic(
+      code: ViewerDiagnosticCode.unsupportedMaterialFeature,
+      message:
+          'Transmission/glass requires the experimental flutter_scene shader backend, but the transmission shader could not be loaded.',
+      details: <String, Object?>{
+        'part': address.debugPath,
+        'feature': 'transmission',
+        'shader': transmissionShaderName,
+        'status': 'shaderUnavailable',
+        'error': error.toString(),
+      },
+    );
+  }
+
+  static ViewerDiagnostic _clearcoatShaderUnavailableDiagnostic(
+    PartAddress address,
+    Object error,
+  ) {
+    return ViewerDiagnostic(
+      code: ViewerDiagnosticCode.unsupportedMaterialFeature,
+      message:
+          'Clearcoat requires the experimental flutter_scene shader backend, but the clearcoat shader could not be loaded.',
+      details: <String, Object?>{
+        'part': address.debugPath,
+        'feature': 'clearcoat',
+        'shader': clearcoatShaderName,
+        'status': 'shaderUnavailable',
+        'error': error.toString(),
+      },
+    );
+  }
+
+  static Future<MaterialExtensionShaderLibrary?>
+      _loadMaterialExtensionShaderLibrary(String assetPath) async {
+    final library = await flutter_scene_gpu.loadShaderLibraryAsync(assetPath);
+    return library == null ? null : _FlutterSceneShaderLibrary(library);
+  }
+
+  static Future<Map<String, Object?>> _loadFmatMetadata({
+    required String assetPath,
+    required String materialName,
+  }) async {
+    final sidecarPath = _fmatSidecarPath(assetPath);
+    final decoded = jsonDecode(await rootBundle.loadString(sidecarPath)) as Map;
+    final rawMetadata = decoded[materialName];
+    if (rawMetadata is! Map) {
+      throw StateError(
+        'Material metadata "$materialName" was not found in $sidecarPath.',
+      );
+    }
+    return rawMetadata.cast<String, Object?>();
+  }
+
+  static ViewerDiagnostic _productionPreflightDiagnostic({
+    required String? assetPath,
+    required List<String> missingShaders,
+    Object? error,
+  }) {
+    return ViewerDiagnostic(
+      code: ViewerDiagnosticCode.unsupportedMaterialFeature,
+      message:
+          'Production material extension shaders are not available for this target.',
+      details: <String, Object?>{
+        'stage': 'shaderPreflight',
+        'shader': missingShaders,
+        'assetPath': assetPath,
+        'platform': _platformLabel,
+        'status': 'unavailable',
+        if (error != null) 'error': error.toString(),
+      },
+    );
+  }
+}
+
+const List<String> _shaderBundleAssetCandidates = <String>[
+  FlutterSceneMaterialExtensionBackend.shaderBundleAsset,
+  FlutterSceneMaterialExtensionBackend.packagedShaderBundleAsset,
+];
+
+const List<String> _requiredProductionShaders = <String>[
+  FlutterSceneMaterialExtensionBackend.transmissionShaderName,
+  FlutterSceneMaterialExtensionBackend.clearcoatShaderName,
+];
+
+String _fmatSidecarPath(String shaderBundlePath) =>
+    shaderBundlePath.replaceFirst('.shaderbundle', '.fmat.json');
+
+String get _platformLabel {
+  if (kIsWeb) {
+    return 'web';
+  }
+  return defaultTargetPlatform.name;
+}
+
+final class _FlutterSceneShaderLibrary
+    implements MaterialExtensionShaderLibrary {
+  const _FlutterSceneShaderLibrary(this._library);
+
+  final flutter_scene_gpu.ShaderLibrary _library;
+
+  @override
+  Object? operator [](String shaderName) => _library[shaderName];
+}
+
+final class FlutterSceneTransmissionMaterialConfig {
+  const FlutterSceneTransmissionMaterialConfig({
+    required this.patch,
+    required this.backgroundTexture,
+    required this.renderTextureWidth,
+    required this.renderTextureHeight,
+    required this.bindFallbackTextures,
+    this.baseColorTexture,
+    this.normalTexture,
+    this.transmissionTexture,
+    this.thicknessTexture,
+  });
+
+  final MaterialPatch patch;
+  final flutter_scene.RenderTexture backgroundTexture;
+  final int renderTextureWidth;
+  final int renderTextureHeight;
+  final bool bindFallbackTextures;
+  final Object? baseColorTexture;
+  final Object? normalTexture;
+  final Object? transmissionTexture;
+  final Object? thicknessTexture;
+
+  Object? get whiteFallbackTexture => bindFallbackTextures
+      ? flutter_scene.Material.getWhitePlaceholderTexture()
+      : null;
+
+  Object? get normalFallbackTexture => bindFallbackTextures
+      ? flutter_scene.Material.getNormalPlaceholderTexture()
+      : null;
+}
+
+final class FlutterSceneClearcoatMaterialConfig {
+  const FlutterSceneClearcoatMaterialConfig({
+    required this.patch,
+    required this.bindFallbackTextures,
+    this.sourceMaterial,
+    this.baseColorTexture,
+    this.metallicRoughnessTexture,
+    this.normalTexture,
+    this.occlusionTexture,
+    this.emissiveTexture,
+    this.clearcoatTexture,
+    this.clearcoatRoughnessTexture,
+    this.clearcoatNormalTexture,
+  });
+
+  final MaterialPatch patch;
+  final flutter_scene.PhysicallyBasedMaterial? sourceMaterial;
+  final bool bindFallbackTextures;
+  final Object? baseColorTexture;
+  final Object? metallicRoughnessTexture;
+  final Object? normalTexture;
+  final Object? occlusionTexture;
+  final Object? emissiveTexture;
+  final Object? clearcoatTexture;
+  final Object? clearcoatRoughnessTexture;
+  final Object? clearcoatNormalTexture;
+
+  Object? get sourceBaseColorTexture {
+    // ignore: invalid_use_of_internal_member
+    return sourceMaterial?.baseColorTextureSource;
+  }
+
+  Object? get sourceMetallicRoughnessTexture {
+    // ignore: invalid_use_of_internal_member
+    return sourceMaterial?.metallicRoughnessTextureSource;
+  }
+
+  Object? get sourceNormalTexture {
+    // ignore: invalid_use_of_internal_member
+    return sourceMaterial?.normalTextureSource;
+  }
+
+  Object? get sourceOcclusionTexture {
+    // ignore: invalid_use_of_internal_member
+    return sourceMaterial?.occlusionTextureSource;
+  }
+
+  Object? get sourceEmissiveTexture {
+    // ignore: invalid_use_of_internal_member
+    return sourceMaterial?.emissiveTextureSource;
+  }
+
+  Object? get whiteFallbackTexture => bindFallbackTextures
+      ? flutter_scene.Material.getWhitePlaceholderTexture()
+      : null;
+
+  Object? get normalFallbackTexture => bindFallbackTextures
+      ? flutter_scene.Material.getNormalPlaceholderTexture()
+      : null;
+
+  Object? get blackFallbackTexture => bindFallbackTextures
+      ? flutter_scene.Material.getBlackPlaceholderTexture()
+      : null;
+}
+
+final class _MaterialExtensionState {
+  const _MaterialExtensionState({
+    required this.node,
+    required this.primitive,
+    required this.originalLayers,
+    required this.originalMaterial,
+  });
+
+  final flutter_scene.Node node;
+  final flutter_scene.MeshPrimitive primitive;
+  final int originalLayers;
+  final flutter_scene.Material originalMaterial;
+
+  void restore() {
+    node.layers = originalLayers;
+    primitive.material = originalMaterial;
+  }
+}
+
+flutter_scene.PerspectiveCamera _camera(RenderCameraFrame frame) {
+  return flutter_scene.PerspectiveCamera(
+    position: _vector3(frame.position),
+    target: _vector3(frame.target),
+    up: _vector3(frame.up),
+    fovRadiansY: frame.verticalFovRadians,
+    fovNear: frame.near,
+    fovFar: frame.far,
+  );
+}
+
+List<double> _vector4List(vm.Vector4? vector) {
+  if (vector == null) {
+    return const <double>[1, 1, 1, 1];
+  }
+  return <double>[vector.x, vector.y, vector.z, vector.w];
+}
+
+const RenderCameraFrame _defaultCameraFrame = RenderCameraFrame(
+  position: <double>[0, 0, 1],
+  target: <double>[0, 0, 0],
+);
+
+vm.Vector3 _vector3(List<double> components) {
+  return vm.Vector3(
+    components[0],
+    components[1],
+    components[2],
+  );
+}

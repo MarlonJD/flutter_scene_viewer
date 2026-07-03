@@ -9,6 +9,8 @@ FlutterSceneViewer(
   lighting: ViewerLighting.studio(),
   environment: const ViewerEnvironment.studio(),
   materialShadingPolicy: MaterialShadingPolicy.authored,
+  materialExtensionPolicy:
+      const ViewerMaterialExtensionPolicy.diagnosticsOnly(),
   renderPolicy: RenderPolicy.adaptive,
   debugShowStatsOverlay: false,
   onStats: (snapshot) {},
@@ -24,6 +26,32 @@ FlutterSceneViewer(
 GLB's material shader mode, `forceLit` converts supported imported materials to
 a lit base material, and `forceUnlit` converts supported imported materials to
 an unlit base material. This is intentionally not a runtime material patch.
+
+`materialExtensionPolicy` controls whether advanced material extension fields
+are kept diagnostic-only or may be validated against a package-local shader
+backend. The default `ViewerMaterialExtensionPolicy.diagnosticsOnly()` rejects
+unsupported transmission/glass and clearcoat fields before they are applied or
+persisted. `ViewerMaterialExtensionPolicy.experimentalShaders()` opts into
+candidate transmission, IOR, and volume intent where the attached backend can
+honestly render it. `enableClearcoat` defaults to `false`; setting it to
+`true` opts into the candidate clearcoat shader backend.
+`ViewerMaterialExtensionPolicy.productionShaders()` is the production backend
+opt-in. It requests transmission/glass and clearcoat by default, but production
+support is not advertised until backend shader preflight and target checks pass
+for the attached viewer. The policy does not permit fake fallbacks: if a
+backend cannot render the requested feature, it must report
+`unsupportedMaterialFeature`. In Task 011 this opt-in remains
+iOS-Simulator-scoped; the iOS Simulator evidence table records local
+shader-load and visual-matrix evidence, while macOS, Android, Web, and
+physical iOS are not evaluated in 011.
+
+```dart
+FlutterSceneViewer(
+  source: source,
+  materialExtensionPolicy:
+      const ViewerMaterialExtensionPolicy.productionShaders(),
+)
+```
 
 `ViewerLighting.studio(ambientOcclusion: true)` enables flutter_scene's
 screen-space ambient occlusion pass for viewer-controlled studio lighting.
@@ -186,6 +214,9 @@ Core patch fields:
 - `emissiveTexture`
 - `occlusionTexture`
 - `occlusionStrength`
+- `alphaMode`
+- `alphaCutoff`
+- `effectMask`
 - `transmission`
 - `transmissionTexture`
 - `ior`
@@ -206,6 +237,26 @@ Unsupported fields must be rejected with diagnostics, not silently ignored.
 `normalScale` without a normal texture override reports an unsupported-feature
 diagnostic.
 
+`MaterialAlphaMode.opaque`, `MaterialAlphaMode.mask`, and
+`MaterialAlphaMode.blend` expose glTF-style alpha intent separately from
+glass. `mask` is masked cutout/discard behavior for authored cutout materials;
+it is not part visibility and is not a partial configurator hide mechanism.
+`blend` is ordinary translucent alpha blending and must not be described as
+transmission or glass. `alphaCutoff` is valid only in the `0..1` range and is
+reported as an invalid material override outside that range. With the current
+`flutter_scene` target, unlit material mask requests report diagnostics because
+the upstream unlit shader path treats mask like blend.
+
+`MaterialEffectMask` is an opaque-family packed data map. Its red, green, blue,
+and alpha channels can be assigned to material-effect targets such as
+`paintRegion`, `roughness`, `metallic`, `dirt`, or future clearcoat masks.
+Effect masks require authored UV0 and cannot be combined with alpha mask,
+alpha blend, or glass material families. The current standard `flutter_scene`
+PBR shader does not consume these packed channels, so runtime adapter paths
+return `unsupportedMaterialFeature` until an honest opaque-family shader backend
+is selected. Effect masks are not alpha cutout and do not affect
+`MaterialPatch.visible`.
+
 Runtime texture overrides require authored `TEXCOORD_0`/UV0 on the target
 primitive. Additional UV channels such as `TEXCOORD_1` may be used by authored
 assets for lightmaps or other data, but they are not treated as runtime material
@@ -213,22 +264,33 @@ override UVs.
 
 Transmission/glass fields are v1 release-blocker API intent for
 `KHR_materials_transmission`, `KHR_materials_ior`, and
-`KHR_materials_volume`. With the currently installed `flutter_scene` 0.18.1
-adapter target, requests using those fields return
-`unsupportedMaterialFeature` diagnostics and are not applied or persisted.
-Alpha blending or base-color alpha alone must not be presented as glass.
-When upstream exposes real transmission/refraction/Fresnel, IOR, and volume
-attenuation support, these fields should bind to that renderer capability and
-their texture forms must still require authored UV0.
+`KHR_materials_volume`. With the default diagnostics-only policy, requests
+using those fields return `unsupportedMaterialFeature` diagnostics and are not
+applied or persisted. Experimental policy can allow the intent through
+controller validation only when candidate transmission, IOR, and volume support
+are advertised by the attached backend. Production policy can allow the intent
+only after shader preflight and target support checks pass. Alpha blending or
+base-color alpha alone must not be presented as glass. Texture forms must still
+require authored UV0. The package-local backend has local GPU-gated visual
+matrix evidence, three.js reference trends, and verified local iOS Simulator
+shader-load/visual-matrix evidence. Other targets remain deferred/not run.
 
 Clearcoat is a v1 release blocker for coated product materials such as car
 paint, varnished wood, and carbon fiber gloss coat. The clearcoat patch fields
-are serializable request intent for `KHR_materials_clearcoat`. With the
-currently installed `flutter_scene` 0.18.1 adapter target, requests using those
-fields return `unsupportedMaterialFeature` diagnostics and are not applied or
-persisted. Lowering roughness must not be presented as clearcoat. When upstream
-exposes real clearcoat behavior, these fields should bind to that renderer
-capability and their texture forms must still require authored UV0.
+are serializable request intent for `KHR_materials_clearcoat`. With the default
+policy, requests using those fields return `unsupportedMaterialFeature`
+diagnostics and are not applied or persisted. Experimental policy keeps
+clearcoat disabled unless `enableClearcoat: true` is requested and the attached
+backend can load the candidate clearcoat shader. Production policy can allow
+clearcoat only after shader preflight and target support checks pass. The
+current internal backend implements a lit clearcoat `.fmat` material that
+preserves base PBR lighting and adds a separate coating lobe for clearcoat
+factor, clearcoat roughness, clearcoat texture, and clearcoat normal inputs.
+Lowering roughness must not be presented as clearcoat. Texture forms must still
+require authored UV0. The package-local backend has verified local iOS
+Simulator shader-load and synthetic visual-matrix evidence, but real textured
+GLB evidence remains candidate-only and not production-ready. Other targets
+remain deferred/not run.
 
 ## Material override persistence
 
@@ -236,3 +298,6 @@ capability and their texture forms must still require authored UV0.
 of the current sparse override state. Persist `snapshot.toJson()` and restore it
 with `MaterialOverrideSnapshot.fromJson(json)` followed by
 `controller.applyMaterialOverrides(snapshot)` after loading the matching model.
+Authored GLB extension material state is source data, not user override state,
+so accepted or rejected authored extension patches are not added to this
+snapshot.

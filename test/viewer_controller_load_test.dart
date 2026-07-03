@@ -97,6 +97,10 @@ void main() {
 final class CompletingLoadSink implements ViewerCommandSink {
   Completer<ModelLoadResult>? _completer;
 
+  @override
+  MaterialExtensionSupport get materialExtensionSupport =>
+      MaterialExtensionSupport.unsupported;
+
   void complete(ModelLoadResult result) {
     _completer!.complete(result);
   }

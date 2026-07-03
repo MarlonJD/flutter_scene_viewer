@@ -15,6 +15,7 @@ dependencies:
   flutter:
     sdk: flutter
   flutter_scene: ^0.18.1
+  hooks: ^2.0.0
   http: ^1.2.2
   meta: ^1.15.0
   vector_math: ^2.1.4
@@ -30,3 +31,8 @@ topics:
   - viewer
   - flutter-scene
   - pbr
+
+flutter:
+  assets:
+    - build/shaderbundles/materials.shaderbundle
+    - build/shaderbundles/materials.fmat.json

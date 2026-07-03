@@ -36,6 +36,10 @@ Report these explicitly:
 
 - missing `TEXCOORD_0` / UV0 when a texture override is requested;
 - unsupported material/extension;
+- unsupported alpha mask requests on unlit materials while the installed
+  `flutter_scene` unlit shader path treats mask like blend;
+- unsupported material/effect mask requests when no opaque-family shader
+  backend can consume the packed channel data;
 - unsupported transmission/glass material requests when the adapter target does
   not expose real `KHR_materials_transmission`, `KHR_materials_ior`, and
   `KHR_materials_volume` behavior;
@@ -91,6 +95,40 @@ UV0 / `TEXCOORD_0`. Later UV channels may exist for authored uses such as
 lightmaps, but the viewer must not substitute them for runtime albedo, normal,
 metallic-roughness, emissive, or occlusion texture overrides.
 
+The loader also performs a bounded package-local read of the binary `.glb`
+JSON chunk to preserve authored material extension intent that the installed
+`flutter_scene` importer does not expose. This reader verifies the GLB magic,
+version 2 header, declared length, and JSON chunk shape, then maps
+`KHR_materials_transmission`, `KHR_materials_ior`, `KHR_materials_volume`, and
+`KHR_materials_clearcoat` fields to internal `MaterialPatch` intent. Malformed
+extension values report `invalidMaterialOverride` diagnostics instead of
+throwing. Authored extension texture slots require `TEXCOORD_0`; UV1 is not
+substituted and UVs are never generated. Missing-UV diagnostics name the
+texture slots that triggered the requirement. Duplicate node paths are reported
+as `ambiguousNodePath`, and authored extension intent for that ambiguous
+address is not auto-applied.
+
+After a successful load, authored extension patches are applied through the
+same controller validation and adapter diagnostic path as runtime material
+patches. Accepted authored patches are source material state, not user override
+state, so they are not stored in `controller.materialOverrides`. Rejected
+authored patches record diagnostics and likewise do not appear in persisted
+override snapshots.
+
+Alpha mode is runtime material state, not visibility. Opaque, masked cutout,
+and translucent blend requests are routed as material alpha behavior; only
+`MaterialPatch.visible` / `setPartVisibility` updates node or part visibility.
+Masked cutout is accepted for supported lit PBR materials through
+`flutter_scene.AlphaMode.mask`; translucent blend maps to
+`flutter_scene.AlphaMode.blend`; alpha cutoff maps to the PBR material cutoff.
+
+Material/effect masks are also material state, not visibility. They are
+opaque-family packed texture inputs and require UV0 like other runtime texture
+overrides. They are rejected when combined with alpha cutout, alpha blend, or
+glass-family fields. Until an opaque-family shader backend consumes those
+channels, the runtime adapter reports `unsupportedMaterialFeature` instead of
+pretending the mask affected output.
+
 Tap picking stays behind the adapter boundary. `FlutterSceneViewer` sends local
 tap position, viewport size, and the current viewer-owned render camera to the
 adapter; the runtime adapter builds a `flutter_scene.PerspectiveCamera`, calls
@@ -107,6 +145,28 @@ time so callers can preserve authored material shader behavior or force
 supported imported materials onto a lit or unlit base material. Runtime
 `MaterialPatch` updates do not change shader mode.
 
+`FlutterSceneViewer.materialExtensionPolicy` is the viewer-side capability
+gate for advanced material extension validation. The default diagnostics-only
+policy reports unsupported glass and clearcoat before those patches reach the
+adapter or persistence store. `productionShaders()` is an explicit opt-in that
+requests transmission, IOR, volume, and clearcoat support, but the runtime
+adapter advertises production support only after shader preflight and target
+checks pass. The adapter/backend must still return diagnostics for any feature
+it cannot honestly render.
+
+The `.fmat` material packaging path uses `hook/build.dart` and
+`flutter_scene/build_hooks.dart` `buildMaterials(...)`. Task 011 hardens the
+package-local material extension backend. Transmission uses a bounded
+screen-space background render texture and reports diagnostics for unsupported
+node-isolation shapes. Clearcoat uses a lit `.fmat` `PreprocessedMaterial`,
+fills the base PBR `MaterialInputs`, and adds a separate coating lobe without
+lowering base roughness. Local host visual matrices and three.js reference
+trends exist. Task 011 has verified local iOS Simulator evidence for bounded
+glass and local iOS Simulator shader-load/synthetic visual-matrix
+evidence for clearcoat, but real textured GLB clearcoat evidence remains
+candidate-only and not production-ready. macOS, Android, Web, and physical iOS
+evidence remain deferred/not run.
+
 As of 2026-07-03, the installed `flutter_scene` 0.18.1 target does not expose
 real transmission/glass or clearcoat support. The local audit found no public
 `PhysicallyBasedMaterial` fields for transmission, IOR, thickness,
@@ -114,10 +174,24 @@ attenuation, clearcoat factor, or clearcoat roughness, and the runtime glTF
 material importer parses core PBR plus `KHR_materials_unlit`, but not
 `KHR_materials_transmission`, `KHR_materials_ior`, `KHR_materials_volume`, or
 `KHR_materials_clearcoat`. The viewer therefore records transmission/glass and
-clearcoat as v1 release blockers and rejects current runtime glass and
-clearcoat patches with `unsupportedMaterialFeature`; alpha blending is not
-accepted as a glass substitute and low roughness is not accepted as a clearcoat
-substitute.
+clearcoat as v1 release blockers for production/native support. The default
+policy rejects runtime glass and clearcoat patches with
+`unsupportedMaterialFeature`; the production shader policy can route supported
+intent through package-local shader paths after preflight on documented
+verified targets. Task 011 verifies iOS Simulator locally only; other targets
+remain deferred/not run. Clearcoat is still candidate-only on real textured
+GLBs. Alpha blending is not accepted as a glass substitute, and low roughness
+is not accepted as a clearcoat substitute.
+
+Upstream `flutter_scene` PR candidates:
+
+- importer support for `KHR_materials_transmission`;
+- importer support for `KHR_materials_ior`;
+- importer support for `KHR_materials_volume`;
+- importer support for `KHR_materials_clearcoat`;
+- stable material-extension hooks or first-class PBR extension fields so this
+  package does not need package-local GLB JSON parsing for authored extension
+  intent.
 
 The current lighting adapter maps direct lighting to one
 `flutter_scene.DirectionalLight` and indirect/sky lighting to the scene

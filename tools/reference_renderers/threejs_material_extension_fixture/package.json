@@ -1,0 +1,12 @@
+{
+  "name": "fsviewer-threejs-reference-fixture",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "render": "node render_reference.mjs"
+  },
+  "dependencies": {
+    "three": "^0.167.0",
+    "puppeteer": "^23.0.0"
+  }
+}

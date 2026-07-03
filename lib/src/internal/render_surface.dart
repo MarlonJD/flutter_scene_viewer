@@ -131,6 +131,8 @@ abstract interface class AdapterRenderScene {
     required RenderCameraFrame camera,
     required RenderLightingFrame lighting,
     required RenderEnvironmentFrame environment,
+    required Size? viewportSize,
+    required double devicePixelRatio,
     required bool autoTick,
   });
 }

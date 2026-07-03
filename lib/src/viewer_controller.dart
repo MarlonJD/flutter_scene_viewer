@@ -1,8 +1,11 @@
 import 'package:flutter/foundation.dart';
 
 import 'diagnostics.dart';
+import 'internal/material_effect_mask_resolver.dart';
+import 'material_extension_policy.dart';
 import 'material_override_store.dart';
 import 'material_patch.dart';
+import 'material_shading_mode.dart';
 import 'model_loader.dart';
 import 'model_source.dart';
 import 'part_address.dart';
@@ -84,6 +87,10 @@ class FlutterSceneViewerController extends ChangeNotifier {
       final diagnostic = result.diagnostic;
       if (diagnostic == null) {
         _partTree = result.partTree;
+        await _applyAuthoredMaterialPatches(
+          result.authoredMaterialPatches,
+          sink,
+        );
         _setLoadState(ViewerLoadState.success(source));
       } else {
         _partTree = const PartTree.empty();
@@ -103,14 +110,18 @@ class FlutterSceneViewerController extends ChangeNotifier {
   }
 
   Future<void> setPartMaterial(PartAddress address, MaterialPatch patch) async {
-    final diagnostics = _validateMaterialPatch(address, patch);
+    final sink = _requireSink();
+    final diagnostics = _validateMaterialPatch(
+      address,
+      patch,
+      support: sink.materialExtensionSupport,
+    );
     if (diagnostics.isNotEmpty) {
       for (final diagnostic in diagnostics) {
         recordDiagnostic(diagnostic);
       }
       return;
     }
-    final sink = _requireSink();
     final sinkDiagnostics = await sink.setPartMaterial(address, patch);
     if (sinkDiagnostics.isNotEmpty) {
       for (final diagnostic in sinkDiagnostics) {
@@ -145,6 +156,39 @@ class FlutterSceneViewerController extends ChangeNotifier {
   ) async {
     for (final entry in snapshot.entries) {
       await setPartMaterial(entry.key, entry.value);
+    }
+  }
+
+  Future<void> _applyAuthoredMaterialPatches(
+    Map<PartAddress, MaterialPatch> patches,
+    ViewerCommandSink sink,
+  ) async {
+    var appliedAny = false;
+    for (final entry in patches.entries) {
+      final address = entry.key;
+      final patch = entry.value;
+      final diagnostics = _validateMaterialPatch(
+        address,
+        patch,
+        support: sink.materialExtensionSupport,
+      );
+      if (diagnostics.isNotEmpty) {
+        for (final diagnostic in diagnostics) {
+          recordDiagnostic(diagnostic);
+        }
+        continue;
+      }
+      final sinkDiagnostics = await sink.setPartMaterial(address, patch);
+      if (sinkDiagnostics.isNotEmpty) {
+        for (final diagnostic in sinkDiagnostics) {
+          recordDiagnostic(diagnostic);
+        }
+        continue;
+      }
+      appliedAny = true;
+    }
+    if (appliedAny) {
+      sink.requestRenderFrame();
     }
   }
 
@@ -212,9 +256,10 @@ class FlutterSceneViewerController extends ChangeNotifier {
 
   List<ViewerDiagnostic> _validateMaterialPatch(
     PartAddress address,
-    MaterialPatch patch,
-  ) {
-    final diagnostics = patch.validate(address);
+    MaterialPatch patch, {
+    MaterialExtensionSupport support = MaterialExtensionSupport.unsupported,
+  }) {
+    final diagnostics = patch.validate(address, support: support);
     if (diagnostics.isNotEmpty || _partTree.root == null) {
       return diagnostics;
     }
@@ -237,21 +282,69 @@ class FlutterSceneViewerController extends ChangeNotifier {
         ),
       ];
     }
+    final effectMaskDiagnostics = validateMaterialEffectMaskUv(
+      address,
+      patch,
+      hasTexCoords: record.hasTexCoords,
+    );
+    if (effectMaskDiagnostics.isNotEmpty) {
+      return effectMaskDiagnostics;
+    }
     if (patch.hasTextureOverride && !record.hasTexCoords) {
       return <ViewerDiagnostic>[
         ViewerDiagnostic(
           code: ViewerDiagnosticCode.missingUvSet,
           message: 'Texture override requires authored UV coordinates.',
-          details: <String, Object?>{'part': address.debugPath, 'uvSet': 0},
+          details: <String, Object?>{
+            'part': address.debugPath,
+            'uvSet': 0,
+            'textureSlots': _textureSlotsForPatch(patch),
+          },
         ),
       ];
     }
+    if (patch.alphaMode == MaterialAlphaMode.mask &&
+        record.materialShadingMode == MaterialShadingMode.unlit) {
+      return <ViewerDiagnostic>[_unlitAlphaMaskUnsupported(address)];
+    }
     return const <ViewerDiagnostic>[];
   }
+
+  ViewerDiagnostic _unlitAlphaMaskUnsupported(PartAddress address) {
+    return ViewerDiagnostic(
+      code: ViewerDiagnosticCode.unsupportedMaterialFeature,
+      message:
+          'Alpha mask overrides require a lit PBR material because the installed flutter_scene unlit material treats mask like blend.',
+      details: <String, Object?>{
+        'part': address.debugPath,
+        'alphaMode': MaterialAlphaMode.mask.name,
+        'materialShadingMode': MaterialShadingMode.unlit.name,
+        'upstreamPackage': 'flutter_scene',
+      },
+    );
+  }
+}
+
+List<String> _textureSlotsForPatch(MaterialPatch patch) {
+  return <String>[
+    if (patch.baseColorTexture != null) 'baseColorTexture',
+    if (patch.metallicRoughnessTexture != null) 'metallicRoughnessTexture',
+    if (patch.normalTexture != null) 'normalTexture',
+    if (patch.emissiveTexture != null) 'emissiveTexture',
+    if (patch.occlusionTexture != null) 'occlusionTexture',
+    if (patch.effectMask != null) 'effectMask',
+    if (patch.transmissionTexture != null) 'transmissionTexture',
+    if (patch.thicknessTexture != null) 'thicknessTexture',
+    if (patch.clearcoatTexture != null) 'clearcoatTexture',
+    if (patch.clearcoatRoughnessTexture != null) 'clearcoatRoughnessTexture',
+    if (patch.clearcoatNormalTexture != null) 'clearcoatNormalTexture',
+  ];
 }
 
 @internal
 abstract interface class ViewerCommandSink {
+  MaterialExtensionSupport get materialExtensionSupport;
+
   Future<ModelLoadResult> load(ModelSource source);
   Future<List<ViewerDiagnostic>> setPartMaterial(
     PartAddress address,

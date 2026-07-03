@@ -19,8 +19,7 @@ void main() {
   test('alpha mask resolves to masked cutout base family', () {
     expect(
       resolveMaterialBaseFamily(
-        const MaterialPatch(),
-        alphaMode: MaterialBaseAlphaMode.mask,
+        const MaterialPatch(alphaMode: MaterialAlphaMode.mask),
       ),
       MaterialBaseFamily.maskedCutout,
     );
@@ -29,8 +28,7 @@ void main() {
   test('alpha blend resolves to translucent blend base family', () {
     expect(
       resolveMaterialBaseFamily(
-        const MaterialPatch(),
-        alphaMode: MaterialBaseAlphaMode.blend,
+        const MaterialPatch(alphaMode: MaterialAlphaMode.blend),
       ),
       MaterialBaseFamily.translucentBlend,
     );
@@ -46,18 +44,35 @@ void main() {
     );
   });
 
+  test('explicit alpha opaque keeps transparent base color in opaque family',
+      () {
+    expect(
+      resolveMaterialBaseFamily(
+        MaterialPatch(
+          alphaMode: MaterialAlphaMode.opaque,
+          baseColorFactor: const <double>[1, 1, 1, 0.4],
+        ),
+      ),
+      MaterialBaseFamily.opaque,
+    );
+  });
+
   test('glass fields win over alpha mask and blend', () {
     expect(
       resolveMaterialBaseFamily(
-        const MaterialPatch(transmission: 1.0),
-        alphaMode: MaterialBaseAlphaMode.mask,
+        const MaterialPatch(
+          alphaMode: MaterialAlphaMode.mask,
+          transmission: 1.0,
+        ),
       ),
       MaterialBaseFamily.realisticGlass,
     );
     expect(
       resolveMaterialBaseFamily(
-        const MaterialPatch(ior: 1.45),
-        alphaMode: MaterialBaseAlphaMode.blend,
+        const MaterialPatch(
+          alphaMode: MaterialAlphaMode.blend,
+          ior: 1.45,
+        ),
       ),
       MaterialBaseFamily.realisticGlass,
     );

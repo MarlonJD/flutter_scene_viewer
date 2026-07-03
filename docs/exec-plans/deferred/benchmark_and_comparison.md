@@ -7,8 +7,9 @@ credible static-model viewing baseline.
 
 ## Goal
 
-Create a benchmark harness to compare `flutter_scene_viewer`, `interactive_3d`,
-and WebView/BabylonJS fairly before any performance claims.
+Create a benchmark harness to compare `flutter_scene_viewer` with
+representative Flutter-native, split-native, and WebView-hosted viewer
+alternatives fairly before any performance claims.
 
 ## Why deferred
 
@@ -72,9 +73,9 @@ plan before they can be reported responsibly.
   implementation.
 - 2026-07-03: Removed the old planning source directory after current direction
   moved into `docs/ROADMAP.md` and deferred exec plans.
-- 2026-07-01: Added explicit `docs/WHY.md` comparisons against
-  `interactive_3d` and `babylonjs_viewer` based on current pub.dev package
-  descriptions, while preserving the no-benchmark/no-superiority-claim boundary.
+- 2026-07-01: Added explicit `docs/WHY.md` comparison categories for
+  WebView-hosted and split-native viewer packages, while preserving the
+  no-benchmark/no-superiority-claim boundary.
 - 2026-07-02: Renumbered from 005 to 006 and marked deferred / not ready until
   render surface integration is complete.
 - 2026-07-02: Moved out of `docs/exec-plans/active/` into

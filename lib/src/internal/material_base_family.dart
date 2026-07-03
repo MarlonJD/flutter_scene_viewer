@@ -7,26 +7,24 @@ enum MaterialBaseFamily {
   realisticGlass,
 }
 
-enum MaterialBaseAlphaMode {
-  opaque,
-  mask,
-  blend,
-}
-
-MaterialBaseFamily resolveMaterialBaseFamily(
-  MaterialPatch patch, {
-  MaterialBaseAlphaMode alphaMode = MaterialBaseAlphaMode.opaque,
-}) {
+MaterialBaseFamily resolveMaterialBaseFamily(MaterialPatch patch) {
   if (patch.hasGlassOverride) {
     return MaterialBaseFamily.realisticGlass;
   }
 
-  if (alphaMode == MaterialBaseAlphaMode.mask) {
+  if (patch.alphaMode == MaterialAlphaMode.mask) {
     return MaterialBaseFamily.maskedCutout;
   }
 
-  if (alphaMode == MaterialBaseAlphaMode.blend ||
-      _hasTransparentBaseColorFactor(patch)) {
+  if (patch.alphaMode == MaterialAlphaMode.blend) {
+    return MaterialBaseFamily.translucentBlend;
+  }
+
+  if (patch.alphaMode == MaterialAlphaMode.opaque) {
+    return MaterialBaseFamily.opaque;
+  }
+
+  if (_hasTransparentBaseColorFactor(patch)) {
     return MaterialBaseFamily.translucentBlend;
   }
 

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -15,6 +16,15 @@ void main() {
     nodePath: <String>['Root'],
     primitiveIndex: 0,
   );
+
+  test('FlutterSceneViewer default policy remains diagnostics-only', () {
+    final viewer = FlutterSceneViewer(source: source);
+
+    expect(
+      viewer.materialExtensionPolicy,
+      const ViewerMaterialExtensionPolicy.diagnosticsOnly(),
+    );
+  });
 
   testWidgets('viewer shows loading and ready states', (tester) async {
     final adapter = FakeViewerAdapter(
@@ -170,6 +180,96 @@ void main() {
     expect(_readyViewerKey(tester), isNot(initialReadyKey));
   });
 
+  testWidgets('material extension policy allows transmission intent',
+      (tester) async {
+    final controller = FlutterSceneViewerController();
+    final adapter = FakeViewerAdapter(
+      snapshot: AdapterNodeSnapshot(name: 'Root', primitiveCount: 1),
+    );
+
+    await tester.pumpWidget(
+      Directionality(
+        textDirection: TextDirection.ltr,
+        child: FlutterSceneViewer.test(
+          source: source,
+          adapter: adapter,
+          controller: controller,
+          materialExtensionPolicy:
+              const ViewerMaterialExtensionPolicy.experimentalShaders(),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    await controller.setPartMaterial(
+      address,
+      const MaterialPatch(transmission: 1.0, ior: 1.45, thickness: 0.02),
+    );
+
+    expect(adapter.materialPatches.single.transmission, 1.0);
+  });
+
+  testWidgets(
+      'production material extension policy waits for preflight support',
+      (tester) async {
+    final controller = FlutterSceneViewerController();
+    final adapter = FakeViewerAdapter(
+      snapshot: AdapterNodeSnapshot(name: 'Root', primitiveCount: 1),
+    );
+
+    await tester.pumpWidget(
+      Directionality(
+        textDirection: TextDirection.ltr,
+        child: FlutterSceneViewer.test(
+          source: source,
+          adapter: adapter,
+          controller: controller,
+          materialExtensionPolicy:
+              const ViewerMaterialExtensionPolicy.productionShaders(),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    await controller.setPartMaterial(
+      address,
+      const MaterialPatch(transmission: 1.0, ior: 1.45, thickness: 0.02),
+    );
+
+    expect(adapter.materialPatches, isEmpty);
+    expect(controller.materialOverrides.patchFor(address), isNull);
+    expect(controller.diagnostics.single.code,
+        ViewerDiagnosticCode.unsupportedMaterialFeature);
+  });
+
+  testWidgets('authored extension patches reach adapter without persistence',
+      (tester) async {
+    final controller = FlutterSceneViewerController();
+    final adapter = FakeViewerAdapter(
+      snapshot: AdapterNodeSnapshot(name: 'Root', primitiveCount: 1),
+    );
+
+    await tester.pumpWidget(
+      Directionality(
+        textDirection: TextDirection.ltr,
+        child: FlutterSceneViewer.test(
+          source: ModelSource.bytes(_transmissionGlb()),
+          adapter: adapter,
+          controller: controller,
+          materialExtensionPolicy:
+              const ViewerMaterialExtensionPolicy.experimentalShaders(),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(adapter.materialPatches.single.transmission, 1.0);
+    expect(controller.materialOverrides.entries, isEmpty);
+  });
+
   testWidgets('viewer builds adapter render surface when model is ready',
       (tester) async {
     final renderScene = RecordingRenderScene();
@@ -193,6 +293,34 @@ void main() {
     expect(find.byKey(RecordingRenderScene.surfaceKey), findsOneWidget);
     expect(renderScene.cameras.single.target, <double>[0, 0, 0]);
     expect(renderScene.autoTicks.single, isFalse);
+  });
+
+  testWidgets('viewer passes viewport size and pixel ratio to render surface',
+      (tester) async {
+    tester.view.devicePixelRatio = 2.0;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final renderScene = RecordingRenderScene();
+    final adapter = FakeViewerAdapter(
+      snapshot: AdapterNodeSnapshot(name: 'Root', primitiveCount: 1),
+      renderScene: renderScene,
+    );
+
+    await tester.pumpWidget(
+      Directionality(
+        textDirection: TextDirection.ltr,
+        child: FlutterSceneViewer.test(
+          source: source,
+          adapter: adapter,
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(renderScene.viewportSizes.single, isNotNull);
+    expect(renderScene.viewportSizes.single!.width, greaterThan(0));
+    expect(renderScene.viewportSizes.single!.height, greaterThan(0));
+    expect(renderScene.devicePixelRatios.single, 2.0);
   });
 
   testWidgets('viewer passes lighting settings to the adapter render surface',
@@ -1019,6 +1147,7 @@ final class FakeViewerAdapter implements FlutterSceneAdapter {
   final PartAddress? pickedPart;
   final List<ViewerDiagnostic> environmentDiagnostics;
   final List<PartAddress> materialCalls = <PartAddress>[];
+  final List<MaterialPatch> materialPatches = <MaterialPatch>[];
   final List<Offset> pickPositions = <Offset>[];
   final List<Size> pickViewportSizes = <Size>[];
   final List<MaterialShadingPolicy> materialShadingPolicies =
@@ -1051,6 +1180,7 @@ final class FakeViewerAdapter implements FlutterSceneAdapter {
     MaterialPatch patch,
   ) async {
     materialCalls.add(address);
+    materialPatches.add(patch);
     return const <ViewerDiagnostic>[];
   }
 
@@ -1095,6 +1225,8 @@ final class RecordingRenderScene implements AdapterRenderScene {
   final List<RenderLightingFrame> lightingFrames = <RenderLightingFrame>[];
   final List<RenderEnvironmentFrame> environmentFrames =
       <RenderEnvironmentFrame>[];
+  final List<Size?> viewportSizes = <Size?>[];
+  final List<double> devicePixelRatios = <double>[];
   final List<bool> autoTicks = <bool>[];
 
   @override
@@ -1103,11 +1235,15 @@ final class RecordingRenderScene implements AdapterRenderScene {
     required RenderCameraFrame camera,
     required RenderLightingFrame lighting,
     required RenderEnvironmentFrame environment,
+    required Size? viewportSize,
+    required double devicePixelRatio,
     required bool autoTick,
   }) {
     cameras.add(camera);
     lightingFrames.add(lighting);
     environmentFrames.add(environment);
+    viewportSizes.add(viewportSize);
+    devicePixelRatios.add(devicePixelRatio);
     autoTicks.add(autoTick);
     return const SizedBox(key: surfaceKey);
   }
@@ -1133,3 +1269,60 @@ String _readyViewerKey(WidgetTester tester) {
   final key = widget.key! as ValueKey<String>;
   return key.value;
 }
+
+Uint8List _transmissionGlb() {
+  return _glb(<String, Object?>{
+    'asset': <String, Object?>{'version': '2.0'},
+    'scene': 0,
+    'scenes': <Object?>[
+      <String, Object?>{
+        'nodes': <Object?>[0],
+      },
+    ],
+    'nodes': <Object?>[
+      <String, Object?>{'name': 'Root', 'mesh': 0},
+    ],
+    'meshes': <Object?>[
+      <String, Object?>{
+        'primitives': <Object?>[
+          <String, Object?>{
+            'attributes': <String, Object?>{'TEXCOORD_0': 0},
+            'material': 0,
+          },
+        ],
+      },
+    ],
+    'materials': <Object?>[
+      <String, Object?>{
+        'extensions': <String, Object?>{
+          'KHR_materials_transmission': <String, Object?>{
+            'transmissionFactor': 1.0,
+          },
+          'KHR_materials_ior': <String, Object?>{'ior': 1.45},
+          'KHR_materials_volume': <String, Object?>{'thicknessFactor': 0.02},
+        },
+      },
+    ],
+  });
+}
+
+Uint8List _glb(Map<String, Object?> json) {
+  final jsonBytes = utf8.encode(jsonEncode(json));
+  final paddedJsonLength = _align4(jsonBytes.length);
+  final totalLength = 12 + 8 + paddedJsonLength;
+  final bytes = Uint8List(totalLength);
+  final data = ByteData.sublistView(bytes);
+  data
+    ..setUint32(0, 0x46546C67, Endian.little)
+    ..setUint32(4, 2, Endian.little)
+    ..setUint32(8, totalLength, Endian.little)
+    ..setUint32(12, paddedJsonLength, Endian.little)
+    ..setUint32(16, 0x4E4F534A, Endian.little);
+  bytes.setRange(20, 20 + jsonBytes.length, jsonBytes);
+  for (var index = 20 + jsonBytes.length; index < bytes.length; index += 1) {
+    bytes[index] = 0x20;
+  }
+  return bytes;
+}
+
+int _align4(int value) => (value + 3) & ~3;
