@@ -64,6 +64,26 @@ void main() {
         controller.diagnostics.single.code, ViewerDiagnosticCode.missingUvSet);
   });
 
+  test('setPartMaterial reports missing UVs for normal texture override',
+      () async {
+    final controller = FlutterSceneViewerController();
+    final sink = MaterialSink(partTree: _treeFor(address, hasTexCoords: false));
+    controller.attach(sink);
+    await controller.load(ModelSource.bytes(Uint8List.fromList(<int>[1])));
+
+    await controller.setPartMaterial(
+      address,
+      const MaterialPatch(
+        normalTexture: TextureSource.asset('assets/normal.png'),
+      ),
+    );
+
+    expect(sink.materialCalls, isEmpty);
+    expect(controller.materialOverrides.patchFor(address), isNull);
+    expect(
+        controller.diagnostics.single.code, ViewerDiagnosticCode.missingUvSet);
+  });
+
   test('setPartTexture applies texture when UVs exist', () async {
     final controller = FlutterSceneViewerController();
     final sink = MaterialSink(partTree: _treeFor(address));
@@ -183,6 +203,20 @@ final class MaterialSink implements ViewerCommandSink {
 
   @override
   Future<void> fitCamera() async {}
+
+  @override
+  Future<void> setCameraOrbit({
+    List<double>? target,
+    double? distance,
+    double? yawRadians,
+    double? pitchRadians,
+  }) async {}
+
+  @override
+  Future<void> setCameraPosition({
+    required List<double> position,
+    required List<double> target,
+  }) async {}
 
   @override
   void requestRenderFrame() {

@@ -44,6 +44,10 @@ entity names.
 The runtime importer consumes already-tessellated GLB data. The viewer must not
 compute CAD tessellation or UV unwraps. It should treat GLB attributes as asset
 authoring responsibilities and report diagnostics for missing requirements.
+Single-file GLB remains the default v1 target. A bounded multi-file `.gltf`
+resolver can be added in v1 when target assets require external `.bin` or image
+files, but compression, progressive streaming, and virtual texturing remain
+separate features.
 
 ## Lighting
 
@@ -53,7 +57,9 @@ V1 uses viewer-controlled lighting:
 - exposure/tone mapping controls where supported;
 - simple directional key light where supported.
 
-Imported glTF cameras and lights are future work.
+Full imported glTF camera/light playback is future work. V1 may report authored
+camera and light metadata/diagnostics while continuing to use viewer-controlled
+camera and lighting for rendering.
 
 ## Rendering policy
 

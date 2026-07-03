@@ -22,6 +22,15 @@ This plan should resume only after the active viewer-baseline plan proves that
 `FlutterSceneViewer` can display representative static GLBs with usable camera
 fit, material visibility, and non-benchmark simulator evidence.
 
+Active debug/evidence work may add opt-in raw stats snapshots for local
+inspection, such as FPS samples, frame interval summaries, scheduler state,
+camera state, load duration, GLB byte size, and model counters. Those snapshots
+are allowed as smoke/debug evidence in v1, but they are not benchmark results
+and must not be used for product or competitive performance claims until this
+deferred plan is reactivated. They also intentionally do not sample CPU, RAM,
+GPU memory, thermals, or power; those require a separate platform diagnostics
+plan before they can be reported responsibly.
+
 ## Future steps
 
 1. Change: define benchmark metrics and fixture requirements.
@@ -69,3 +78,6 @@ fit, material visibility, and non-benchmark simulator evidence.
 - 2026-07-02: Moved out of `docs/exec-plans/active/` into
   `docs/exec-plans/deferred/`. Current viewer evidence is still too thin for a
   fair benchmark: it shows a simple box render, not a representative viewer.
+- 2026-07-02: Clarified that future v1 debug stats snapshots can feed this
+  benchmark harness later, but collecting local debug evidence does not
+  reactivate benchmarking and does not authorize performance claims.

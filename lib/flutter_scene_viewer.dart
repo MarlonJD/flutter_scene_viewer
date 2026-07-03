@@ -1,11 +1,14 @@
 export 'src/diagnostics.dart';
 export 'src/material_override_store.dart';
 export 'src/material_patch.dart';
+export 'src/material_shading_mode.dart';
 export 'src/model_source.dart';
 export 'src/part_address.dart';
 export 'src/part_registry.dart' show PartNode, PartRecord, PartTree;
 export 'src/render_policy.dart';
 export 'src/texture_source.dart';
 export 'src/viewer_controller.dart' hide ViewerCommandSink;
+export 'src/viewer_environment.dart';
 export 'src/viewer_lighting.dart';
+export 'src/viewer_stats.dart';
 export 'src/viewer_widget.dart';

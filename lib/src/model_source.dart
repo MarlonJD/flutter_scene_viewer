@@ -22,12 +22,30 @@ final class NetworkModelSource extends ModelSource {
 
   final Uri uri;
   final Map<String, String> headers;
+
+  @override
+  bool operator ==(Object other) {
+    return other is NetworkModelSource &&
+        uri == other.uri &&
+        _stringMapEquals(headers, other.headers);
+  }
+
+  @override
+  int get hashCode => Object.hash(uri, _stringMapHash(headers));
 }
 
 final class AssetModelSource extends ModelSource {
   const AssetModelSource(this.assetPath);
 
   final String assetPath;
+
+  @override
+  bool operator ==(Object other) {
+    return other is AssetModelSource && assetPath == other.assetPath;
+  }
+
+  @override
+  int get hashCode => assetPath.hashCode;
 }
 
 final class BytesModelSource extends ModelSource {
@@ -35,4 +53,38 @@ final class BytesModelSource extends ModelSource {
 
   final Uint8List bytes;
   final String? debugName;
+
+  @override
+  bool operator ==(Object other) {
+    return other is BytesModelSource &&
+        identical(bytes, other.bytes) &&
+        debugName == other.debugName;
+  }
+
+  @override
+  int get hashCode => Object.hash(identityHashCode(bytes), debugName);
+}
+
+bool _stringMapEquals(Map<String, String> left, Map<String, String> right) {
+  if (identical(left, right)) {
+    return true;
+  }
+  if (left.length != right.length) {
+    return false;
+  }
+  for (final entry in left.entries) {
+    if (!right.containsKey(entry.key) || right[entry.key] != entry.value) {
+      return false;
+    }
+  }
+  return true;
+}
+
+int _stringMapHash(Map<String, String> value) {
+  final keys = value.keys.toList()..sort();
+  return Object.hashAll(
+    <Object?>[
+      for (final key in keys) ...<Object?>[key, value[key]],
+    ],
+  );
 }

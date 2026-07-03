@@ -1,10 +1,14 @@
 import 'dart:io';
+import 'dart:math' as math;
 import 'package:flutter/services.dart';
+import 'package:flutter_scene/scene.dart' as flutter_scene;
 import 'package:flutter_scene_viewer/src/diagnostics.dart';
 import 'package:flutter_scene_viewer/src/internal/flutter_scene_adapter.dart';
 import 'package:flutter_scene_viewer/src/internal/render_surface.dart';
+import 'package:flutter_scene_viewer/src/material_shading_mode.dart';
 import 'package:flutter_scene_viewer/src/model_loader.dart';
 import 'package:flutter_scene_viewer/src/model_source.dart';
+import 'package:flutter_scene_viewer/src/part_address.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -22,6 +26,71 @@ void main() {
     expect(result.isSuccess, isTrue, reason: result.diagnostic?.toString());
     expect(adapter.loadedBytes.single, bytes);
     expect(adapter.debugNames.single, 'inline.glb');
+  });
+
+  test('records load evidence without inventing unavailable counters',
+      () async {
+    final adapter = FakeFlutterSceneAdapter(
+      snapshot: AdapterNodeSnapshot(
+        name: 'Root',
+        children: <AdapterNodeSnapshot>[
+          AdapterNodeSnapshot(name: 'Assembly'),
+          AdapterNodeSnapshot(name: 'Part', primitiveCount: 2),
+        ],
+      ),
+    );
+    final loader = ModelLoader(adapter: adapter);
+    final bytes = Uint8List.fromList(<int>[1, 2, 3, 4]);
+
+    final result = await loader.load(
+      ModelSource.bytes(bytes, debugName: 'inline.glb'),
+    );
+
+    expect(result.isSuccess, isTrue, reason: result.diagnostic?.toString());
+    expect(result.modelByteSize, 4);
+    expect(result.modelLoadDuration, isNotNull);
+    expect(result.nodeCount, 3);
+    expect(result.meshCount, 1);
+    expect(result.primitiveCount, 2);
+    expect(result.materialCount, isNull);
+  });
+
+  test('prefers adapter-provided model counters when known', () async {
+    final adapter = FakeFlutterSceneAdapter(
+      modelStats: const AdapterModelStats(
+        nodeCount: 7,
+        meshCount: 3,
+        materialCount: 4,
+        primitiveCount: 5,
+      ),
+    );
+    final loader = ModelLoader(adapter: adapter);
+
+    final result = await loader.load(
+      ModelSource.bytes(Uint8List.fromList(<int>[1, 2, 3])),
+    );
+
+    expect(result.isSuccess, isTrue, reason: result.diagnostic?.toString());
+    expect(result.nodeCount, 7);
+    expect(result.meshCount, 3);
+    expect(result.materialCount, 4);
+    expect(result.primitiveCount, 5);
+  });
+
+  test('passes material shading policy to the adapter', () async {
+    final adapter = FakeFlutterSceneAdapter();
+    final loader = ModelLoader(adapter: adapter);
+
+    final result = await loader.load(
+      ModelSource.bytes(Uint8List.fromList(<int>[1, 2, 3])),
+      materialShadingPolicy: MaterialShadingPolicy.forceLit,
+    );
+
+    expect(result.isSuccess, isTrue);
+    expect(
+      adapter.materialShadingPolicies.single,
+      MaterialShadingPolicy.forceLit,
+    );
   });
 
   test('loads asset sources through the configured asset bundle', () async {
@@ -154,6 +223,71 @@ void main() {
     expect(adapter.modelBounds, isNotNull);
     expect(adapter.modelBounds!.radius, greaterThan(0));
   }, skip: _runFlutterSceneGpuTests ? false : _flutterSceneGpuSkipReason);
+
+  test('imports a representative multi-material GLB fixture', () async {
+    TestWidgetsFlutterBinding.ensureInitialized();
+    final adapter = FlutterSceneRuntimeAdapter();
+    final loader = ModelLoader(adapter: adapter);
+    final bytes = await File(
+      'test/fixtures/MultiMaterialAssembly.glb',
+    ).readAsBytes();
+
+    final result = await loader.load(
+      ModelSource.bytes(bytes, debugName: 'MultiMaterialAssembly.glb'),
+    );
+
+    expect(result.diagnostic, isNull);
+    expect(result.isSuccess, isTrue);
+    expect(result.diagnostics, isEmpty);
+    final root = result.partTree.root!;
+    expect(root.name, 'root');
+    final assembly = root.children.single;
+    expect(assembly.name, 'SampleAssembly');
+    expect(
+      assembly.children.map((node) => node.name),
+      <String>['BlueBody', 'GoldPanel', 'RedAccent'],
+    );
+    expect(result.partTree.records, hasLength(3));
+    expect(
+        result.partTree.records.every((record) => record.hasTexCoords), isTrue);
+    expect(adapter.modelBounds, isNotNull);
+    expect(adapter.modelBounds!.radius, greaterThan(1));
+  }, skip: _runFlutterSceneGpuTests ? false : _flutterSceneGpuSkipReason);
+
+  test('runtime adapter applies asset environment and skybox', () async {
+    TestWidgetsFlutterBinding.ensureInitialized();
+    final adapter = FlutterSceneRuntimeAdapter();
+    final loader = ModelLoader(adapter: adapter);
+    final bytes = await File('test/fixtures/Box.glb').readAsBytes();
+    final result = await loader.load(
+      ModelSource.bytes(bytes, debugName: 'Box.glb'),
+    );
+    expect(result.isSuccess, isTrue, reason: result.diagnostic?.toString());
+
+    final diagnostics = await adapter.configureEnvironment(
+      const RenderEnvironmentFrame(
+        kind: RenderEnvironmentKind.asset,
+        assetPath: 'packages/flutter_scene/assets/royal_esplanade.png',
+        intensity: 0.6,
+        rotationRadians: math.pi / 4,
+        showSkybox: true,
+        skyboxBlur: 0.35,
+      ),
+    );
+
+    expect(diagnostics, isEmpty);
+    final scene = adapter.debugScene!;
+    expect(
+      flutter_scene.environmentAssetPathOf(scene.environment!),
+      'packages/flutter_scene/assets/royal_esplanade.png',
+    );
+    expect(scene.environmentIntensity, 0.6);
+    expect(scene.skybox, isNotNull);
+    expect(scene.skybox!.source, isA<flutter_scene.EnvironmentSkySource>());
+    final source = scene.skybox!.source as flutter_scene.EnvironmentSkySource;
+    expect(source.blurriness, 0.35);
+    expect(scene.environmentTransform.storage[0], closeTo(math.sqrt1_2, 1e-7));
+  }, skip: _runFlutterSceneGpuTests ? false : _flutterSceneGpuSkipReason);
 }
 
 const bool _runFlutterSceneGpuTests = bool.fromEnvironment(
@@ -165,11 +299,21 @@ const String _flutterSceneGpuSkipReason =
     '--dart-define=FLUTTER_SCENE_GPU_TESTS=true.';
 
 final class FakeFlutterSceneAdapter implements FlutterSceneAdapter {
+  FakeFlutterSceneAdapter({
+    this.snapshot,
+    this.modelStats,
+  });
+
   final List<Uint8List> loadedBytes = <Uint8List>[];
   final List<String?> debugNames = <String?>[];
+  final List<MaterialShadingPolicy> materialShadingPolicies =
+      <MaterialShadingPolicy>[];
+  final AdapterNodeSnapshot? snapshot;
+  @override
+  final AdapterModelStats? modelStats;
 
   @override
-  AdapterNodeSnapshot? get nodeSnapshot => null;
+  AdapterNodeSnapshot? get nodeSnapshot => snapshot;
 
   @override
   AdapterRenderScene? get renderScene => null;
@@ -178,14 +322,37 @@ final class FakeFlutterSceneAdapter implements FlutterSceneAdapter {
   AdapterModelBounds? get modelBounds => null;
 
   @override
-  Future<void> loadGlbBytes(Uint8List bytes, {String? debugName}) async {
+  Future<void> loadGlbBytes(
+    Uint8List bytes, {
+    String? debugName,
+    MaterialShadingPolicy materialShadingPolicy =
+        MaterialShadingPolicy.authored,
+  }) async {
     loadedBytes.add(bytes);
     debugNames.add(debugName);
+    materialShadingPolicies.add(materialShadingPolicy);
+  }
+
+  @override
+  Future<List<ViewerDiagnostic>> configureEnvironment(
+    RenderEnvironmentFrame frame, {
+    bool Function()? isCanceled,
+  }) async {
+    return const <ViewerDiagnostic>[];
   }
 
   @override
   Future<List<ViewerDiagnostic>> applyMaterialPatch(address, patch) async =>
       const <ViewerDiagnostic>[];
+
+  @override
+  Future<PartAddress?> pickPart({
+    required Offset localPosition,
+    required Size viewportSize,
+    required RenderCameraFrame camera,
+  }) async {
+    return null;
+  }
 
   @override
   List<ViewerDiagnostic> collectDiagnostics() => const <ViewerDiagnostic>[];

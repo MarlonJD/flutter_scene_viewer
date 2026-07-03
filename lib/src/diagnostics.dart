@@ -11,6 +11,12 @@ enum ViewerDiagnosticCode {
   modelLoadTimeout,
   networkFailure,
   assetLoadFailure,
+  environmentUnsupportedEncoding,
+  environmentInvalidDimensions,
+  environmentDecodeFailure,
+  environmentTooLarge,
+  environmentLoadTimeout,
+  environmentSourceUnavailable,
   adapterUnavailable,
   adapterFailure,
 }

@@ -161,6 +161,36 @@ class FlutterSceneViewerController extends ChangeNotifier {
     sink.requestRenderFrame();
   }
 
+  /// Sets the orbit camera fields owned by the attached viewer widget.
+  ///
+  /// The method exposes only plain Dart values, not concrete flutter_scene
+  /// camera classes. Omitted fields keep the current camera value.
+  Future<void> setCameraOrbit({
+    List<double>? target,
+    double? distance,
+    double? yawRadians,
+    double? pitchRadians,
+  }) async {
+    final sink = _requireSink();
+    await sink.setCameraOrbit(
+      target: target,
+      distance: distance,
+      yawRadians: yawRadians,
+      pitchRadians: pitchRadians,
+    );
+    sink.requestRenderFrame();
+  }
+
+  /// Places the camera at [position] while looking at [target].
+  Future<void> setCameraPosition({
+    required List<double> position,
+    required List<double> target,
+  }) async {
+    final sink = _requireSink();
+    await sink.setCameraPosition(position: position, target: target);
+    sink.requestRenderFrame();
+  }
+
   void recordDiagnostic(ViewerDiagnostic diagnostic) {
     _diagnostics.add(diagnostic);
     notifyListeners();
@@ -207,7 +237,7 @@ class FlutterSceneViewerController extends ChangeNotifier {
         ),
       ];
     }
-    if (patch.baseColorTexture != null && !record.hasTexCoords) {
+    if (patch.hasTextureOverride && !record.hasTexCoords) {
       return <ViewerDiagnostic>[
         ViewerDiagnostic(
           code: ViewerDiagnosticCode.missingUvSet,
@@ -229,5 +259,15 @@ abstract interface class ViewerCommandSink {
   );
   Future<List<ViewerDiagnostic>> resetPart(PartAddress address);
   Future<void> fitCamera();
+  Future<void> setCameraOrbit({
+    List<double>? target,
+    double? distance,
+    double? yawRadians,
+    double? pitchRadians,
+  });
+  Future<void> setCameraPosition({
+    required List<double> position,
+    required List<double> target,
+  });
   void requestRenderFrame();
 }

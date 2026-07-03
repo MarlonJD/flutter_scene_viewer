@@ -66,6 +66,88 @@ void main() {
     expect(controller.state.distance, closeTo(2 / math.sin(math.pi / 4), 1e-9));
   });
 
+  test('fitBounds uses horizontal field of view for narrow viewports', () {
+    final controller = OrbitCameraController();
+
+    controller.fitBounds(
+      const ViewerBounds(radius: 2),
+      verticalFovRadians: math.pi / 3,
+      aspectRatio: 0.5,
+    );
+
+    final halfHorizontalFov = math.atan(math.tan(math.pi / 6) * 0.5);
+    expect(
+      controller.state.distance,
+      closeTo(2 / math.sin(halfHorizontalFov), 1e-9),
+    );
+  });
+
+  test('zoom stays within model-derived distance limits after fit', () {
+    final controller = OrbitCameraController();
+
+    controller.fitBounds(
+      const ViewerBounds(radius: 4),
+      verticalFovRadians: math.pi / 3,
+    );
+    final fitDistance = 4 / math.sin(math.pi / 6);
+
+    controller.zoom(0.0001);
+    expect(controller.state.distance, closeTo(4 * 1.05, 1e-9));
+
+    controller.zoom(100000);
+    expect(controller.state.distance, closeTo(fitDistance * 6, 1e-9));
+  });
+
+  test('fitBounds prevents camera distance from entering model bounds', () {
+    final controller = OrbitCameraController();
+
+    controller.fitBounds(
+      const ViewerBounds(radius: 4),
+      verticalFovRadians: math.pi / 3,
+    );
+
+    controller.setOrbit(distance: 0.4);
+
+    expect(controller.state.distance, closeTo(4 * 1.05, 1e-9));
+  });
+
+  test('setOrbit updates requested fields and clamps distance', () {
+    final controller = OrbitCameraController(
+      initialState: const OrbitCameraState(distance: 4),
+      minDistance: 2,
+      maxDistance: 10,
+    );
+
+    controller.setOrbit(
+      target: const <double>[1, 2, 3],
+      distance: 0.5,
+      yawRadians: math.pi / 3,
+      pitchRadians: math.pi,
+    );
+
+    expect(controller.state.target, <double>[1, 2, 3]);
+    expect(controller.state.distance, 2);
+    expect(controller.state.yawRadians, closeTo(math.pi / 3, 1e-9));
+    expect(controller.state.pitchRadians, lessThan(math.pi / 2));
+  });
+
+  test('setPosition converts position and target into orbit state', () {
+    final controller = OrbitCameraController();
+
+    controller.setPosition(
+      position: const <double>[3, 4, 12],
+      target: const <double>[0, 0, 0],
+    );
+
+    expect(controller.state.target, <double>[0, 0, 0]);
+    expect(controller.state.distance, closeTo(13, 1e-9));
+    expect(controller.state.yawRadians, closeTo(math.atan2(3, 12), 1e-9));
+    expect(controller.state.pitchRadians, closeTo(math.asin(4 / 13), 1e-9));
+    expect(controller.state.position[0], closeTo(3, 1e-9));
+    expect(controller.state.position[1], closeTo(4, 1e-9));
+    expect(controller.state.position[2], closeTo(12, 1e-9));
+  });
+
   test('camera state converts to render camera frame', () {
     const state = OrbitCameraState(
       target: <double>[1, 2, 3],

@@ -113,6 +113,24 @@ final class CompletingLoadSink implements ViewerCommandSink {
   }
 
   @override
+  Future<void> setCameraOrbit({
+    List<double>? target,
+    double? distance,
+    double? yawRadians,
+    double? pitchRadians,
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<void> setCameraPosition({
+    required List<double> position,
+    required List<double> target,
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
   Future<List<ViewerDiagnostic>> resetPart(address) async =>
       const <ViewerDiagnostic>[];
 

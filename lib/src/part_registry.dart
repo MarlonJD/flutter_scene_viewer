@@ -1,5 +1,6 @@
 import 'diagnostics.dart';
 import 'internal/flutter_scene_adapter.dart';
+import 'material_shading_mode.dart';
 import 'part_address.dart';
 
 /// Read-only assembly tree built from the loaded scene graph.
@@ -98,11 +99,14 @@ final class PartRecord {
   const PartRecord({
     required this.address,
     this.hasTexCoords = true,
+    this.materialShadingMode = MaterialShadingMode.lit,
   });
 
   final PartAddress address;
 
   final bool hasTexCoords;
+
+  final MaterialShadingMode materialShadingMode;
 
   List<String> get nodePath => address.nodePath;
 
@@ -166,6 +170,7 @@ final class _PartRegistryBuilder {
       final record = PartRecord(
         address: address,
         hasTexCoords: primitive.hasTexCoords,
+        materialShadingMode: primitive.materialShadingMode,
       );
       nodeRecords.add(record);
       records.add(record);

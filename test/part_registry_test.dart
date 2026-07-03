@@ -1,5 +1,6 @@
 import 'package:flutter_scene_viewer/src/diagnostics.dart';
 import 'package:flutter_scene_viewer/src/internal/flutter_scene_adapter.dart';
+import 'package:flutter_scene_viewer/src/material_shading_mode.dart';
 import 'package:flutter_scene_viewer/src/part_address.dart';
 import 'package:flutter_scene_viewer/src/part_registry.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -97,12 +98,52 @@ void main() {
       AdapterNodeSnapshot(
         name: 'Root',
         primitives: const <AdapterPrimitiveSnapshot>[
-          AdapterPrimitiveSnapshot(hasTexCoords: false),
+          AdapterPrimitiveSnapshot(textureCoordinateChannels: <int>[]),
         ],
       ),
     );
 
     final record = registry.tree.records.single;
     expect(record.hasTexCoords, isFalse);
+  });
+
+  test('PartRegistry only treats texture coordinate channel 0 as override UVs',
+      () {
+    final registry = PartRegistry.fromSnapshot(
+      AdapterNodeSnapshot(
+        name: 'Root',
+        primitives: const <AdapterPrimitiveSnapshot>[
+          AdapterPrimitiveSnapshot(textureCoordinateChannels: <int>[1]),
+          AdapterPrimitiveSnapshot(textureCoordinateChannels: <int>[0, 1]),
+        ],
+      ),
+    );
+
+    expect(registry.tree.records[0].hasTexCoords, isFalse);
+    expect(registry.tree.records[1].hasTexCoords, isTrue);
+  });
+
+  test('PartRegistry carries primitive material shading mode', () {
+    final registry = PartRegistry.fromSnapshot(
+      AdapterNodeSnapshot(
+        name: 'Root',
+        primitives: const <AdapterPrimitiveSnapshot>[
+          AdapterPrimitiveSnapshot(
+            materialShadingMode: MaterialShadingMode.unlit,
+          ),
+          AdapterPrimitiveSnapshot(
+            materialShadingMode: MaterialShadingMode.lit,
+          ),
+        ],
+      ),
+    );
+
+    expect(
+      registry.tree.records.map((record) => record.materialShadingMode),
+      <MaterialShadingMode>[
+        MaterialShadingMode.unlit,
+        MaterialShadingMode.lit,
+      ],
+    );
   });
 }

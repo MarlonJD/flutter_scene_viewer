@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 
 import 'diagnostics.dart';
 import 'internal/flutter_scene_adapter.dart';
+import 'material_shading_mode.dart';
 import 'model_source.dart';
 import 'part_registry.dart';
 
@@ -24,16 +25,34 @@ final class ModelLoadResult {
   const ModelLoadResult.success({
     this.diagnostics = const <ViewerDiagnostic>[],
     this.partTree = const PartTree.empty(),
+    this.modelLoadDuration,
+    this.modelByteSize,
+    this.nodeCount,
+    this.meshCount,
+    this.materialCount,
+    this.primitiveCount,
   }) : diagnostic = null;
 
   const ModelLoadResult.failure(
     ViewerDiagnostic this.diagnostic, {
     this.diagnostics = const <ViewerDiagnostic>[],
-  }) : partTree = const PartTree.empty();
+  })  : partTree = const PartTree.empty(),
+        modelLoadDuration = null,
+        modelByteSize = null,
+        nodeCount = null,
+        meshCount = null,
+        materialCount = null,
+        primitiveCount = null;
 
   final ViewerDiagnostic? diagnostic;
   final List<ViewerDiagnostic> diagnostics;
   final PartTree partTree;
+  final Duration? modelLoadDuration;
+  final int? modelByteSize;
+  final int? nodeCount;
+  final int? meshCount;
+  final int? materialCount;
+  final int? primitiveCount;
 
   bool get isSuccess => diagnostic == null;
 }
@@ -55,7 +74,12 @@ final class ModelLoader {
   final http.Client _httpClient;
   final bool _ownsHttpClient;
 
-  Future<ModelLoadResult> load(ModelSource source) async {
+  Future<ModelLoadResult> load(
+    ModelSource source, {
+    MaterialShadingPolicy materialShadingPolicy =
+        MaterialShadingPolicy.authored,
+  }) async {
+    final stopwatch = Stopwatch()..start();
     final _LoadedModelBytes loaded;
     try {
       loaded = await _loadBytes(source).timeout(options.timeout);
@@ -75,7 +99,11 @@ final class ModelLoader {
 
     try {
       await adapter
-          .loadGlbBytes(loaded.bytes, debugName: loaded.debugName)
+          .loadGlbBytes(
+            loaded.bytes,
+            debugName: loaded.debugName,
+            materialShadingPolicy: materialShadingPolicy,
+          )
           .timeout(options.timeout);
     } on FlutterSceneAdapterUnavailableException catch (error) {
       return ModelLoadResult.failure(
@@ -100,13 +128,23 @@ final class ModelLoader {
       );
     }
 
-    final registry = _buildPartRegistry();
+    final snapshot = adapter.nodeSnapshot;
+    final registry = _buildPartRegistry(snapshot);
+    final fallbackStats = _modelStatsFromSnapshot(snapshot);
+    final adapterStats = adapter.modelStats;
     return ModelLoadResult.success(
       diagnostics: <ViewerDiagnostic>[
         ...adapter.collectDiagnostics(),
         ...registry.diagnostics,
       ],
       partTree: registry.tree,
+      modelLoadDuration: stopwatch.elapsed,
+      modelByteSize: loaded.bytes.lengthInBytes,
+      nodeCount: adapterStats?.nodeCount ?? fallbackStats?.nodeCount,
+      meshCount: adapterStats?.meshCount ?? fallbackStats?.meshCount,
+      materialCount: adapterStats?.materialCount,
+      primitiveCount:
+          adapterStats?.primitiveCount ?? fallbackStats?.primitiveCount,
     );
   }
 
@@ -251,12 +289,37 @@ final class ModelLoader {
     };
   }
 
-  PartRegistry _buildPartRegistry() {
-    final snapshot = adapter.nodeSnapshot;
+  PartRegistry _buildPartRegistry(AdapterNodeSnapshot? snapshot) {
     if (snapshot == null) {
       return const PartRegistry.empty();
     }
     return PartRegistry.fromSnapshot(snapshot);
+  }
+
+  AdapterModelStats? _modelStatsFromSnapshot(AdapterNodeSnapshot? snapshot) {
+    if (snapshot == null) {
+      return null;
+    }
+    var nodeCount = 0;
+    var meshCount = 0;
+    var primitiveCount = 0;
+    void visit(AdapterNodeSnapshot node) {
+      nodeCount += 1;
+      if (node.primitiveCount > 0) {
+        meshCount += 1;
+        primitiveCount += node.primitiveCount;
+      }
+      for (final child in node.children) {
+        visit(child);
+      }
+    }
+
+    visit(snapshot);
+    return AdapterModelStats(
+      nodeCount: nodeCount,
+      meshCount: meshCount,
+      primitiveCount: primitiveCount,
+    );
   }
 }
 
