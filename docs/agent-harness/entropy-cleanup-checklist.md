@@ -8,8 +8,8 @@ Use this checklist when docs or plans start feeling noisy.
 - Plans with all acceptance criteria checked should move to `completed/` unless
   the progress log clearly says why they remain active.
 - Deferred work belongs in `deferred/`, not as a checked-off active plan.
-- `docs/project-plan-v2/` is source material only; do not implement directly
-  from it.
+- Historical planning source should be promoted into roadmap or exec-plan
+  files, not kept as parallel planning packs.
 
 ## Generated and score docs
 

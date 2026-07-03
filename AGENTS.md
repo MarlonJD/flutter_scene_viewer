@@ -15,9 +15,9 @@ mechanical checks, and evidence-driven implementation.
 
 Harness output and entropy rules live in `docs/agent-harness/`.
 
-`docs/project-plan-v2/` is preserved planning source material, not an active
-execution plan. Promote any v2 work into `docs/exec-plans/active/` before
-implementing it.
+Historical v2 planning source has been promoted into the roadmap and exec-plan
+folders. Future work should start from `docs/ROADMAP.md` and be promoted into
+`docs/exec-plans/active/` before implementation.
 
 ## Project intent
 
@@ -81,5 +81,5 @@ Flutter toolchain in the active plan log.
 - Runtime GLB: `docs/RUNTIME_GLB_PIPELINE.md`
 - Materials: `docs/MATERIALS_AND_LIGHTING.md`
 - Quality: `docs/QUALITY_SCORE.md`
-- V2 planning source: `docs/project-plan-v2/README.md`
+- Roadmap: `docs/ROADMAP.md`
 - Plans: `docs/exec-plans/active/`

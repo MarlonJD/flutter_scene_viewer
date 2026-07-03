@@ -2,7 +2,6 @@ include: package:lints/recommended.yaml
 
 analyzer:
   exclude:
-    - docs/project-plan-v2/**
     - build/**
     - android/**
     - ios/**

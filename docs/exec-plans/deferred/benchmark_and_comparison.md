@@ -67,9 +67,11 @@ plan before they can be reported responsibly.
   `SHA256SUMS.txt`.
 - 2026-07-01: Removed root agent-specific instruction files and updated repo
   lint/tooling docs so `AGENTS.md` is the single root agent-facing entry point.
-- 2026-07-01: Kept `docs/project-plan-v2/` as v2 planning source material and
-  documented that selected v2 work must be promoted into
-  `docs/exec-plans/active/` before implementation.
+- 2026-07-01: Kept the v2 planning source material and documented that
+  selected v2 work must be promoted into `docs/exec-plans/active/` before
+  implementation.
+- 2026-07-03: Removed the old planning source directory after current direction
+  moved into `docs/ROADMAP.md` and deferred exec plans.
 - 2026-07-01: Added explicit `docs/WHY.md` comparisons against
   `interactive_3d` and `babylonjs_viewer` based on current pub.dev package
   descriptions, while preserving the no-benchmark/no-superiority-claim boundary.

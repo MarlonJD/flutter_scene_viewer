@@ -7,8 +7,8 @@ viewer `PartAddress` values through the existing `onPartTapped` callback.
 
 ## Source material
 
-Promoted from `docs/project-plan-v2/planning/task_graph.yaml` task T304
-`raycast_to_part_hit` and the MVP user story:
+Promoted from the archived v2 planning source task T304 `raycast_to_part_hit`
+and the MVP user story:
 
 ```text
 Given user taps a primitive

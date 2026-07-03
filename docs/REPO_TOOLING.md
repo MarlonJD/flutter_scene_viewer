@@ -27,9 +27,9 @@ docs/
   exec-plans/
     active/
     completed/
+    deferred/
     templates/
   generated/
-  project-plan-v2/   # planning source only; promote slices to active plans
   product-specs/
   references/
 tools/
@@ -58,9 +58,9 @@ Completed plans with all acceptance criteria checked belong in
 `docs/exec-plans/completed/`; future work should be promoted back into
 `active/` before implementation.
 
-`docs/project-plan-v2/` is preserved for future v2 planning. It should not be
-implemented directly; move the selected slice into `docs/exec-plans/active/`
-first.
+Historical planning source has been promoted into `docs/ROADMAP.md` and the
+exec-plan folders. Future work should be represented as a deferred or active
+exec plan before implementation.
 
 ## Entropy control
 
