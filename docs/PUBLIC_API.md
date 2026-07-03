@@ -30,9 +30,15 @@ screen-space ambient occlusion pass for viewer-controlled studio lighting.
 The studio preset separates indirect/sky lighting from direct dynamic lighting:
 `environmentIntensity` scales the environment / image-based lighting term,
 while `keyLightIntensity`, `keyLightColor`, and `keyLightDirection` configure
-the viewer's single directional key light. The current adapter does not expose
-a separate `SkyLight` component; sky/indirect lighting is represented by the
-scene environment.
+the viewer's single directional key light. `keyLightCastsShadow` opts into
+upstream directional-light shadow maps for visual smoke scenes where an
+occluder should make another object darker. Shadow quality can be tuned with
+`keyLightShadowMapResolution`, `keyLightShadowMaxDistance`,
+`keyLightShadowSoftness`, `keyLightShadowFadeRange`,
+`keyLightShadowDepthBias`, `keyLightShadowNormalBias`,
+`keyLightShadowCascadeCount`, and `keyLightShadowCascadeSplitLambda`. The
+current adapter does not expose a separate `SkyLight` component; sky/indirect
+lighting is represented by the scene environment.
 
 `environment` selects the viewer-controlled environment source and presentation.
 V1 supports `ViewerEnvironment.studio()`, `ViewerEnvironment.empty()`,
@@ -57,7 +63,10 @@ typed `ViewerDiagnostic` values and preserve the previous valid environment.
 User-Agent string. The viewer resolves the current Poly Haven descriptor shape
 from `https://api.polyhaven.com/files/{assetId}` and uses the returned
 `hdri[resolution][fileType].url` and `size` fields. The default studio
-environment never performs a network request.
+environment never performs a network request. Production apps should normally
+offer a curated set of bundled or explicitly described environments such as
+studio, forest, coast, and city; arbitrary HDRI authoring/import is an asset
+pipeline concern, not a default runtime workflow.
 
 `debugShowStatsOverlay` is an opt-in development overlay fed from
 `ViewerStatsSnapshot`. `onStats` can collect the same snapshot without showing

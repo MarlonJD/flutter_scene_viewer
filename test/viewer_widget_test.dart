@@ -216,6 +216,15 @@ void main() {
             keyLightIntensity: 7,
             keyLightColor: <double>[1, 0.92, 0.84],
             keyLightDirection: <double>[-0.2, -0.9, -0.4],
+            keyLightCastsShadow: true,
+            keyLightShadowMapResolution: 4096,
+            keyLightShadowMaxDistance: 8,
+            keyLightShadowSoftness: 0.03,
+            keyLightShadowFadeRange: 0.75,
+            keyLightShadowDepthBias: 0.01,
+            keyLightShadowNormalBias: 0.015,
+            keyLightShadowCascadeCount: 2,
+            keyLightShadowCascadeSplitLambda: 0.75,
           ),
         ),
       ),
@@ -236,6 +245,21 @@ void main() {
     expect(
       renderScene.lightingFrames.single.keyLightDirection,
       <double>[-0.2, -0.9, -0.4],
+    );
+    expect(renderScene.lightingFrames.single.keyLightCastsShadow, isTrue);
+    expect(
+      renderScene.lightingFrames.single.keyLightShadowMapResolution,
+      4096,
+    );
+    expect(renderScene.lightingFrames.single.keyLightShadowMaxDistance, 8);
+    expect(renderScene.lightingFrames.single.keyLightShadowSoftness, 0.03);
+    expect(renderScene.lightingFrames.single.keyLightShadowFadeRange, 0.75);
+    expect(renderScene.lightingFrames.single.keyLightShadowDepthBias, 0.01);
+    expect(renderScene.lightingFrames.single.keyLightShadowNormalBias, 0.015);
+    expect(renderScene.lightingFrames.single.keyLightShadowCascadeCount, 2);
+    expect(
+      renderScene.lightingFrames.single.keyLightShadowCascadeSplitLambda,
+      0.75,
     );
   });
 

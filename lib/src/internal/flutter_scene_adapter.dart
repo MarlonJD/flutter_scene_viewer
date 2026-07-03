@@ -813,7 +813,16 @@ final class _FlutterSceneRenderScene implements AdapterRenderScene {
           ..direction = _vector3(lighting.keyLightDirection)
           ..color = _vector3(lighting.keyLightColor)
           ..intensity = lighting.keyLightIntensity
-          ..castsShadow = false;
+          ..castsShadow = lighting.keyLightCastsShadow
+          ..shadowMapResolution = lighting.keyLightShadowMapResolution
+          ..shadowMaxDistance = lighting.keyLightShadowMaxDistance
+          ..shadowSoftness = lighting.keyLightShadowSoftness
+          ..shadowFadeRange = lighting.keyLightShadowFadeRange
+          ..shadowDepthBias = lighting.keyLightShadowDepthBias
+          ..shadowNormalBias = lighting.keyLightShadowNormalBias
+          ..shadowCascadeCount = lighting.keyLightShadowCascadeCount
+          ..shadowCascadeSplitLambda =
+              lighting.keyLightShadowCascadeSplitLambda;
       case RenderLightingKind.none:
         scene.environmentIntensity = 0.0;
         scene.directionalLight = null;

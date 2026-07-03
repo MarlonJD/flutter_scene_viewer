@@ -27,3 +27,18 @@ single-material `Box.glb`.
 
 License:
 Project fixture, available under the repository license.
+
+## SkylightTable.glb
+
+Source:
+Generated in-repo by `tools/generate_skylight_fixture.py`.
+
+Contents:
+A compact static GLB with one assembly root and three mesh child nodes:
+`Table`, `UpperObject`, and `LowerObject`. It exists for visual smoke checks
+that distinguish environment/skylight readability from HDRI reflection. With
+studio key-light shadows enabled, the lower object should read darker than the
+upper object while still remaining visible from the environment/IBL term.
+
+License:
+Project fixture, available under the repository license.

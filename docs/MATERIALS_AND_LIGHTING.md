@@ -88,8 +88,18 @@ blend behavior should not be flipped as an arbitrary runtime texture override.
 
 Studio lighting has two terms in the current adapter. The direct dynamic term
 is one viewer-controlled directional key light with direction, color, and
-intensity. The indirect/sky-light-like term is the scene environment / IBL
-intensity. There is no separate public `SkyLight` component in this slice.
+intensity. It can opt into upstream `flutter_scene` shadow maps with
+`ViewerLighting.studio(keyLightCastsShadow: true)` when a visual smoke or app
+experience needs cast-shadow readability. Shadow-map artifacts are expected
+when the shadow atlas is too low resolution for the visible scene scale or
+when a large `keyLightShadowMaxDistance` spreads cascades too far. Use
+`keyLightShadowMapResolution`, `keyLightShadowMaxDistance`,
+`keyLightShadowSoftness`, `keyLightShadowFadeRange`,
+`keyLightShadowDepthBias`, `keyLightShadowNormalBias`,
+`keyLightShadowCascadeCount`, and `keyLightShadowCascadeSplitLambda` to tune
+quality for a given viewer scene. The indirect/sky-light-like term is the
+scene environment / IBL intensity. There is no separate public `SkyLight`
+component in this slice.
 `flutter_scene` already exposes environment and skybox primitives, including
 studio/empty environments, equirectangular asset environments, decoded linear
 HDR pixel environments, environment intensity, environment rotation, and
@@ -111,6 +121,18 @@ id, resolution, file type, and unique User-Agent; the default studio
 environment remains local and deterministic. Fake HTTP tests cover descriptor
 resolution, download byte limits, timeout handling, cancellation, and cache
 reuse. Live downloads are optional smoke checks, not required verification.
+Product apps should usually expose a curated set of environment choices such as
+studio, forest, coast, and city as bundled assets or explicit descriptors
+rather than asking users to provide arbitrary HDRI files at runtime. HDRI
+authoring and capture is its own asset-pipeline concern.
+
+Visual evidence should use the right scene for the claim being made. HDRI
+reflection checks need a smooth metallic material, such as aluminum or steel
+with `metallic: 1.0` and low roughness, so the environment tint can be seen on
+the surface. Skylight or ambient-readability checks need actual spatial
+occlusion: for example `SkylightTable.glb` contains a table, one object on top,
+and one object underneath. With key-light shadows enabled, the lower object
+should be darker but still visible from the environment/IBL contribution.
 
 Static baked lighting/lightmaps remain outside v1 core. If added later, they
 should remain separate from runtime material texture override semantics so UV1

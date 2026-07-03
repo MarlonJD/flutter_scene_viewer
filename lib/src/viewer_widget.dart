@@ -855,6 +855,16 @@ RenderLightingFrame _renderLightingFrame(ViewerLighting lighting) {
         keyLightIntensity: lighting.keyLightIntensity,
         keyLightColor: lighting.keyLightColor,
         keyLightDirection: lighting.keyLightDirection,
+        keyLightCastsShadow: lighting.keyLightCastsShadow,
+        keyLightShadowMapResolution: lighting.keyLightShadowMapResolution,
+        keyLightShadowMaxDistance: lighting.keyLightShadowMaxDistance,
+        keyLightShadowSoftness: lighting.keyLightShadowSoftness,
+        keyLightShadowFadeRange: lighting.keyLightShadowFadeRange,
+        keyLightShadowDepthBias: lighting.keyLightShadowDepthBias,
+        keyLightShadowNormalBias: lighting.keyLightShadowNormalBias,
+        keyLightShadowCascadeCount: lighting.keyLightShadowCascadeCount,
+        keyLightShadowCascadeSplitLambda:
+            lighting.keyLightShadowCascadeSplitLambda,
       ),
     ViewerLightingKind.none => RenderLightingFrame(
         kind: RenderLightingKind.none,
@@ -862,6 +872,7 @@ RenderLightingFrame _renderLightingFrame(ViewerLighting lighting) {
         environmentIntensity: 0,
         keyLightIntensity: 0,
         keyLightColor: const <double>[0, 0, 0],
+        keyLightCastsShadow: false,
       ),
   };
 }

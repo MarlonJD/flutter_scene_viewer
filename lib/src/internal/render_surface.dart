@@ -32,6 +32,15 @@ final class RenderLightingFrame {
     this.keyLightIntensity = 3.0,
     this.keyLightColor = const <double>[1.0, 1.0, 1.0],
     this.keyLightDirection = const <double>[-0.45, -0.85, -0.35],
+    this.keyLightCastsShadow = false,
+    this.keyLightShadowMapResolution = 1024,
+    this.keyLightShadowMaxDistance = 150.0,
+    this.keyLightShadowSoftness = 0.08,
+    this.keyLightShadowFadeRange = 2.0,
+    this.keyLightShadowDepthBias = 0.02,
+    this.keyLightShadowNormalBias = 0.02,
+    this.keyLightShadowCascadeCount = 4,
+    this.keyLightShadowCascadeSplitLambda = 0.6,
   });
 
   final RenderLightingKind kind;
@@ -41,6 +50,15 @@ final class RenderLightingFrame {
   final double keyLightIntensity;
   final List<double> keyLightColor;
   final List<double> keyLightDirection;
+  final bool keyLightCastsShadow;
+  final int keyLightShadowMapResolution;
+  final double keyLightShadowMaxDistance;
+  final double keyLightShadowSoftness;
+  final double keyLightShadowFadeRange;
+  final double keyLightShadowDepthBias;
+  final double keyLightShadowNormalBias;
+  final int keyLightShadowCascadeCount;
+  final double keyLightShadowCascadeSplitLambda;
 }
 
 @internal
