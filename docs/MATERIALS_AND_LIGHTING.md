@@ -13,6 +13,23 @@ Support core glTF metallic-roughness PBR:
 - emissive factor and texture;
 - alpha mode and double-sided where `flutter_scene` exposes them.
 
+Transmission/glass is required before v1.0 release. It must mean real
+glTF-style transmission/refraction behavior with IOR and volume attenuation
+where requested, not an alpha-blended approximation. The current installed
+`flutter_scene` 0.18.1 material/importer API does not expose
+`KHR_materials_transmission`, `KHR_materials_ior`, or `KHR_materials_volume`,
+so v1.0 glass rendering is blocked on upstream capability. Until that exists,
+`MaterialPatch` glass fields return `unsupportedMaterialFeature` diagnostics
+and are not applied or persisted.
+
+Clearcoat is also required before v1.0 release. It covers two-layer coated
+materials such as automotive paint, varnished wood, carbon fiber under gloss
+coat, and other premium product surfaces. It must mean real clearcoat behavior
+such as `KHR_materials_clearcoat`, not a fake fallback that only lowers base
+roughness or boosts environment intensity. Until upstream support exists, the
+`MaterialPatch` clearcoat fields return `unsupportedMaterialFeature`
+diagnostics and are not applied or persisted.
+
 PBR and lit/unlit are separate concepts. PBR describes the material parameter
 model and available inputs such as base color, metallic, roughness, normal,
 occlusion, and emissive data. Lit/unlit describes whether the material shader
@@ -32,12 +49,15 @@ lightmaps.
 `MaterialPatch` currently exposes runtime override slots for base color,
 metallic-roughness, normal, emissive, and occlusion textures, plus normal scale
 and occlusion strength where `flutter_scene` exposes matching PBR material
-fields.
+fields. Transmission and volume texture requests also require UV0 once renderer
+support exists; the current adapter reports them as unsupported first because
+`flutter_scene` has no real glass material surface to bind. Clearcoat texture
+and clearcoat normal texture requests likewise require UV0 once renderer support
+exists; the current adapter reports them as unsupported first because
+`flutter_scene` has no real clearcoat material surface to bind.
 
 ## Excluded from v1
 
-- clearcoat;
-- transmission/glass;
 - sheen;
 - subsurface scattering;
 - parallax mapping;
@@ -133,6 +153,12 @@ the surface. Skylight or ambient-readability checks need actual spatial
 occlusion: for example `SkylightTable.glb` contains a table, one object on top,
 and one object underneath. With key-light shadows enabled, the lower object
 should be darker but still visible from the environment/IBL contribution.
+For that specific top-down smoke, do not use the default angled studio key
+light. Use a directly overhead key light (`keyLightDirection: [0, -1, 0]`),
+enable `keyLightCastsShadow`, keep `ambientOcclusion: false`, and choose a
+tight `keyLightShadowMaxDistance` for the compact fixture. The expected visual
+result is not a black hidden lower object; it is a slightly darker lower object
+that remains readable because environment lighting still contributes.
 
 Static baked lighting/lightmaps remain outside v1 core. If added later, they
 should remain separate from runtime material texture override semantics so UV1

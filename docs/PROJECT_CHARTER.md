@@ -40,5 +40,5 @@ It differs by aiming for:
 
 This is not Unity, Unreal, BabylonJS, or a CAD tessellation pipeline. If a user
 needs advanced shader/material effects such as subsurface scattering, parallax,
-or displacement, physics, deformation, or authored game scenes, they should use
-a dedicated 3D engine.
+or displacement, physics, deformation, or full game-engine scene systems, they
+should use a dedicated 3D engine.

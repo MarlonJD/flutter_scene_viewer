@@ -336,6 +336,13 @@ final class FlutterSceneRuntimeAdapter implements FlutterSceneAdapter {
       return <ViewerDiagnostic>[_primitiveNotFound(address)];
     }
 
+    final unsupportedDiagnostics = <ViewerDiagnostic>[
+      if (patch.hasGlassOverride) _unsupportedGlassMaterial(address),
+      if (patch.hasClearcoatOverride) _unsupportedClearcoatMaterial(address),
+    ];
+    if (unsupportedDiagnostics.isNotEmpty) {
+      return unsupportedDiagnostics;
+    }
     if (patch.hasTextureOverride && !_primitiveHasTexCoord0(target.primitive)) {
       return <ViewerDiagnostic>[_missingUv(address)];
     }
@@ -765,6 +772,38 @@ final class FlutterSceneRuntimeAdapter implements FlutterSceneAdapter {
       message:
           'Normal intensity override currently requires a normal texture override.',
       details: <String, Object?>{'part': address.debugPath},
+    );
+  }
+
+  ViewerDiagnostic _unsupportedGlassMaterial(PartAddress address) {
+    return ViewerDiagnostic(
+      code: ViewerDiagnosticCode.unsupportedMaterialFeature,
+      message:
+          'Transmission/glass material overrides require flutter_scene support for transmission, IOR, and volume attenuation.',
+      details: <String, Object?>{
+        'part': address.debugPath,
+        'extensions': const <String>[
+          'KHR_materials_transmission',
+          'KHR_materials_ior',
+          'KHR_materials_volume',
+        ],
+        'upstreamPackage': 'flutter_scene',
+        'status': 'unsupported',
+      },
+    );
+  }
+
+  ViewerDiagnostic _unsupportedClearcoatMaterial(PartAddress address) {
+    return ViewerDiagnostic(
+      code: ViewerDiagnosticCode.unsupportedMaterialFeature,
+      message:
+          'Clearcoat material overrides require flutter_scene support for KHR_materials_clearcoat.',
+      details: <String, Object?>{
+        'part': address.debugPath,
+        'extensions': const <String>['KHR_materials_clearcoat'],
+        'upstreamPackage': 'flutter_scene',
+        'status': 'unsupported',
+      },
     );
   }
 }

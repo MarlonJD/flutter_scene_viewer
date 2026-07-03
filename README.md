@@ -63,12 +63,23 @@ MVP core material support:
 - emissive factor/texture;
 - alpha mode and double-sided handling where supported by `flutter_scene`.
 
+Transmission/glass support is a v1.0 release blocker. It requires real
+`KHR_materials_transmission`, `KHR_materials_ior`, and `KHR_materials_volume`
+behavior from `flutter_scene`; the viewer must not present alpha blending as
+glass.
+
+Clearcoat support is also a v1.0 release blocker for automotive paint,
+varnished wood, carbon fiber, and premium coated surfaces. It requires real
+`KHR_materials_clearcoat`-style behavior; the viewer must not present lower
+roughness as clearcoat.
+
 Explicit non-goals for v1:
 
 - skeletal animation and interactive posing;
-- morph targets / blend shapes;
+- morph targets / blend shapes, which are v3+ or later work;
 - Draco/meshopt/KTX2 compression;
 - imported glTF lights/cameras/full authored scene playback;
+- VR, AR, OpenXR, WebXR, ARKit, and ARCore features;
 - advanced shader techniques like subsurface scattering, parallax, and displacement.
 
 ## Product Boundary
@@ -77,14 +88,17 @@ This package is **not** a new 3D engine. It adapts `flutter_scene` into a stable
 public Flutter API for app developers. It does not tessellate CAD files, unwrap
 UVs, invent missing texture coordinates, implement custom PBR rendering, or
 claim performance superiority over Filament, `interactive_3d`, BabylonJS, or
-other viewers without benchmark evidence.
+other viewers without benchmark evidence. CAD tessellation would require a
+future OCCT FFI plus STEP/IGES import track before tessellation could even be
+considered.
 
 ## Development Status
 
 `flutter_scene_viewer` is in early development. The public API shape,
 documentation, tooling, and validation checks are in place; the
 `flutter_scene` adapter is still being implemented. Treat the package as
-pre-release until the runtime adapter and benchmark reports are complete.
+pre-release until runtime adapter checks pass and the transmission/glass and
+clearcoat release blockers are resolved with real upstream renderer support.
 
 ## Development
 
@@ -104,6 +118,7 @@ use the Flutter channel/version required by `flutter_scene`.
 - [Public API](docs/PUBLIC_API.md)
 - [Runtime GLB pipeline](docs/RUNTIME_GLB_PIPELINE.md)
 - [Materials and lighting](docs/MATERIALS_AND_LIGHTING.md)
+- [Roadmap](docs/ROADMAP.md)
 
 ## License
 

@@ -36,10 +36,15 @@ Report these explicitly:
 
 - missing `TEXCOORD_0` / UV0 when a texture override is requested;
 - unsupported material/extension;
+- unsupported transmission/glass material requests when the adapter target does
+  not expose real `KHR_materials_transmission`, `KHR_materials_ior`, and
+  `KHR_materials_volume` behavior;
+- unsupported clearcoat material requests when the adapter target does not
+  expose real `KHR_materials_clearcoat` behavior;
 - ambiguous node path;
 - missing primitive index;
 - model exceeds configured size limits;
-- network timeout or cache failure.
+- network timeout or cache failure;
 - environment source exceeds configured size limits;
 - unsupported raw environment encoding or invalid equirectangular dimensions;
 - raw environment asset/network/decode failures.
@@ -101,6 +106,18 @@ other material classes as `unknown`. Scene lights are only expected to affect
 time so callers can preserve authored material shader behavior or force
 supported imported materials onto a lit or unlit base material. Runtime
 `MaterialPatch` updates do not change shader mode.
+
+As of 2026-07-03, the installed `flutter_scene` 0.18.1 target does not expose
+real transmission/glass or clearcoat support. The local audit found no public
+`PhysicallyBasedMaterial` fields for transmission, IOR, thickness,
+attenuation, clearcoat factor, or clearcoat roughness, and the runtime glTF
+material importer parses core PBR plus `KHR_materials_unlit`, but not
+`KHR_materials_transmission`, `KHR_materials_ior`, `KHR_materials_volume`, or
+`KHR_materials_clearcoat`. The viewer therefore records transmission/glass and
+clearcoat as v1 release blockers and rejects current runtime glass and
+clearcoat patches with `unsupportedMaterialFeature`; alpha blending is not
+accepted as a glass substitute and low roughness is not accepted as a clearcoat
+substitute.
 
 The current lighting adapter maps direct lighting to one
 `flutter_scene.DirectionalLight` and indirect/sky lighting to the scene

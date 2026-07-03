@@ -186,6 +186,19 @@ Core patch fields:
 - `emissiveTexture`
 - `occlusionTexture`
 - `occlusionStrength`
+- `transmission`
+- `transmissionTexture`
+- `ior`
+- `thickness`
+- `thicknessTexture`
+- `attenuationColor`
+- `attenuationDistance`
+- `clearcoat`
+- `clearcoatTexture`
+- `clearcoatRoughness`
+- `clearcoatRoughnessTexture`
+- `clearcoatNormalTexture`
+- `clearcoatNormalScale`
 - `visible`
 
 Unsupported fields must be rejected with diagnostics, not silently ignored.
@@ -197,6 +210,25 @@ Runtime texture overrides require authored `TEXCOORD_0`/UV0 on the target
 primitive. Additional UV channels such as `TEXCOORD_1` may be used by authored
 assets for lightmaps or other data, but they are not treated as runtime material
 override UVs.
+
+Transmission/glass fields are v1 release-blocker API intent for
+`KHR_materials_transmission`, `KHR_materials_ior`, and
+`KHR_materials_volume`. With the currently installed `flutter_scene` 0.18.1
+adapter target, requests using those fields return
+`unsupportedMaterialFeature` diagnostics and are not applied or persisted.
+Alpha blending or base-color alpha alone must not be presented as glass.
+When upstream exposes real transmission/refraction/Fresnel, IOR, and volume
+attenuation support, these fields should bind to that renderer capability and
+their texture forms must still require authored UV0.
+
+Clearcoat is a v1 release blocker for coated product materials such as car
+paint, varnished wood, and carbon fiber gloss coat. The clearcoat patch fields
+are serializable request intent for `KHR_materials_clearcoat`. With the
+currently installed `flutter_scene` 0.18.1 adapter target, requests using those
+fields return `unsupportedMaterialFeature` diagnostics and are not applied or
+persisted. Lowering roughness must not be presented as clearcoat. When upstream
+exposes real clearcoat behavior, these fields should bind to that renderer
+capability and their texture forms must still require authored UV0.
 
 ## Material override persistence
 

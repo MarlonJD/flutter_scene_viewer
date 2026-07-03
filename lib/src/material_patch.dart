@@ -19,6 +19,19 @@ final class MaterialPatch {
     this.emissiveTexture,
     this.occlusionTexture,
     this.occlusionStrength,
+    this.transmission,
+    this.transmissionTexture,
+    this.ior,
+    this.thickness,
+    this.thicknessTexture,
+    this.attenuationColor,
+    this.attenuationDistance,
+    this.clearcoat,
+    this.clearcoatTexture,
+    this.clearcoatRoughness,
+    this.clearcoatRoughnessTexture,
+    this.clearcoatNormalTexture,
+    this.clearcoatNormalScale,
     this.visible,
   })  : assert(
           baseColorFactor == null || baseColorFactor.length == 4,
@@ -52,6 +65,84 @@ final class MaterialPatch {
 
   final double? occlusionStrength;
 
+  /// KHR_materials_transmission scalar.
+  ///
+  /// This field is intentionally rejected by the current adapter until
+  /// flutter_scene exposes real transmission/refraction support.
+  final double? transmission;
+
+  /// KHR_materials_transmission texture.
+  ///
+  /// This field is intentionally rejected by the current adapter until
+  /// flutter_scene exposes real transmission/refraction support.
+  final TextureSource? transmissionTexture;
+
+  /// KHR_materials_ior index of refraction.
+  ///
+  /// This field is intentionally rejected by the current adapter until
+  /// flutter_scene exposes real IOR support.
+  final double? ior;
+
+  /// KHR_materials_volume thickness scalar.
+  ///
+  /// This field is intentionally rejected by the current adapter until
+  /// flutter_scene exposes real volume attenuation support.
+  final double? thickness;
+
+  /// KHR_materials_volume thickness texture.
+  ///
+  /// This field is intentionally rejected by the current adapter until
+  /// flutter_scene exposes real volume attenuation support.
+  final TextureSource? thicknessTexture;
+
+  /// KHR_materials_volume attenuation color.
+  ///
+  /// This field is intentionally rejected by the current adapter until
+  /// flutter_scene exposes real volume attenuation support.
+  final List<double>? attenuationColor;
+
+  /// KHR_materials_volume attenuation distance.
+  ///
+  /// This field is intentionally rejected by the current adapter until
+  /// flutter_scene exposes real volume attenuation support.
+  final double? attenuationDistance;
+
+  /// KHR_materials_clearcoat clearcoat factor.
+  ///
+  /// This field is intentionally rejected by the current adapter until
+  /// flutter_scene exposes real clearcoat support.
+  final double? clearcoat;
+
+  /// KHR_materials_clearcoat clearcoat factor texture.
+  ///
+  /// This field is intentionally rejected by the current adapter until
+  /// flutter_scene exposes real clearcoat support.
+  final TextureSource? clearcoatTexture;
+
+  /// KHR_materials_clearcoat clearcoat roughness factor.
+  ///
+  /// This field is intentionally rejected by the current adapter until
+  /// flutter_scene exposes real clearcoat support.
+  final double? clearcoatRoughness;
+
+  /// KHR_materials_clearcoat clearcoat roughness texture.
+  ///
+  /// This field is intentionally rejected by the current adapter until
+  /// flutter_scene exposes real clearcoat support.
+  final TextureSource? clearcoatRoughnessTexture;
+
+  /// KHR_materials_clearcoat clearcoat normal texture.
+  ///
+  /// This field is intentionally rejected by the current adapter until
+  /// flutter_scene exposes real clearcoat support.
+  final TextureSource? clearcoatNormalTexture;
+
+  /// KHR_materials_clearcoat clearcoat normal intensity.
+  ///
+  /// This field is intentionally rejected by the current adapter until
+  /// flutter_scene exposes real clearcoat support.
+  final double? clearcoatNormalScale;
+
   final bool? visible;
 
   bool get isEmpty =>
@@ -66,14 +157,49 @@ final class MaterialPatch {
       emissiveTexture == null &&
       occlusionTexture == null &&
       occlusionStrength == null &&
+      transmission == null &&
+      transmissionTexture == null &&
+      ior == null &&
+      thickness == null &&
+      thicknessTexture == null &&
+      attenuationColor == null &&
+      attenuationDistance == null &&
+      clearcoat == null &&
+      clearcoatTexture == null &&
+      clearcoatRoughness == null &&
+      clearcoatRoughnessTexture == null &&
+      clearcoatNormalTexture == null &&
+      clearcoatNormalScale == null &&
       visible == null;
+
+  bool get hasGlassOverride =>
+      transmission != null ||
+      transmissionTexture != null ||
+      ior != null ||
+      thickness != null ||
+      thicknessTexture != null ||
+      attenuationColor != null ||
+      attenuationDistance != null;
+
+  bool get hasClearcoatOverride =>
+      clearcoat != null ||
+      clearcoatTexture != null ||
+      clearcoatRoughness != null ||
+      clearcoatRoughnessTexture != null ||
+      clearcoatNormalTexture != null ||
+      clearcoatNormalScale != null;
 
   bool get hasTextureOverride =>
       baseColorTexture != null ||
       metallicRoughnessTexture != null ||
       normalTexture != null ||
       emissiveTexture != null ||
-      occlusionTexture != null;
+      occlusionTexture != null ||
+      transmissionTexture != null ||
+      thicknessTexture != null ||
+      clearcoatTexture != null ||
+      clearcoatRoughnessTexture != null ||
+      clearcoatNormalTexture != null;
 
   MaterialPatch merge(MaterialPatch next) => MaterialPatch(
         baseColorFactor: next.baseColorFactor ?? baseColorFactor,
@@ -88,10 +214,32 @@ final class MaterialPatch {
         emissiveTexture: next.emissiveTexture ?? emissiveTexture,
         occlusionTexture: next.occlusionTexture ?? occlusionTexture,
         occlusionStrength: next.occlusionStrength ?? occlusionStrength,
+        transmission: next.transmission ?? transmission,
+        transmissionTexture: next.transmissionTexture ?? transmissionTexture,
+        ior: next.ior ?? ior,
+        thickness: next.thickness ?? thickness,
+        thicknessTexture: next.thicknessTexture ?? thicknessTexture,
+        attenuationColor: next.attenuationColor ?? attenuationColor,
+        attenuationDistance: next.attenuationDistance ?? attenuationDistance,
+        clearcoat: next.clearcoat ?? clearcoat,
+        clearcoatTexture: next.clearcoatTexture ?? clearcoatTexture,
+        clearcoatRoughness: next.clearcoatRoughness ?? clearcoatRoughness,
+        clearcoatRoughnessTexture:
+            next.clearcoatRoughnessTexture ?? clearcoatRoughnessTexture,
+        clearcoatNormalTexture:
+            next.clearcoatNormalTexture ?? clearcoatNormalTexture,
+        clearcoatNormalScale: next.clearcoatNormalScale ?? clearcoatNormalScale,
         visible: next.visible ?? visible,
       );
 
   List<ViewerDiagnostic> validate(PartAddress address) {
+    final unsupportedDiagnostics = <ViewerDiagnostic>[
+      if (hasGlassOverride) _glassUnsupportedDiagnostic(address),
+      if (hasClearcoatOverride) _clearcoatUnsupportedDiagnostic(address),
+    ];
+    if (unsupportedDiagnostics.isNotEmpty) {
+      return unsupportedDiagnostics;
+    }
     return <ViewerDiagnostic>[
       if (!_isUnitInterval(metallic))
         _rangeDiagnostic(address, 'metallic', metallic!),
@@ -120,6 +268,28 @@ final class MaterialPatch {
         if (occlusionTexture != null)
           'occlusionTexture': occlusionTexture!.toJson(),
         if (occlusionStrength != null) 'occlusionStrength': occlusionStrength,
+        if (transmission != null) 'transmission': transmission,
+        if (transmissionTexture != null)
+          'transmissionTexture': transmissionTexture!.toJson(),
+        if (ior != null) 'ior': ior,
+        if (thickness != null) 'thickness': thickness,
+        if (thicknessTexture != null)
+          'thicknessTexture': thicknessTexture!.toJson(),
+        if (attenuationColor != null)
+          'attenuationColor': List<double>.of(attenuationColor!),
+        if (attenuationDistance != null)
+          'attenuationDistance': attenuationDistance,
+        if (clearcoat != null) 'clearcoat': clearcoat,
+        if (clearcoatTexture != null)
+          'clearcoatTexture': clearcoatTexture!.toJson(),
+        if (clearcoatRoughness != null)
+          'clearcoatRoughness': clearcoatRoughness,
+        if (clearcoatRoughnessTexture != null)
+          'clearcoatRoughnessTexture': clearcoatRoughnessTexture!.toJson(),
+        if (clearcoatNormalTexture != null)
+          'clearcoatNormalTexture': clearcoatNormalTexture!.toJson(),
+        if (clearcoatNormalScale != null)
+          'clearcoatNormalScale': clearcoatNormalScale,
         if (visible != null) 'visible': visible,
       };
 
@@ -138,6 +308,24 @@ final class MaterialPatch {
       occlusionTexture: _textureSource(json, 'occlusionTexture'),
       occlusionStrength:
           _doubleValue(json['occlusionStrength'], 'occlusionStrength'),
+      transmission: _doubleValue(json['transmission'], 'transmission'),
+      transmissionTexture: _textureSource(json, 'transmissionTexture'),
+      ior: _doubleValue(json['ior'], 'ior'),
+      thickness: _doubleValue(json['thickness'], 'thickness'),
+      thicknessTexture: _textureSource(json, 'thicknessTexture'),
+      attenuationColor:
+          _doubleList(json['attenuationColor'], 'attenuationColor'),
+      attenuationDistance:
+          _doubleValue(json['attenuationDistance'], 'attenuationDistance'),
+      clearcoat: _doubleValue(json['clearcoat'], 'clearcoat'),
+      clearcoatTexture: _textureSource(json, 'clearcoatTexture'),
+      clearcoatRoughness:
+          _doubleValue(json['clearcoatRoughness'], 'clearcoatRoughness'),
+      clearcoatRoughnessTexture:
+          _textureSource(json, 'clearcoatRoughnessTexture'),
+      clearcoatNormalTexture: _textureSource(json, 'clearcoatNormalTexture'),
+      clearcoatNormalScale:
+          _doubleValue(json['clearcoatNormalScale'], 'clearcoatNormalScale'),
       visible: json['visible'] as bool?,
     );
   }
@@ -160,6 +348,38 @@ ViewerDiagnostic _rangeDiagnostic(
       'value': value,
       'min': 0,
       'max': 1,
+    },
+  );
+}
+
+ViewerDiagnostic _glassUnsupportedDiagnostic(PartAddress address) {
+  return ViewerDiagnostic(
+    code: ViewerDiagnosticCode.unsupportedMaterialFeature,
+    message:
+        'Transmission/glass material overrides require flutter_scene support for transmission, IOR, and volume attenuation.',
+    details: <String, Object?>{
+      'part': address.debugPath,
+      'extensions': const <String>[
+        'KHR_materials_transmission',
+        'KHR_materials_ior',
+        'KHR_materials_volume',
+      ],
+      'upstreamPackage': 'flutter_scene',
+      'status': 'unsupported',
+    },
+  );
+}
+
+ViewerDiagnostic _clearcoatUnsupportedDiagnostic(PartAddress address) {
+  return ViewerDiagnostic(
+    code: ViewerDiagnosticCode.unsupportedMaterialFeature,
+    message:
+        'Clearcoat material overrides require flutter_scene support for KHR_materials_clearcoat.',
+    details: <String, Object?>{
+      'part': address.debugPath,
+      'extensions': const <String>['KHR_materials_clearcoat'],
+      'upstreamPackage': 'flutter_scene',
+      'status': 'unsupported',
     },
   );
 }

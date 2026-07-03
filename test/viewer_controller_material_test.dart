@@ -47,6 +47,48 @@ void main() {
         ViewerDiagnosticCode.invalidMaterialOverride);
   });
 
+  test('setPartMaterial rejects glass fields without storing override',
+      () async {
+    final controller = FlutterSceneViewerController();
+    final sink = MaterialSink(partTree: _treeFor(address));
+    controller.attach(sink);
+    await controller.load(ModelSource.bytes(Uint8List.fromList(<int>[1])));
+
+    await controller.setPartMaterial(
+      address,
+      const MaterialPatch(transmission: 1.0, ior: 1.45),
+    );
+
+    expect(sink.materialCalls, isEmpty);
+    expect(controller.materialOverrides.patchFor(address), isNull);
+    expect(controller.diagnostics.single.code,
+        ViewerDiagnosticCode.unsupportedMaterialFeature);
+  });
+
+  test('setPartMaterial rejects clearcoat fields without storing override',
+      () async {
+    final controller = FlutterSceneViewerController();
+    final sink = MaterialSink(partTree: _treeFor(address));
+    controller.attach(sink);
+    await controller.load(ModelSource.bytes(Uint8List.fromList(<int>[1])));
+
+    await controller.setPartMaterial(
+      address,
+      const MaterialPatch(
+        clearcoat: 1.0,
+        clearcoatRoughness: 0.2,
+        clearcoatNormalScale: 0.75,
+      ),
+    );
+
+    expect(sink.materialCalls, isEmpty);
+    expect(controller.materialOverrides.patchFor(address), isNull);
+    expect(controller.diagnostics.single.code,
+        ViewerDiagnosticCode.unsupportedMaterialFeature);
+    expect(controller.diagnostics.single.details['extensions'],
+        contains('KHR_materials_clearcoat'));
+  });
+
   test('setPartTexture reports missing UVs without applying texture', () async {
     final controller = FlutterSceneViewerController();
     final sink = MaterialSink(partTree: _treeFor(address, hasTexCoords: false));

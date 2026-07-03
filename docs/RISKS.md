@@ -19,6 +19,14 @@ limits, progress UI, caching, and future isolate/offline preprocessing.
 glTF material extensions are open-ended. Keep v1 to core PBR and expose extension
 points later.
 
+Transmission/glass is the exception now tracked as a v1.0 release blocker. It
+must wait for real upstream `flutter_scene` support for transmission/refraction,
+IOR, and volume attenuation; alpha blending is not an acceptable substitute.
+
+Clearcoat is also a v1.0 release blocker for automotive, varnished, and coated
+product materials. It must wait for real clearcoat support; lowering base
+roughness is not an acceptable substitute.
+
 ## Asset authoring quality
 
 Many GLBs have missing UVs, duplicate names, huge textures, or unsupported
