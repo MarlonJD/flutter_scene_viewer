@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_scene_viewer/src/diagnostics.dart';
 import 'package:flutter_scene_viewer/src/internal/glb_imported_texture_patch_reader.dart';
+import 'package:flutter_scene_viewer/src/material_patch.dart';
 import 'package:flutter_scene_viewer/src/part_address.dart';
 import 'package:flutter_scene_viewer/src/texture_source.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -124,6 +125,133 @@ void main() {
       (patch.emissiveTexture! as BytesTextureSource).encodedBytes,
       emissiveBytes,
     );
+    expect(patch.alphaMode, isNull);
+  });
+
+  test('preserves explicit imported material alphaMode and cutoff', () {
+    final baseColorBytes = _pngHeader(colorType: 2);
+    final result = readGlbImportedTexturePatches(
+      _glbWithBin(
+        <String, Object?>{
+          'asset': <String, Object?>{'version': '2.0'},
+          'scene': 0,
+          'scenes': <Object?>[
+            <String, Object?>{
+              'nodes': <Object?>[0],
+            },
+          ],
+          'nodes': <Object?>[
+            <String, Object?>{'name': 'AlphaPanel', 'mesh': 0},
+          ],
+          'meshes': <Object?>[
+            <String, Object?>{
+              'primitives': <Object?>[
+                <String, Object?>{
+                  'attributes': <String, Object?>{
+                    'POSITION': 0,
+                    'TEXCOORD_0': 1,
+                  },
+                  'material': 0,
+                },
+              ],
+            },
+          ],
+          'materials': <Object?>[
+            <String, Object?>{
+              'alphaMode': 'MASK',
+              'alphaCutoff': 0.42,
+              'pbrMetallicRoughness': <String, Object?>{
+                'baseColorTexture': <String, Object?>{'index': 0},
+              },
+            },
+          ],
+          'textures': <Object?>[
+            <String, Object?>{'source': 0},
+          ],
+          'images': <Object?>[
+            <String, Object?>{'mimeType': 'image/png', 'bufferView': 0},
+          ],
+          'bufferViews': <Object?>[
+            <String, Object?>{'buffer': 0, 'byteLength': baseColorBytes.length},
+          ],
+          'buffers': <Object?>[
+            <String, Object?>{'byteLength': baseColorBytes.length},
+          ],
+        },
+        <Uint8List>[baseColorBytes],
+      ),
+      debugName: 'alpha-mask.glb',
+    );
+
+    expect(result.diagnostics, isEmpty);
+    final patch = result.patches[PartAddress(
+      nodePath: <String>['AlphaPanel'],
+      primitiveIndex: 0,
+    )]!;
+    expect(patch.alphaMode, MaterialAlphaMode.mask);
+    expect(patch.alphaCutoff, 0.42);
+  });
+
+  test('infers blend alphaMode for imported RGBA base color PNGs', () {
+    final baseColorBytes = _pngHeader(colorType: 6);
+    final result = readGlbImportedTexturePatches(
+      _glbWithBin(
+        <String, Object?>{
+          'asset': <String, Object?>{'version': '2.0'},
+          'scene': 0,
+          'scenes': <Object?>[
+            <String, Object?>{
+              'nodes': <Object?>[0],
+            },
+          ],
+          'nodes': <Object?>[
+            <String, Object?>{'name': 'FashionOverlay', 'mesh': 0},
+          ],
+          'meshes': <Object?>[
+            <String, Object?>{
+              'primitives': <Object?>[
+                <String, Object?>{
+                  'attributes': <String, Object?>{
+                    'POSITION': 0,
+                    'TEXCOORD_0': 1,
+                  },
+                  'material': 0,
+                },
+              ],
+            },
+          ],
+          'materials': <Object?>[
+            <String, Object?>{
+              'pbrMetallicRoughness': <String, Object?>{
+                'baseColorTexture': <String, Object?>{'index': 0},
+              },
+            },
+          ],
+          'textures': <Object?>[
+            <String, Object?>{'source': 0},
+          ],
+          'images': <Object?>[
+            <String, Object?>{'mimeType': 'image/png', 'bufferView': 0},
+          ],
+          'bufferViews': <Object?>[
+            <String, Object?>{'buffer': 0, 'byteLength': baseColorBytes.length},
+          ],
+          'buffers': <Object?>[
+            <String, Object?>{'byteLength': baseColorBytes.length},
+          ],
+        },
+        <Uint8List>[baseColorBytes],
+      ),
+      debugName: 'rgba-base-color.glb',
+    );
+
+    expect(result.diagnostics, isEmpty);
+    final patch = result.patches[PartAddress(
+      nodePath: <String>['FashionOverlay'],
+      primitiveIndex: 0,
+    )]!;
+    expect(patch.alphaMode, MaterialAlphaMode.blend);
+    expect(patch.alphaCutoff, isNull);
   });
 
   test('reports imported core texture slots that require non-zero texCoord',
@@ -331,6 +459,32 @@ Uint8List _ktx2Header({
     ..setUint32(36, 1, Endian.little)
     ..setUint32(40, levelCount, Endian.little)
     ..setUint32(44, supercompressionScheme, Endian.little);
+  return bytes;
+}
+
+Uint8List _pngHeader({required int colorType}) {
+  final bytes = Uint8List(33);
+  final data = ByteData.sublistView(bytes);
+  bytes.setAll(0, const <int>[
+    0x89,
+    0x50,
+    0x4E,
+    0x47,
+    0x0D,
+    0x0A,
+    0x1A,
+    0x0A,
+  ]);
+  data
+    ..setUint32(8, 13, Endian.big)
+    ..setUint8(12, 0x49)
+    ..setUint8(13, 0x48)
+    ..setUint8(14, 0x44)
+    ..setUint8(15, 0x52)
+    ..setUint32(16, 1, Endian.big)
+    ..setUint32(20, 1, Endian.big)
+    ..setUint8(24, 8)
+    ..setUint8(25, colorType);
   return bytes;
 }
 

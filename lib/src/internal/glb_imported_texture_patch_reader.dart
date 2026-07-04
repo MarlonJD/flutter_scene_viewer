@@ -131,6 +131,8 @@ final class _GlbImportedTexturePatchMapper {
       materialIndex: materialIndex,
       slot: 'baseColorTexture',
     );
+    final alphaMode = _alphaMode(material['alphaMode']) ??
+        _inferredBaseColorAlphaMode(baseColorTexture);
     final metallicRoughnessTexture = _textureSource(
       _map(pbr?['metallicRoughnessTexture']),
       materialIndex: materialIndex,
@@ -164,7 +166,20 @@ final class _GlbImportedTexturePatchMapper {
           ? null
           : _doubleValue(occlusionInfo?['strength']),
       emissiveTexture: emissiveTexture,
+      alphaMode: alphaMode,
+      alphaCutoff: alphaMode == MaterialAlphaMode.mask
+          ? _doubleValue(material['alphaCutoff'])
+          : null,
     );
+  }
+
+  MaterialAlphaMode? _inferredBaseColorAlphaMode(TextureSource? texture) {
+    if (texture is! BytesTextureSource) {
+      return null;
+    }
+    return _pngDeclaresAlphaChannel(texture.encodedBytes)
+        ? MaterialAlphaMode.blend
+        : null;
   }
 
   TextureSource? _textureSource(
@@ -707,6 +722,53 @@ List<Object?>? _list(Object? value) {
     return value;
   }
   return null;
+}
+
+MaterialAlphaMode? _alphaMode(Object? value) {
+  if (value == null) {
+    return null;
+  }
+  if (value is! String) {
+    return null;
+  }
+  return switch (value) {
+    'OPAQUE' => MaterialAlphaMode.opaque,
+    'MASK' => MaterialAlphaMode.mask,
+    'BLEND' => MaterialAlphaMode.blend,
+    _ => null,
+  };
+}
+
+bool _pngDeclaresAlphaChannel(Uint8List bytes) {
+  const signature = <int>[
+    0x89,
+    0x50,
+    0x4E,
+    0x47,
+    0x0D,
+    0x0A,
+    0x1A,
+    0x0A,
+  ];
+  if (bytes.lengthInBytes < 33) {
+    return false;
+  }
+  for (var index = 0; index < signature.length; index += 1) {
+    if (bytes[index] != signature[index]) {
+      return false;
+    }
+  }
+  final data = ByteData.sublistView(bytes);
+  final ihdrLength = data.getUint32(8, Endian.big);
+  if (ihdrLength < 13 ||
+      bytes[12] != 0x49 ||
+      bytes[13] != 0x48 ||
+      bytes[14] != 0x44 ||
+      bytes[15] != 0x52) {
+    return false;
+  }
+  final colorType = bytes[25];
+  return colorType == 4 || colorType == 6;
 }
 
 List<int>? _intList(Object? value) {

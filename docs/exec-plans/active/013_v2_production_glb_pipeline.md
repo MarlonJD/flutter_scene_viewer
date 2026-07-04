@@ -849,3 +849,15 @@ diagnostic support around the `flutter_scene` runtime importer.
   exclude list; sibling plugins are verified in their own package contexts.
   Final local verification after that change: `bash tools/run_checks.sh`
   passed end-to-end with 255 tests and 13 existing Flutter GPU-gated skips.
+- 2026-07-05: captured an additional iOS Simulator front-view screenshot for
+  `/Users/marlonjd/Downloads/A1B32.glb` after the user asked to inspect whether
+  the garment should be white. The GLB's top/skirt `beyaz_*` base-color PNGs
+  are RGB white, while additional stitched/overlay PNGs are RGBA. Added
+  imported material alpha handling so explicit glTF `alphaMode` values are
+  preserved in authored material patches and alpha-capable base-color PNGs with
+  omitted `alphaMode` are inferred as `blend`; this keeps exporter-authored
+  transparent textile overlays from becoming opaque black when applied through
+  the role-aware texture patch path. Verified locally with
+  `flutter test test/glb_imported_texture_patch_reader_test.dart`. Simulator
+  front evidence is stored at
+  `/private/tmp/fsviewer_ios_evidence_app/v2_a1b32_front_alpha_repair_ios.jpg`.
