@@ -1,6 +1,7 @@
 import 'package:flutter_scene/scene.dart' as flutter_scene;
 import 'package:flutter_scene_viewer/flutter_scene_viewer.dart';
 import 'package:flutter_scene_viewer/src/internal/flutter_scene_adapter.dart';
+import 'package:flutter_scene_viewer/src/internal/material_extension_native_capability.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -89,6 +90,64 @@ void main() {
         const MaterialPatch(transmission: 1.0, ior: 1.45),
       ),
       isFalse,
+    );
+  });
+
+  test('adapter resolves production support from renderer native capability',
+      () {
+    final unsupported = debugResolveProductionMaterialExtensionSupport(
+      const NativeMaterialExtensionCapability(
+        support: MaterialExtensionSupport(
+          transmission: true,
+          ior: true,
+          volume: true,
+          clearcoat: true,
+          backendKind: MaterialExtensionBackendKind.packageLocalCandidate,
+        ),
+      ),
+    );
+    final supported = debugResolveProductionMaterialExtensionSupport(
+      const NativeMaterialExtensionCapability(
+        support: MaterialExtensionSupport(
+          transmission: true,
+          ior: true,
+          volume: true,
+          clearcoat: true,
+          backendKind: MaterialExtensionBackendKind.rendererNative,
+        ),
+      ),
+    );
+
+    expect(unsupported, MaterialExtensionSupport.unsupported);
+    expect(supported.productionReady, isTrue);
+    expect(
+      supported.backendKind,
+      MaterialExtensionBackendKind.rendererNative,
+    );
+  });
+
+  test('production renderer native support bypasses package local backend', () {
+    const policy = ViewerMaterialExtensionPolicy.productionShaders();
+    const patch = MaterialPatch(transmission: 1.0, ior: 1.45);
+    const support = MaterialExtensionSupport(
+      transmission: true,
+      ior: true,
+      volume: true,
+      clearcoat: true,
+      backendKind: MaterialExtensionBackendKind.rendererNative,
+    );
+
+    expect(
+      debugUsesMaterialExtensionBackendFor(policy, patch, support: support),
+      isFalse,
+    );
+    expect(
+      debugUsesNativeMaterialExtensionApplierFor(
+        policy,
+        patch,
+        support: support,
+      ),
+      isTrue,
     );
   });
 

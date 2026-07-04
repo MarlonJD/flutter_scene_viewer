@@ -39,11 +39,14 @@ honestly render it. `enableClearcoat` defaults to `false`; setting it to
 policy, not a promise that package-local shaders are production-ready. It
 requests transmission/glass and clearcoat by default, but the current
 package-local preflight returns candidate-only diagnostics and does not
-advertise production support. The policy does not permit fake fallbacks: if a
-backend cannot render the requested feature, it must report
-`unsupportedMaterialFeature`. In Task 011 the iOS Simulator evidence table
-records local shader-load and visual-matrix evidence, while macOS, Android,
-Web, and physical iOS are not evaluated.
+advertise production support. Production-ready support requires a
+renderer-native material-extension backend kind with transmission, IOR, volume,
+and clearcoat fields all available. The package-local shader backend is always
+`candidate-only` and cannot report production readiness. The policy does not
+permit fake fallbacks: if a backend cannot render the requested feature, it
+must report `unsupportedMaterialFeature`. In Task 011 the iOS Simulator
+evidence table records local shader-load and visual-matrix evidence, while
+macOS, Android, Web, and physical iOS are not evaluated.
 
 ```dart
 FlutterSceneViewer(

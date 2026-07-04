@@ -48,6 +48,55 @@ void main() {
     expect(policy.support.productionReady, isFalse);
   });
 
+  test('candidate shader backend cannot report production ready', () {
+    const support = MaterialExtensionSupport(
+      transmission: true,
+      ior: true,
+      volume: true,
+      clearcoat: true,
+      backendKind: MaterialExtensionBackendKind.packageLocalCandidate,
+    );
+
+    expect(support.productionReady, isFalse);
+    expect(
+      support.backendKind,
+      MaterialExtensionBackendKind.packageLocalCandidate,
+    );
+  });
+
+  test('renderer native backend can report production ready', () {
+    const support = MaterialExtensionSupport(
+      transmission: true,
+      ior: true,
+      volume: true,
+      clearcoat: true,
+      backendKind: MaterialExtensionBackendKind.rendererNative,
+    );
+
+    expect(support.productionReady, isTrue);
+  });
+
+  test('material extension support equality includes backend kind', () {
+    expect(
+      const MaterialExtensionSupport(
+        transmission: true,
+        ior: true,
+        volume: true,
+        clearcoat: true,
+        backendKind: MaterialExtensionBackendKind.packageLocalCandidate,
+      ),
+      isNot(
+        const MaterialExtensionSupport(
+          transmission: true,
+          ior: true,
+          volume: true,
+          clearcoat: true,
+          backendKind: MaterialExtensionBackendKind.rendererNative,
+        ),
+      ),
+    );
+  });
+
   test('MaterialPatch validation accepts supported transmission intent', () {
     const patch = MaterialPatch(
       transmission: 1.0,

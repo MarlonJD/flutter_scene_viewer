@@ -17,6 +17,8 @@ import '../texture_source.dart';
 import 'environment_source_loader.dart';
 import 'flutter_scene_material_extension_backend.dart';
 import 'material_base_family.dart';
+import 'material_extension_native_applier.dart';
+import 'material_extension_native_capability.dart';
 import 'normal_map_scaler.dart';
 import 'render_surface.dart';
 
@@ -69,14 +71,18 @@ final class FlutterSceneRuntimeAdapter implements FlutterSceneAdapter {
     this.materialExtensionPolicy =
         const ViewerMaterialExtensionPolicy.diagnosticsOnly(),
     FlutterSceneMaterialExtensionBackend? materialExtensionBackend,
+    RendererMaterialExtensionProbe? materialExtensionRendererProbe,
   })  : _environmentSourceLoader =
             environmentSourceLoader ?? EnvironmentSourceLoader(),
         _materialExtensionBackend =
-            materialExtensionBackend ?? FlutterSceneMaterialExtensionBackend();
+            materialExtensionBackend ?? FlutterSceneMaterialExtensionBackend(),
+        _materialExtensionRendererProbe = materialExtensionRendererProbe ??
+            const CurrentFlutterSceneMaterialExtensionProbe();
 
   final EnvironmentSourceLoader _environmentSourceLoader;
   final ViewerMaterialExtensionPolicy materialExtensionPolicy;
   final FlutterSceneMaterialExtensionBackend _materialExtensionBackend;
+  final RendererMaterialExtensionProbe _materialExtensionRendererProbe;
   MaterialExtensionSupport _productionMaterialExtensionSupport =
       MaterialExtensionSupport.unsupported;
   final List<ViewerDiagnostic> _diagnostics = <ViewerDiagnostic>[];
@@ -176,10 +182,18 @@ final class FlutterSceneRuntimeAdapter implements FlutterSceneAdapter {
     _productionMaterialExtensionSupport = MaterialExtensionSupport.unsupported;
     if (materialExtensionPolicy.mode ==
         ViewerMaterialExtensionMode.productionFlutterSceneShaders) {
-      final preflight =
+      final nativeCapability = detectNativeMaterialExtensionCapability(
+        rendererProbe: _materialExtensionRendererProbe,
+      );
+      final shaderPreflight =
           await _materialExtensionBackend.preflightProductionSupport();
-      _productionMaterialExtensionSupport = preflight.support;
-      _diagnostics.addAll(preflight.diagnostics);
+      _productionMaterialExtensionSupport =
+          _resolveProductionMaterialExtensionSupport(nativeCapability);
+      if (!_productionMaterialExtensionSupport.productionReady) {
+        _diagnostics
+          ..addAll(nativeCapability.diagnostics)
+          ..addAll(shaderPreflight.diagnostics);
+      }
     }
     await flutter_scene.loadBaseShaderLibrary();
     await flutter_scene.Material.initializeStaticResources();
@@ -374,7 +388,13 @@ final class FlutterSceneRuntimeAdapter implements FlutterSceneAdapter {
     }
 
     final unsupportedDiagnostics = <ViewerDiagnostic>[
-      if (patch.hasGlassOverride && patch.hasClearcoatOverride)
+      if (patch.hasGlassOverride &&
+          patch.hasClearcoatOverride &&
+          !_usesNativeMaterialExtensionApplierFor(
+            materialExtensionPolicy,
+            patch,
+            support: materialExtensionSupport,
+          ))
         _unsupportedCombinedGlassClearcoatMaterial(address)
       else ...<ViewerDiagnostic>[
         if (patch.hasGlassOverride &&
@@ -382,10 +402,20 @@ final class FlutterSceneRuntimeAdapter implements FlutterSceneAdapter {
               materialExtensionPolicy,
               patch,
               support: materialExtensionSupport,
+            ) &&
+            !_usesNativeMaterialExtensionApplierFor(
+              materialExtensionPolicy,
+              patch,
+              support: materialExtensionSupport,
             ))
           _unsupportedGlassMaterial(address),
         if (patch.hasClearcoatOverride &&
             !_usesMaterialExtensionBackendFor(
+              materialExtensionPolicy,
+              patch,
+              support: materialExtensionSupport,
+            ) &&
+            !_usesNativeMaterialExtensionApplierFor(
               materialExtensionPolicy,
               patch,
               support: materialExtensionSupport,
@@ -510,6 +540,21 @@ final class FlutterSceneRuntimeAdapter implements FlutterSceneAdapter {
 
     if (patch.visible != null) {
       target.node.visible = patch.visible!;
+    }
+    if (_usesNativeMaterialExtensionApplierFor(
+      materialExtensionPolicy,
+      patch,
+      support: materialExtensionSupport,
+    )) {
+      final nativeMaterial = material;
+      if (nativeMaterial is NativeMaterialExtensionMaterial) {
+        return applyNativeMaterialExtensionPatch(
+          material: nativeMaterial as NativeMaterialExtensionMaterial,
+          patch: patch,
+          support: materialExtensionSupport,
+        );
+      }
+      return <ViewerDiagnostic>[_nativeMaterialContractUnavailable(address)];
     }
     if (patch.hasGlassOverride) {
       if (material is! flutter_scene.PhysicallyBasedMaterial) {
@@ -1081,6 +1126,19 @@ final class FlutterSceneRuntimeAdapter implements FlutterSceneAdapter {
       },
     );
   }
+
+  ViewerDiagnostic _nativeMaterialContractUnavailable(PartAddress address) {
+    return ViewerDiagnostic(
+      code: ViewerDiagnosticCode.unsupportedMaterialFeature,
+      message:
+          'Production material extension support was advertised, but the target material does not expose the native material extension contract.',
+      details: <String, Object?>{
+        'part': address.debugPath,
+        'backendKind': MaterialExtensionBackendKind.rendererNative.name,
+        'status': 'unsupported',
+      },
+    );
+  }
 }
 
 ViewerDiagnostic? _glassNodeIsolationDiagnostic({
@@ -1468,8 +1526,7 @@ bool _usesMaterialExtensionBackendFor(
   }
   final resolvedSupport = support ?? policy.support;
   if (policy.mode ==
-          ViewerMaterialExtensionMode.productionFlutterSceneShaders &&
-      !resolvedSupport.productionReady) {
+      ViewerMaterialExtensionMode.productionFlutterSceneShaders) {
     return false;
   }
   if (patch.hasClearcoatOverride) {
@@ -1486,6 +1543,29 @@ bool _usesMaterialExtensionBackendFor(
               patch.attenuationColor == null &&
               patch.attenuationDistance == null) ||
           resolvedSupport.volume);
+}
+
+bool _usesNativeMaterialExtensionApplierFor(
+  ViewerMaterialExtensionPolicy policy,
+  MaterialPatch patch, {
+  MaterialExtensionSupport? support,
+}) {
+  if (!patch.hasGlassOverride && !patch.hasClearcoatOverride) {
+    return false;
+  }
+  final resolvedSupport = support ?? policy.support;
+  return policy.mode ==
+          ViewerMaterialExtensionMode.productionFlutterSceneShaders &&
+      resolvedSupport.productionReady;
+}
+
+MaterialExtensionSupport _resolveProductionMaterialExtensionSupport(
+  NativeMaterialExtensionCapability nativeCapability,
+) {
+  final support = nativeCapability.support;
+  return support.productionReady
+      ? support
+      : MaterialExtensionSupport.unsupported;
 }
 
 @visibleForTesting
@@ -1505,6 +1585,20 @@ bool debugUsesMaterialExtensionBackendFor(
   MaterialExtensionSupport? support,
 }) =>
     _usesMaterialExtensionBackendFor(policy, patch, support: support);
+
+@visibleForTesting
+bool debugUsesNativeMaterialExtensionApplierFor(
+  ViewerMaterialExtensionPolicy policy,
+  MaterialPatch patch, {
+  MaterialExtensionSupport? support,
+}) =>
+    _usesNativeMaterialExtensionApplierFor(policy, patch, support: support);
+
+@visibleForTesting
+MaterialExtensionSupport debugResolveProductionMaterialExtensionSupport(
+  NativeMaterialExtensionCapability nativeCapability,
+) =>
+    _resolveProductionMaterialExtensionSupport(nativeCapability);
 
 @visibleForTesting
 ViewerDiagnostic? debugGlassNodeIsolationDiagnostic({

@@ -19,6 +19,8 @@ import 'package:flutter_scene_viewer/src/internal/render_surface.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vector_math/vector_math.dart' as vm;
 
+import '../tools/material_extension_acceptance/compare_metrics.dart';
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -50,14 +52,24 @@ void main() {
       final result = await backend.preflightProductionSupport();
 
       expect(result.support.productionReady, isFalse);
-      expect(result.support.transmission, isFalse);
-      expect(result.support.ior, isFalse);
-      expect(result.support.volume, isFalse);
-      expect(result.support.clearcoat, isFalse);
+      expect(result.support.transmission, isTrue);
+      expect(result.support.ior, isTrue);
+      expect(result.support.volume, isTrue);
+      expect(result.support.clearcoat, isTrue);
+      expect(
+        result.support.backendKind,
+        MaterialExtensionBackendKind.packageLocalCandidate,
+      );
       expect(result.diagnostics.single.code,
           ViewerDiagnosticCode.unsupportedMaterialFeature);
       expect(result.diagnostics.single.details['stage'], 'shaderPreflight');
       expect(result.diagnostics.single.details['status'], 'candidate-only');
+      expect(result.diagnostics.single.details['backendKind'],
+          'packageLocalCandidate');
+      expect(
+        result.diagnostics.single.details['productionBlocker'],
+        'rendererNativeMaterialExtensionContractMissing',
+      );
     });
   });
 
@@ -166,6 +178,18 @@ void main() {
   });
 
   group('experimental transmission backend', () {
+    test('transmission fmat filters background by roughness before blending',
+        () {
+      final source = File('assets/materials/fsviewer_transmission.fmat')
+          .readAsStringSync();
+      final backgroundSamples =
+          RegExp(r'texture\(backgroundTexture').allMatches(source);
+
+      expect(source, contains('RoughTransmissionBackground'));
+      expect(source, contains('roughness_sample_radius'));
+      expect(backgroundSamples.length, greaterThanOrEqualTo(5));
+    });
+
     test('assigns transmissive layer, background view, and glass material',
         () async {
       final originalMaterial = flutter_scene.ShaderMaterial();
@@ -218,6 +242,54 @@ void main() {
       expect(params.getFloat32(16, Endian.host), closeTo(0.9, 0.0001));
       expect(params.getFloat32(32, Endian.host), closeTo(1.0, 0.0001));
       expect(params.getFloat32(36, Endian.host), closeTo(1.45, 0.0001));
+    });
+
+    test('sanitizes transmission shader uniforms before assignment', () async {
+      final material = flutter_scene.ShaderMaterial(isOpaqueOverride: false);
+      final originalMaterial = flutter_scene.ShaderMaterial();
+      final node = flutter_scene.Node(
+        name: 'Glass',
+        mesh: flutter_scene.Mesh(_StubGeometry(), originalMaterial),
+      );
+      final primitive = node.mesh!.primitives.single;
+      final sceneViews = <flutter_scene.RenderView>[];
+      final backend = FlutterSceneMaterialExtensionBackend(
+        bindFallbackTextures: false,
+        createTransmissionMaterial: (_) async => material,
+      );
+
+      final diagnostics = await backend.applyTransmissionPatch(
+        sceneViews: sceneViews,
+        node: node,
+        primitive: primitive,
+        address: _address,
+        patch: MaterialPatch(
+          baseColorFactor: <double>[double.nan, -1.0, 2.0, double.infinity],
+          transmission: double.nan,
+          ior: -10.0,
+          thickness: double.infinity,
+          attenuationColor: <double>[-1.0, double.nan, 2.0],
+          attenuationDistance: double.infinity,
+          roughness: 4.0,
+          normalScale: -2.0,
+        ),
+      );
+
+      expect(diagnostics, isEmpty);
+      final params = material.getUniformBlock('MaterialParams')!;
+      expect(params.getFloat32(0, Endian.host), closeTo(1.0, 0.0001));
+      expect(params.getFloat32(4, Endian.host), closeTo(0.0, 0.0001));
+      expect(params.getFloat32(8, Endian.host), closeTo(1.0, 0.0001));
+      expect(params.getFloat32(12, Endian.host), closeTo(1.0, 0.0001));
+      expect(params.getFloat32(16, Endian.host), closeTo(0.0, 0.0001));
+      expect(params.getFloat32(20, Endian.host), closeTo(1.0, 0.0001));
+      expect(params.getFloat32(24, Endian.host), closeTo(1.0, 0.0001));
+      expect(params.getFloat32(28, Endian.host), closeTo(0.0, 0.0001));
+      expect(params.getFloat32(32, Endian.host), closeTo(0.0, 0.0001));
+      expect(params.getFloat32(36, Endian.host), closeTo(1.0, 0.0001));
+      expect(params.getFloat32(40, Endian.host), closeTo(0.0, 0.0001));
+      expect(params.getFloat32(44, Endian.host), closeTo(1.0, 0.0001));
+      expect(params.getFloat32(56, Endian.host), closeTo(0.0, 0.0001));
     });
 
     test('updates background camera and restores material, layers, and view',
@@ -560,6 +632,43 @@ void main() {
       expect(params.getFloat32(28, Endian.host), closeTo(0.12, 0.0001));
       expect(params.getFloat32(32, Endian.host), closeTo(1.0, 0.0001));
       expect(params.getFloat32(36, Endian.host), closeTo(0.75, 0.0001));
+    });
+
+    test('sanitizes clearcoat shader uniforms before assignment', () async {
+      final material = flutter_scene.ShaderMaterial(isOpaqueOverride: true);
+      final paint = _paintNode('sanitized-clearcoat');
+      final backend = FlutterSceneMaterialExtensionBackend(
+        bindFallbackTextures: false,
+        createClearcoatMaterial: (_) async => material,
+      );
+
+      final diagnostics = await backend.applyClearcoatPatch(
+        node: paint.node,
+        primitive: paint.primitive,
+        address: paint.address,
+        patch: MaterialPatch(
+          baseColorFactor: <double>[double.nan, -1.0, 2.0, double.infinity],
+          metallic: -1.0,
+          roughness: 5.0,
+          clearcoat: double.nan,
+          clearcoatRoughness: double.infinity,
+          normalScale: -2.0,
+          clearcoatNormalScale: double.infinity,
+        ),
+      );
+
+      expect(diagnostics, isEmpty);
+      final params = material.getUniformBlock('MaterialParams')!;
+      expect(params.getFloat32(0, Endian.host), closeTo(1.0, 0.0001));
+      expect(params.getFloat32(4, Endian.host), closeTo(0.0, 0.0001));
+      expect(params.getFloat32(8, Endian.host), closeTo(1.0, 0.0001));
+      expect(params.getFloat32(12, Endian.host), closeTo(1.0, 0.0001));
+      expect(params.getFloat32(16, Endian.host), closeTo(0.0, 0.0001));
+      expect(params.getFloat32(20, Endian.host), closeTo(1.0, 0.0001));
+      expect(params.getFloat32(24, Endian.host), closeTo(0.0, 0.0001));
+      expect(params.getFloat32(28, Endian.host), closeTo(0.0, 0.0001));
+      expect(params.getFloat32(32, Endian.host), closeTo(0.0, 0.0001));
+      expect(params.getFloat32(36, Endian.host), closeTo(1.0, 0.0001));
     });
 
     test(
@@ -994,6 +1103,43 @@ void main() {
     expect(File(evidence.sharedFixtureGlbPath!).existsSync(), isTrue);
     expect(evidence.flutterSceneGlassImagePath, endsWith('.png'));
     expect(evidence.flutterSceneClearcoatImagePath, endsWith('.png'));
+  });
+
+  test('production acceptance manifest covers glass clearcoat and combined',
+      () {
+    final json = jsonDecode(
+      File('tools/material_extension_acceptance/manifest.json')
+          .readAsStringSync(),
+    ) as Map<String, Object?>;
+    final assets = json['assets']! as List<Object?>;
+    final roles = assets
+        .cast<Map<String, Object?>>()
+        .map((asset) => asset['role'])
+        .toSet();
+
+    expect(roles, contains('glass_only'));
+    expect(roles, contains('clearcoat_only'));
+    expect(roles, contains('combined_glass_clearcoat'));
+  });
+
+  test(
+      'production material extension evidence requires native renderer metrics',
+      () {
+    final metrics = MaterialExtensionAcceptanceMetrics.fromJson(
+      jsonDecode(
+        File('tools/out/material_extension_acceptance_metrics.json')
+            .readAsStringSync(),
+      ) as Map<String, Object?>,
+    );
+
+    expect(metrics.backendKind, 'rendererNative');
+    expect(metrics.glass.transmissionSpreadDelta, greaterThan(20));
+    expect(metrics.glass.iorDelta, greaterThan(5));
+    expect(
+        metrics.glass.roughnessBlurDirection, 'reduces_high_frequency_detail');
+    expect(metrics.clearcoat.factorHighlightDelta, greaterThan(1));
+    expect(metrics.clearcoat.roughPeakBelowSmoothPeak, isTrue);
+    expect(metrics.clearcoat.baseMaterialPreserved, isTrue);
   });
 
   test('ios simulator production material extension visual matrix', () async {

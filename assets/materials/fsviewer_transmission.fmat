@@ -17,6 +17,35 @@ material {
 }
 
 fragment {
+  vec3 RoughTransmissionBackground(vec2 screen_uv, vec2 refraction_offset,
+                                   float roughness, vec2 inverse_viewport) {
+    vec2 refracted_uv =
+        clamp(screen_uv + refraction_offset, vec2(0.001), vec2(0.999));
+    float roughness_sample_radius = roughness * 7.0;
+    vec2 sample_step = inverse_viewport * roughness_sample_radius;
+    vec3 center = texture(backgroundTexture, refracted_uv).rgb;
+    vec3 filtered =
+        center * 4.0 +
+        texture(backgroundTexture,
+                clamp(refracted_uv + vec2(sample_step.x, 0.0), vec2(0.001),
+                      vec2(0.999)))
+            .rgb +
+        texture(backgroundTexture,
+                clamp(refracted_uv - vec2(sample_step.x, 0.0), vec2(0.001),
+                      vec2(0.999)))
+            .rgb +
+        texture(backgroundTexture,
+                clamp(refracted_uv + vec2(0.0, sample_step.y), vec2(0.001),
+                      vec2(0.999)))
+            .rgb +
+        texture(backgroundTexture,
+                clamp(refracted_uv - vec2(0.0, sample_step.y), vec2(0.001),
+                      vec2(0.999)))
+            .rgb;
+    filtered *= 0.125;
+    return mix(center, filtered, roughness);
+  }
+
   void Surface(inout MaterialInputs material) {
     vec4 base_color = texture(baseColorTexture, v_texture_coords) * material_params.baseColorFactor;
     float transmission = clamp(material_params.transmissionIorThicknessRoughness.x * texture(transmissionTexture, v_texture_coords).r, 0.0, 1.0);
@@ -31,7 +60,8 @@ fragment {
     vec3 tangent_normal = texture(normalTexture, v_texture_coords).xyz * 2.0 - 1.0;
     vec2 normal_offset = world_normal.xy + tangent_normal.xy * normal_scale;
     vec2 refraction_offset = normal_offset * transmission * (ior - 1.0) * (0.035 + thickness * 0.06);
-    vec3 background = texture(backgroundTexture, clamp(screen_uv + refraction_offset, vec2(0.001), vec2(0.999))).rgb;
+    vec3 background = RoughTransmissionBackground(
+        screen_uv, refraction_offset, roughness, inverse_viewport);
 
     vec3 attenuation_color = material_params.attenuationColorDistance.rgb;
     float attenuation_distance = material_params.attenuationColorDistance.a;

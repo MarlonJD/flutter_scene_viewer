@@ -395,8 +395,11 @@ void main() {
     final sink = MaterialSink(
       partTree: _treeFor(address, hasTexCoords: false),
       materialExtensionSupport: const MaterialExtensionSupport(
+        transmission: true,
+        ior: true,
+        volume: true,
         clearcoat: true,
-        productionReady: true,
+        backendKind: MaterialExtensionBackendKind.rendererNative,
       ),
     );
     controller.attach(sink);

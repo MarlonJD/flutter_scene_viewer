@@ -8,6 +8,13 @@ enum ViewerMaterialExtensionMode {
   productionFlutterSceneShaders,
 }
 
+/// Backend class that supplies material extension fields.
+enum MaterialExtensionBackendKind {
+  none,
+  packageLocalCandidate,
+  rendererNative,
+}
+
 /// Backend feature support available to material validation.
 @immutable
 final class MaterialExtensionSupport {
@@ -16,7 +23,7 @@ final class MaterialExtensionSupport {
     this.ior = false,
     this.volume = false,
     this.clearcoat = false,
-    this.productionReady = false,
+    this.backendKind = MaterialExtensionBackendKind.none,
   });
 
   static const unsupported = MaterialExtensionSupport();
@@ -25,7 +32,14 @@ final class MaterialExtensionSupport {
   final bool ior;
   final bool volume;
   final bool clearcoat;
-  final bool productionReady;
+  final MaterialExtensionBackendKind backendKind;
+
+  bool get productionReady =>
+      backendKind == MaterialExtensionBackendKind.rendererNative &&
+      transmission &&
+      ior &&
+      volume &&
+      clearcoat;
 
   @override
   bool operator ==(Object other) {
@@ -34,12 +48,12 @@ final class MaterialExtensionSupport {
         other.ior == ior &&
         other.volume == volume &&
         other.clearcoat == clearcoat &&
-        other.productionReady == productionReady;
+        other.backendKind == backendKind;
   }
 
   @override
   int get hashCode =>
-      Object.hash(transmission, ior, volume, clearcoat, productionReady);
+      Object.hash(transmission, ior, volume, clearcoat, backendKind);
 }
 
 /// Public policy for opt-in material extension backends.
@@ -74,6 +88,7 @@ final class ViewerMaterialExtensionPolicy {
           ior: enableTransmission,
           volume: enableTransmission,
           clearcoat: enableClearcoat,
+          backendKind: MaterialExtensionBackendKind.packageLocalCandidate,
         ),
       ViewerMaterialExtensionMode.productionFlutterSceneShaders =>
         MaterialExtensionSupport(
@@ -81,6 +96,7 @@ final class ViewerMaterialExtensionPolicy {
           ior: enableTransmission,
           volume: enableTransmission,
           clearcoat: enableClearcoat,
+          backendKind: MaterialExtensionBackendKind.packageLocalCandidate,
         ),
     };
   }

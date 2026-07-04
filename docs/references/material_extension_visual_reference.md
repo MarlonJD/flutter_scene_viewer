@@ -67,3 +67,12 @@ ToyCar iOS Simulator run verifies authored clearcoat and transmission in one
 real GLB after the clearcoat backend changed to a translucent shared-geometry
 overlay that preserves the source PBR material. No second reference renderer
 is required for the Task 011 trend comparison.
+
+## 012 Native Acceptance Status
+
+Task 012 adds a real-asset acceptance manifest and a native metrics comparator,
+but native acceptance is blocked until the active renderer exposes
+renderer-native material extension fields for transmission, IOR, volume, and
+clearcoat. Existing iOS Simulator artifacts use package-local
+`ShaderMaterial`/`PreprocessedMaterial` paths and do not include
+`backendKind: rendererNative`, so they cannot satisfy production metrics.

@@ -122,7 +122,13 @@ final class FlutterSceneMaterialExtensionBackend {
         ];
         if (missingShaders.isEmpty) {
           return _productionPreflightResult = MaterialExtensionPreflightResult(
-            support: MaterialExtensionSupport.unsupported,
+            support: const MaterialExtensionSupport(
+              transmission: true,
+              ior: true,
+              volume: true,
+              clearcoat: true,
+              backendKind: MaterialExtensionBackendKind.packageLocalCandidate,
+            ),
             diagnostics: <ViewerDiagnostic>[
               ViewerDiagnostic(
                 code: ViewerDiagnosticCode.unsupportedMaterialFeature,
@@ -131,6 +137,9 @@ final class FlutterSceneMaterialExtensionBackend {
                 details: <String, Object?>{
                   'stage': 'shaderPreflight',
                   'status': 'candidate-only',
+                  'backendKind': 'packageLocalCandidate',
+                  'productionBlocker':
+                      'rendererNativeMaterialExtensionContractMissing',
                   'assetPath': assetPath,
                   'features': <String>[
                     'transmission',
@@ -546,8 +555,14 @@ final class FlutterSceneMaterialExtensionBackend {
     FlutterSceneTransmissionMaterialConfig config,
   ) {
     final patch = config.patch;
-    final baseColor = patch.baseColorFactor ?? const <double>[1, 1, 1, 1];
-    final attenuationColor = patch.attenuationColor ?? const <double>[1, 1, 1];
+    final baseColor = _unitVector4(
+      patch.baseColorFactor,
+      const <double>[1, 1, 1, 1],
+    );
+    final attenuationColor = _unitVector3(
+      patch.attenuationColor,
+      const <double>[1, 1, 1],
+    );
     return <double>[
       baseColor[0],
       baseColor[1],
@@ -556,14 +571,14 @@ final class FlutterSceneMaterialExtensionBackend {
       attenuationColor[0],
       attenuationColor[1],
       attenuationColor[2],
-      patch.attenuationDistance ?? 0.0,
-      patch.transmission ?? 0.0,
-      patch.ior ?? 1.5,
-      patch.thickness ?? 0.0,
-      patch.roughness ?? 0.0,
+      _nonNegativeFinite(patch.attenuationDistance, fallback: 0.0),
+      _unitFinite(patch.transmission, fallback: 0.0),
+      _finiteRange(patch.ior, minimum: 1.0, maximum: 3.0, fallback: 1.5),
+      _nonNegativeFinite(patch.thickness, fallback: 0.0),
+      _unitFinite(patch.roughness, fallback: 0.0),
       1.0 / config.renderTextureWidth,
       1.0 / config.renderTextureHeight,
-      patch.normalScale ?? 1.0,
+      _nonNegativeFinite(patch.normalScale, fallback: 1.0),
       0.0,
     ];
   }
@@ -711,19 +726,24 @@ final class FlutterSceneMaterialExtensionBackend {
   ) {
     final patch = config.patch;
     final source = config.sourceMaterial;
-    final baseColor =
-        patch.baseColorFactor ?? _vector4List(source?.baseColorFactor);
+    final baseColor = _unitVector4(
+      patch.baseColorFactor ?? _vector4List(source?.baseColorFactor),
+      const <double>[1, 1, 1, 1],
+    );
     return <double>[
       baseColor[0],
       baseColor[1],
       baseColor[2],
       baseColor[3],
-      patch.metallic ?? source?.metallicFactor ?? 1.0,
-      patch.roughness ?? source?.roughnessFactor ?? 1.0,
-      patch.clearcoat ?? 0.0,
-      patch.clearcoatRoughness ?? 0.0,
-      patch.normalScale ?? source?.normalScale ?? 1.0,
-      patch.clearcoatNormalScale ?? 1.0,
+      _unitFinite(patch.metallic ?? source?.metallicFactor, fallback: 1.0),
+      _unitFinite(patch.roughness ?? source?.roughnessFactor, fallback: 1.0),
+      _unitFinite(patch.clearcoat, fallback: 0.0),
+      _unitFinite(patch.clearcoatRoughness, fallback: 0.0),
+      _nonNegativeFinite(
+        patch.normalScale ?? source?.normalScale,
+        fallback: 1.0,
+      ),
+      _nonNegativeFinite(patch.clearcoatNormalScale, fallback: 1.0),
       config.clearcoatNormalTexture == null ? 0.0 : 1.0,
       0.0,
     ];
@@ -811,6 +831,8 @@ final class FlutterSceneMaterialExtensionBackend {
         'assetPath': assetPath,
         'platform': _platformLabel,
         'status': 'unavailable',
+        'backendKind': 'none',
+        'productionBlocker': 'rendererNativeMaterialExtensionContractMissing',
         if (error != null) 'error': error.toString(),
       },
     );
@@ -997,6 +1019,64 @@ List<double> _vector4List(vm.Vector4? vector) {
     return const <double>[1, 1, 1, 1];
   }
   return <double>[vector.x, vector.y, vector.z, vector.w];
+}
+
+List<double> _unitVector4(List<double>? values, List<double> fallback) {
+  if (values == null || values.length != 4) {
+    return List<double>.unmodifiable(fallback);
+  }
+  return List<double>.unmodifiable(<double>[
+    _unitFinite(values[0], fallback: fallback[0]),
+    _unitFinite(values[1], fallback: fallback[1]),
+    _unitFinite(values[2], fallback: fallback[2]),
+    _unitFinite(values[3], fallback: fallback[3]),
+  ]);
+}
+
+List<double> _unitVector3(List<double>? values, List<double> fallback) {
+  if (values == null || values.length != 3) {
+    return List<double>.unmodifiable(fallback);
+  }
+  return List<double>.unmodifiable(<double>[
+    _unitFinite(values[0], fallback: fallback[0]),
+    _unitFinite(values[1], fallback: fallback[1]),
+    _unitFinite(values[2], fallback: fallback[2]),
+  ]);
+}
+
+double _unitFinite(double? value, {required double fallback}) {
+  return _finiteRange(value, minimum: 0.0, maximum: 1.0, fallback: fallback);
+}
+
+double _nonNegativeFinite(double? value, {required double fallback}) {
+  final finite = _finiteOrFallback(value, fallback);
+  if (finite < 0.0) {
+    return 0.0;
+  }
+  return finite;
+}
+
+double _finiteRange(
+  double? value, {
+  required double minimum,
+  required double maximum,
+  required double fallback,
+}) {
+  final finite = _finiteOrFallback(value, fallback);
+  if (finite < minimum) {
+    return minimum;
+  }
+  if (finite > maximum) {
+    return maximum;
+  }
+  return finite;
+}
+
+double _finiteOrFallback(double? value, double fallback) {
+  if (value == null || !value.isFinite) {
+    return fallback;
+  }
+  return value;
 }
 
 const RenderCameraFrame _defaultCameraFrame = RenderCameraFrame(

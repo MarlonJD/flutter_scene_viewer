@@ -71,10 +71,13 @@ diagnostics-only, so unsupported glass and clearcoat requests are rejected
 before persistence. Experimental policy may let transmission/glass intent reach
 an attached candidate backend, and may let clearcoat intent reach the candidate
 clearcoat shader when `enableClearcoat: true` is set. Production policy is an
-explicit opt-in that requires shader preflight and target support before
-advertising glass or clearcoat support. The backend must still report
-diagnostics rather than fall back to alpha blend or roughness changes when it
-cannot render the requested feature.
+explicit opt-in that requires renderer-native material-extension capability
+before advertising glass or clearcoat support. Package-local shader preflight
+can report `backendKind: packageLocalCandidate` for diagnostic evidence, but
+that backend kind is always `candidate-only` and cannot report
+`productionReady`. The backend must still report diagnostics rather than fall
+back to alpha blend or roughness changes when it cannot render the requested
+feature.
 
 Realistic glass is verified locally for iOS Simulator only. The repository
 contains a production-policy-gated transmission backend that uses a background
