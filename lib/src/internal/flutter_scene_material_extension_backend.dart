@@ -75,6 +75,8 @@ final class FlutterSceneMaterialExtensionBackend {
   static const String materialParamsBlockName = 'MaterialParams';
   static const String backgroundTextureName = 'backgroundTexture';
   static const int maxBackgroundTextureExtent = 4096;
+  static const double _clearcoatSourceNormalAntiAliasScale = 0.35;
+  static const double _clearcoatSourceNormalAntiAliasFactor = 0.35;
 
   int _renderTextureWidth;
   int _renderTextureHeight;
@@ -121,35 +123,16 @@ final class FlutterSceneMaterialExtensionBackend {
             if (library[shaderName] == null) shaderName,
         ];
         if (missingShaders.isEmpty) {
-          return _productionPreflightResult = MaterialExtensionPreflightResult(
-            support: const MaterialExtensionSupport(
+          return _productionPreflightResult =
+              const MaterialExtensionPreflightResult(
+            support: MaterialExtensionSupport(
               transmission: true,
               ior: true,
               volume: true,
               clearcoat: true,
-              backendKind: MaterialExtensionBackendKind.packageLocalCandidate,
+              backendKind:
+                  MaterialExtensionBackendKind.flutterSceneCustomShader,
             ),
-            diagnostics: <ViewerDiagnostic>[
-              ViewerDiagnostic(
-                code: ViewerDiagnosticCode.unsupportedMaterialFeature,
-                message:
-                    'Package-local material extension shaders are available, but remain candidate-only and are not production-ready for glass or clearcoat.',
-                details: <String, Object?>{
-                  'stage': 'shaderPreflight',
-                  'status': 'candidate-only',
-                  'backendKind': 'packageLocalCandidate',
-                  'productionBlocker':
-                      'rendererNativeMaterialExtensionContractMissing',
-                  'assetPath': assetPath,
-                  'features': <String>[
-                    'transmission',
-                    'ior',
-                    'volume',
-                    'clearcoat',
-                  ],
-                },
-              ),
-            ],
           );
         }
         lastMissingShaders = List<String>.unmodifiable(missingShaders);
@@ -323,16 +306,26 @@ final class FlutterSceneMaterialExtensionBackend {
       ];
     }
 
-    _configureClearcoatMaterial(material, materialConfig);
-    _states.putIfAbsent(
+    final state = _states.putIfAbsent(
       primitive,
       () => _MaterialExtensionState(
         node: node,
         primitive: primitive,
         originalLayers: node.layers,
         originalMaterial: primitive.material,
+        originalSourceNormalScale:
+            baseMaterial is flutter_scene.PhysicallyBasedMaterial
+                ? baseMaterial.normalScale
+                : null,
+        originalSourceNormalTexture:
+            baseMaterial is flutter_scene.PhysicallyBasedMaterial
+                // ignore: invalid_use_of_internal_member
+                ? baseMaterial.normalTextureSource
+                : null,
       ),
     );
+    _applyClearcoatSourceNormalAntialiasing(state: state, patch: patch);
+    _configureClearcoatMaterial(material, materialConfig);
     _attachClearcoatOverlay(
       node: node,
       primitive: primitive,
@@ -437,6 +430,8 @@ final class FlutterSceneMaterialExtensionBackend {
       primitive: primitive,
       originalLayers: existingState?.originalLayers ?? node.layers,
       originalMaterial: existingState?.originalMaterial ?? primitive.material,
+      originalSourceNormalScale: existingState?.originalSourceNormalScale,
+      originalSourceNormalTexture: existingState?.originalSourceNormalTexture,
       overlayPrimitive: overlayPrimitive,
     );
   }
@@ -535,11 +530,15 @@ final class FlutterSceneMaterialExtensionBackend {
     material
       ..setTexture(
         'baseColorTexture',
-        config.baseColorTexture ?? config.whiteFallbackTexture,
+        config.baseColorTexture ??
+            config.sourceBaseColorTexture ??
+            config.whiteFallbackTexture,
       )
       ..setTexture(
         'normalTexture',
-        config.normalTexture ?? config.normalFallbackTexture,
+        config.normalTexture ??
+            config.sourceNormalTexture ??
+            config.normalFallbackTexture,
       )
       ..setTexture(
         'transmissionTexture',
@@ -555,8 +554,9 @@ final class FlutterSceneMaterialExtensionBackend {
     FlutterSceneTransmissionMaterialConfig config,
   ) {
     final patch = config.patch;
+    final source = config.sourcePbrMaterial;
     final baseColor = _unitVector4(
-      patch.baseColorFactor,
+      patch.baseColorFactor ?? _vector4List(source?.baseColorFactor),
       const <double>[1, 1, 1, 1],
     );
     final attenuationColor = _unitVector3(
@@ -721,6 +721,34 @@ final class FlutterSceneMaterialExtensionBackend {
     }
   }
 
+  static void _applyClearcoatSourceNormalAntialiasing({
+    required _MaterialExtensionState state,
+    required MaterialPatch patch,
+  }) {
+    final material = state.primitive.material;
+    if (material is! flutter_scene.PhysicallyBasedMaterial) {
+      return;
+    }
+    // ignore: invalid_use_of_internal_member
+    if (material.normalTextureSource == null) {
+      return;
+    }
+    final originalScale = state.originalSourceNormalScale;
+    if (_unitFinite(patch.clearcoat, fallback: 0.0) <= 0.0) {
+      material.normalTexture = state.originalSourceNormalTexture;
+      if (originalScale != null) {
+        material.normalScale = originalScale;
+      }
+      return;
+    }
+    final requestedScale = _nonNegativeFinite(
+      patch.normalScale ?? originalScale ?? material.normalScale,
+      fallback: material.normalScale,
+    );
+    material.normalTexture = null;
+    material.normalScale = _clearcoatAntialiasedNormalScale(requestedScale);
+  }
+
   static List<double> _clearcoatMaterialParams(
     FlutterSceneClearcoatMaterialConfig config,
   ) {
@@ -739,14 +767,38 @@ final class FlutterSceneMaterialExtensionBackend {
       _unitFinite(patch.roughness ?? source?.roughnessFactor, fallback: 1.0),
       _unitFinite(patch.clearcoat, fallback: 0.0),
       _unitFinite(patch.clearcoatRoughness, fallback: 0.0),
-      _nonNegativeFinite(
-        patch.normalScale ?? source?.normalScale,
-        fallback: 1.0,
-      ),
+      _clearcoatBaseNormalScale(config),
       _nonNegativeFinite(patch.clearcoatNormalScale, fallback: 1.0),
       config.clearcoatNormalTexture == null ? 0.0 : 1.0,
       0.0,
     ];
+  }
+
+  static double _clearcoatBaseNormalScale(
+    FlutterSceneClearcoatMaterialConfig config,
+  ) {
+    final source = config.sourceMaterial;
+    final requestedScale = _nonNegativeFinite(
+      config.patch.normalScale ?? source?.normalScale,
+      fallback: 1.0,
+    );
+    if (_unitFinite(config.patch.clearcoat, fallback: 0.0) <= 0.0) {
+      return requestedScale;
+    }
+    final hasBaseNormal =
+        config.normalTexture != null || config.sourceNormalTexture != null;
+    if (!hasBaseNormal || requestedScale <= 0.0) {
+      return requestedScale;
+    }
+    return _clearcoatAntialiasedNormalScale(requestedScale);
+  }
+
+  static double _clearcoatAntialiasedNormalScale(double requestedScale) {
+    final attenuatedScale =
+        requestedScale * _clearcoatSourceNormalAntiAliasFactor;
+    return attenuatedScale > _clearcoatSourceNormalAntiAliasScale
+        ? _clearcoatSourceNormalAntiAliasScale
+        : attenuatedScale;
   }
 
   static vm.Vector4 _emissiveFactor(
@@ -894,6 +946,21 @@ final class FlutterSceneTransmissionMaterialConfig {
   final Object? transmissionTexture;
   final Object? thicknessTexture;
 
+  flutter_scene.PhysicallyBasedMaterial? get sourcePbrMaterial {
+    final material = sourceMaterial;
+    return material is flutter_scene.PhysicallyBasedMaterial ? material : null;
+  }
+
+  Object? get sourceBaseColorTexture {
+    // ignore: invalid_use_of_internal_member
+    return sourcePbrMaterial?.baseColorTextureSource;
+  }
+
+  Object? get sourceNormalTexture {
+    // ignore: invalid_use_of_internal_member
+    return sourcePbrMaterial?.normalTextureSource;
+  }
+
   Object? get whiteFallbackTexture => bindFallbackTextures
       ? flutter_scene.Material.getWhitePlaceholderTexture()
       : null;
@@ -974,6 +1041,8 @@ final class _MaterialExtensionState {
     required this.primitive,
     required this.originalLayers,
     required this.originalMaterial,
+    this.originalSourceNormalScale,
+    this.originalSourceNormalTexture,
     this.overlayPrimitive,
   });
 
@@ -981,10 +1050,21 @@ final class _MaterialExtensionState {
   final flutter_scene.MeshPrimitive primitive;
   final int originalLayers;
   final flutter_scene.Material originalMaterial;
+  final double? originalSourceNormalScale;
+  final flutter_scene.TextureSource? originalSourceNormalTexture;
   final flutter_scene.MeshPrimitive? overlayPrimitive;
 
   void restore() {
     node.layers = originalLayers;
+    if (originalMaterial is flutter_scene.PhysicallyBasedMaterial) {
+      final originalPbrMaterial =
+          originalMaterial as flutter_scene.PhysicallyBasedMaterial;
+      originalPbrMaterial.normalTexture = originalSourceNormalTexture;
+      final originalNormalScale = originalSourceNormalScale;
+      if (originalNormalScale != null) {
+        originalPbrMaterial.normalScale = originalNormalScale;
+      }
+    }
     final overlay = overlayPrimitive;
     if (overlay != null) {
       final mesh = node.mesh;

@@ -39,7 +39,8 @@ void main() {
       expect(result.diagnostics.single.details['status'], 'unavailable');
     });
 
-    test('production preflight keeps local shaders candidate-only', () async {
+    test('production preflight accepts repo-owned shaders for production',
+        () async {
       final backend = FlutterSceneMaterialExtensionBackend(
         loadShaderLibrary: (_) async => const _FakeShaderLibrary(
           entries: <String>{
@@ -51,25 +52,16 @@ void main() {
 
       final result = await backend.preflightProductionSupport();
 
-      expect(result.support.productionReady, isFalse);
+      expect(result.support.productionReady, isTrue);
       expect(result.support.transmission, isTrue);
       expect(result.support.ior, isTrue);
       expect(result.support.volume, isTrue);
       expect(result.support.clearcoat, isTrue);
       expect(
         result.support.backendKind,
-        MaterialExtensionBackendKind.packageLocalCandidate,
+        MaterialExtensionBackendKind.flutterSceneCustomShader,
       );
-      expect(result.diagnostics.single.code,
-          ViewerDiagnosticCode.unsupportedMaterialFeature);
-      expect(result.diagnostics.single.details['stage'], 'shaderPreflight');
-      expect(result.diagnostics.single.details['status'], 'candidate-only');
-      expect(result.diagnostics.single.details['backendKind'],
-          'packageLocalCandidate');
-      expect(
-        result.diagnostics.single.details['productionBlocker'],
-        'rendererNativeMaterialExtensionContractMissing',
-      );
+      expect(result.diagnostics, isEmpty);
     });
   });
 
@@ -190,6 +182,35 @@ void main() {
       expect(backgroundSamples.length, greaterThanOrEqualTo(5));
     });
 
+    test('transmission fmat separates Fresnel reflection from absorption', () {
+      final source = File('assets/materials/fsviewer_transmission.fmat')
+          .readAsStringSync();
+
+      expect(source, contains('TransmissionViewFresnel'));
+      expect(source, contains('BeerLambertAttenuation'));
+      expect(source, contains('TransmissionMaterialColor'));
+      expect(source, contains('return vec4(color, alpha);'));
+      expect(source, isNot(contains('PremultipliedTransmissionColor')));
+      expect(source, contains('glass_fresnel'));
+      expect(source, contains('transmitted_energy'));
+      expect(source, contains('surface_reflection'));
+      expect(source, contains('pow(safe_color'));
+    });
+
+    test('transmission fmat preserves source detail and contour response', () {
+      final source = File('assets/materials/fsviewer_transmission.fmat')
+          .readAsStringSync();
+
+      expect(source, contains('TransmissionSourceDetail'));
+      expect(source, contains('TransmissionContourResponse'));
+      expect(source, contains('TransmissionGlassContour'));
+      expect(source, contains('TransmissionSpecularCue'));
+      expect(source, contains('source_detail'));
+      expect(source, contains('contour_response'));
+      expect(source, contains('rim_response'));
+      expect(source, contains('mix(color, source_detail'));
+    });
+
     test('assigns transmissive layer, background view, and glass material',
         () async {
       final originalMaterial = flutter_scene.ShaderMaterial();
@@ -242,6 +263,25 @@ void main() {
       expect(params.getFloat32(16, Endian.host), closeTo(0.9, 0.0001));
       expect(params.getFloat32(32, Endian.host), closeTo(1.0, 0.0001));
       expect(params.getFloat32(36, Endian.host), closeTo(1.45, 0.0001));
+    });
+
+    test('runtime transmission patch preserves source texture slots', () {
+      final source = File(
+        'lib/src/internal/flutter_scene_material_extension_backend.dart',
+      ).readAsStringSync();
+      final configureTransmission = source.substring(
+        source.indexOf('static void _configureTransmissionMaterial'),
+        source.indexOf('static List<double> _materialParams'),
+      );
+      final transmissionConfig = source.substring(
+        source.indexOf('final class FlutterSceneTransmissionMaterialConfig'),
+        source.indexOf('final class FlutterSceneClearcoatMaterialConfig'),
+      );
+
+      expect(configureTransmission, contains('config.sourceBaseColorTexture'));
+      expect(configureTransmission, contains('config.sourceNormalTexture'));
+      expect(transmissionConfig, contains('sourceBaseColorTexture'));
+      expect(transmissionConfig, contains('sourceNormalTexture'));
     });
 
     test('sanitizes transmission shader uniforms before assignment', () async {
@@ -415,6 +455,65 @@ void main() {
       expect(source, contains('brdf_lut'));
       expect(source, contains('frag_info.environment_intensity'));
       expect(source, isNot(contains('key_direction')));
+    });
+
+    test('clearcoat fmat attenuates base layer with coat fresnel', () {
+      final source =
+          File('assets/materials/fsviewer_clearcoat.fmat').readAsStringSync();
+
+      expect(source, contains('ClearcoatViewFresnel'));
+      expect(source, contains('ClearcoatBaseEnergyLoss'));
+      expect(source, contains('clearcoat_fresnel'));
+      expect(source, contains('base_energy_loss'));
+      expect(source, contains('max(base_energy_loss'));
+    });
+
+    test('clearcoat fmat does not synthesize unrelated studio spots', () {
+      final source =
+          File('assets/materials/fsviewer_clearcoat.fmat').readAsStringSync();
+
+      expect(source, isNot(contains('ClearcoatGlintBoost')));
+      expect(source, isNot(contains('ClearcoatStudioHighlight')));
+      expect(source, isNot(contains('clearcoat_glint')));
+      expect(source, isNot(contains('clearcoat_studio_highlight')));
+      expect(source, isNot(contains('left_spot')));
+      expect(source, isNot(contains('right_spot')));
+      expect(source, isNot(contains('glint_exponent')));
+      expect(source, contains('coat_highlight_energy'));
+      expect(source, contains('highlight_alpha'));
+      expect(source, contains('coat_emissive'));
+    });
+
+    test('clearcoat fmat derives broadened highlights from key light', () {
+      final source =
+          File('assets/materials/fsviewer_clearcoat.fmat').readAsStringSync();
+
+      expect(source, contains('ClearcoatDirectionalHighlight'));
+      expect(source, contains('area_roughness'));
+      expect(source, contains('frag_info.directional_light_direction'));
+      expect(source, contains('frag_info.directional_light_color'));
+      expect(source, contains('directional_highlight'));
+      expect(source, isNot(contains('view_glint')));
+      expect(source, isNot(contains('studio_key')));
+      expect(source, isNot(contains('studio_fill')));
+    });
+
+    test('clearcoat fmat keeps base flake normal out of coat highlight', () {
+      final source =
+          File('assets/materials/fsviewer_clearcoat.fmat').readAsStringSync();
+
+      expect(source, contains('base_detail_normal'));
+      expect(source, contains('clearcoat_smooth_normal'));
+      expect(source, contains('explicit_clearcoat_normal'));
+      expect(
+        source,
+        contains(
+          'normalize(mix(clearcoat_smooth_normal, explicit_clearcoat_normal,',
+        ),
+      );
+      expect(source, contains('material.normal = clearcoat_smooth_normal;'));
+      expect(source, isNot(contains('material.normal = base_detail_normal;')));
+      expect(source, isNot(contains('normalize(mix(base_normal')));
     });
 
     test('clearcoat adds translucent overlay without replacing source material',
@@ -632,6 +731,48 @@ void main() {
       expect(params.getFloat32(28, Endian.host), closeTo(0.12, 0.0001));
       expect(params.getFloat32(32, Endian.host), closeTo(1.0, 0.0001));
       expect(params.getFloat32(36, Endian.host), closeTo(0.75, 0.0001));
+    });
+
+    test('clearcoat keeps a bounded source flake normal and restores it',
+        () async {
+      final originalMaterial = flutter_scene.PhysicallyBasedMaterial()
+        ..normalTexture = _textureSlotSource()
+        ..normalScale = 1.0;
+      final node = flutter_scene.Node(
+        name: 'FlakePaint',
+        mesh: flutter_scene.Mesh(_StubGeometry(), originalMaterial),
+      );
+      final primitive = node.mesh!.primitives.single;
+      final backend = FlutterSceneMaterialExtensionBackend(
+        bindFallbackTextures: false,
+        createClearcoatMaterial: (_) async =>
+            flutter_scene.ShaderMaterial(isOpaqueOverride: true),
+      );
+
+      final diagnostics = await backend.applyClearcoatPatch(
+        node: node,
+        primitive: primitive,
+        address: _address,
+        patch: const MaterialPatch(
+          clearcoat: 1.0,
+          clearcoatRoughness: 0.08,
+        ),
+      );
+
+      expect(diagnostics, isEmpty);
+      // ignore: invalid_use_of_internal_member
+      expect(originalMaterial.normalTextureSource, isNull);
+      expect(originalMaterial.normalScale, closeTo(0.35, 0.0001));
+      final overlayMaterial =
+          node.mesh!.primitives.last.material as flutter_scene.ShaderMaterial;
+      final params = overlayMaterial.getUniformBlock('MaterialParams')!;
+      expect(params.getFloat32(32, Endian.host), closeTo(0.35, 0.0001));
+
+      backend.resetClearcoatPatch(node: node, primitive: primitive);
+
+      // ignore: invalid_use_of_internal_member
+      expect(originalMaterial.normalTextureSource, isNotNull);
+      expect(originalMaterial.normalScale, closeTo(1.0, 0.0001));
     });
 
     test('sanitizes clearcoat shader uniforms before assignment', () async {
@@ -1122,17 +1263,64 @@ void main() {
     expect(roles, contains('combined_glass_clearcoat'));
   });
 
-  test(
-      'production material extension evidence requires native renderer metrics',
+  test('production acceptance manifest includes Khronos visual references', () {
+    final json = jsonDecode(
+      File('tools/material_extension_acceptance/manifest.json')
+          .readAsStringSync(),
+    ) as Map<String, Object?>;
+    final assets = json['assets']! as List<Object?>;
+    final ids =
+        assets.cast<Map<String, Object?>>().map((asset) => asset['id']).toSet();
+
+    expect(ids, contains('glass_vase_flowers'));
+    expect(ids, contains('clearcoat_car_paint'));
+  });
+
+  test('three.js reference fixture supports real asset screenshots', () {
+    final source = File(
+      'tools/reference_renderers/threejs_material_extension_fixture/'
+      'render_reference.mjs',
+    ).readAsStringSync();
+
+    expect(source, contains('--real-assets'));
+    expect(source, contains('GLTFLoader'));
+    expect(source, contains('reference_threejs_water_bottle.png'));
+    expect(
+      source,
+      contains('reference_threejs_clearcoat_car_paint_real_asset.png'),
+    );
+    expect(source, contains('reference_threejs_real_asset_metrics.json'));
+  });
+
+  test('production material extension evidence requires custom shader metrics',
       () {
-    final metrics = MaterialExtensionAcceptanceMetrics.fromJson(
-      jsonDecode(
-        File('tools/out/material_extension_acceptance_metrics.json')
-            .readAsStringSync(),
-      ) as Map<String, Object?>,
+    final iosEvidence = jsonDecode(
+      File(
+        'tools/material_extension_acceptance/fixtures/'
+        'ios_simulator_custom_shader_metrics_input.json',
+      ).readAsStringSync(),
+    ) as Map<String, Object?>;
+    final referenceMetrics = jsonDecode(
+      File(
+        'tools/material_extension_acceptance/fixtures/'
+        'material_extension_reference_metrics.json',
+      ).readAsStringSync(),
+    ) as Map<String, Object?>;
+    final metrics = compareMaterialExtensionMetrics(
+      iosEvidence: iosEvidence,
+      referenceMetrics: referenceMetrics,
     );
 
-    expect(metrics.backendKind, 'rendererNative');
+    expect(
+      MaterialExtensionAcceptanceMetrics.fromJson(
+        jsonDecode(
+          jsonEncode(metrics.toJson()),
+        ) as Map<String, Object?>,
+      ).backendKind,
+      metrics.backendKind,
+    );
+
+    expect(metrics.backendKind, 'flutterSceneCustomShader');
     expect(metrics.glass.transmissionSpreadDelta, greaterThan(20));
     expect(metrics.glass.iorDelta, greaterThan(5));
     expect(
@@ -1215,8 +1403,9 @@ final class _StubGeometry extends flutter_scene.Geometry {
     flutter_scene_internal_gpu.HostBuffer transientsBuffer,
     vm.Matrix4 modelTransform,
     vm.Matrix4 cameraTransform,
-    vm.Vector3 cameraPosition,
-  ) {
+    vm.Vector3 cameraPosition, {
+    flutter_scene_internal_gpu.Shader? shaderOverride,
+  }) {
     throw UnsupportedError('Stub geometry is not renderable');
   }
 }
@@ -1838,7 +2027,7 @@ Future<ui.Image> _renderSingleClearcoatImage({
   );
 }
 
-Object _tiltedClearcoatNormalTexture() {
+flutter_scene.TextureSource _tiltedClearcoatNormalTexture() {
   final texture = flutter_scene_internal_gpu.gpuContext.createTexture(
     flutter_scene_internal_gpu.StorageMode.hostVisible,
     2,
@@ -1847,14 +2036,14 @@ Object _tiltedClearcoatNormalTexture() {
   texture.overwrite(
     Uint32List.fromList(<int>[0xFFFF7F20, 0xFFFF7FFF]).buffer.asByteData(),
   );
-  return texture;
+  return flutter_scene.GpuTextureSource(texture);
 }
 
-Object _solidClearcoatTexture({required int red}) {
+flutter_scene.TextureSource _solidClearcoatTexture({required int red}) {
   return _solidColorTexture(0xFF000000 | red.clamp(0, 255));
 }
 
-Object _solidColorTexture(int argb) {
+flutter_scene.TextureSource _solidColorTexture(int argb) {
   final texture = flutter_scene_internal_gpu.gpuContext.createTexture(
     flutter_scene_internal_gpu.StorageMode.hostVisible,
     1,
@@ -1863,7 +2052,7 @@ Object _solidColorTexture(int argb) {
   texture.overwrite(
     Uint32List.fromList(<int>[argb]).buffer.asByteData(),
   );
-  return texture;
+  return flutter_scene.GpuTextureSource(texture);
 }
 
 _BufferSlice _appendFloats(BytesBuilder builder, List<double> values) {

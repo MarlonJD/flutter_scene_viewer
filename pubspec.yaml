@@ -14,7 +14,11 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  flutter_scene: ^0.18.1
+  flutter_scene:
+    git:
+      url: https://github.com/bdero/flutter_scene.git
+      ref: cd6760912fa38beb55f63e388655a1aeabd32fe4
+      path: packages/flutter_scene
   hooks: ^2.0.0
   http: ^1.2.2
   meta: ^1.15.0

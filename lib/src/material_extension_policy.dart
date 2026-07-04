@@ -12,6 +12,7 @@ enum ViewerMaterialExtensionMode {
 enum MaterialExtensionBackendKind {
   none,
   packageLocalCandidate,
+  flutterSceneCustomShader,
   rendererNative,
 }
 
@@ -35,7 +36,8 @@ final class MaterialExtensionSupport {
   final MaterialExtensionBackendKind backendKind;
 
   bool get productionReady =>
-      backendKind == MaterialExtensionBackendKind.rendererNative &&
+      (backendKind == MaterialExtensionBackendKind.flutterSceneCustomShader ||
+          backendKind == MaterialExtensionBackendKind.rendererNative) &&
       transmission &&
       ior &&
       volume &&
@@ -96,7 +98,7 @@ final class ViewerMaterialExtensionPolicy {
           ior: enableTransmission,
           volume: enableTransmission,
           clearcoat: enableClearcoat,
-          backendKind: MaterialExtensionBackendKind.packageLocalCandidate,
+          backendKind: MaterialExtensionBackendKind.flutterSceneCustomShader,
         ),
     };
   }

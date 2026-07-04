@@ -1,0 +1,25 @@
+{
+  "source": "tools/out/fsviewer_material_extension_reference_fixture.glb",
+  "threejs": {
+    "glass": {
+      "transmission0Spread": 24,
+      "transmission1Spread": 37,
+      "iorDelta": 32.43768240567021
+    },
+    "clearcoat": {
+      "zeroHighlight": 242,
+      "fullHighlight": 244,
+      "smoothPeak": 244,
+      "roughPeak": 242
+    }
+  },
+  "glass": {
+    "transmissionDirection": "transmission1Spread > transmission0Spread",
+    "iorDirection": "iorOffsetDelta > 0"
+  },
+  "clearcoat": {
+    "factorDirection": "fullHighlight > zeroHighlight",
+    "roughnessDirection": "roughPeak < smoothPeak",
+    "normalDirection": "normalVariantHighlightPositionDelta > 0"
+  }
+}

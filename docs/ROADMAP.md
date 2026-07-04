@@ -50,8 +50,21 @@ Candidate scope:
 - stronger capability diagnostics and model-authoring guidance;
 - better persisted configurator state and restore flows;
 - cache, memory-budget, and large-model behavior hardening;
-- KTX2 / `KHR_texture_basisu` texture-compression investigation plus packed
-  material-mask authoring guidance when upstream support is available;
+- production GLB compression support for target configurator assets:
+  `KHR_draco_mesh_compression`, `EXT_meshopt_compression`, and KTX2 /
+  `KHR_texture_basisu`, with typed diagnostics instead of silent fallback when
+  a decoder is unavailable;
+- role-aware imported texture mipmaps for GLB material textures, so base-color
+  textures, normal maps, and data maps such as metallic-roughness/occlusion are
+  downsampled with the correct color, vector, or linear-data rules;
+- imported material-extension coverage needed by real configurator assets,
+  including `KHR_materials_specular` and `KHR_materials_ior` in addition to the
+  V1 glass/clearcoat material-extension path;
+- A1B32-style compressed textile/fashion assets as a V2 acceptance gate:
+  Draco-compressed primitives, specular/IOR materials, texture maps, hierarchy,
+  picking, and diagnostics must work without manual asset preprocessing;
+- packed material-mask authoring guidance when compressed-texture support is in
+  place;
 - bounded multi-file `.gltf` resolution when target assets need external
   `.bin` or image files;
 - simple rigid/node animation for product interactions such as doors,

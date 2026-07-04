@@ -12,13 +12,22 @@ visibly sample the scene behind it.
 
 The local backend uses a bounded screen-space background `RenderTexture`
 rather than full multi-bounce refraction. `MaterialPatch.ior` changes the
-screen-space sample offset magnitude and a Fresnel-like response target.
+screen-space sample offset magnitude and the view-dependent Fresnel split
+between surface reflection and transmitted background energy. The shader
+derives normal-incidence reflectance from IOR with `((ior - 1) / (ior + 1))^2`
+and reduces transmitted energy by the Fresnel term instead of letting grazing
+angles look like plain alpha.
+
 `MaterialPatch.thickness`, `MaterialPatch.attenuationColor`, and
-`MaterialPatch.attenuationDistance` control the strength and color of local
-absorption. `MaterialPatch.roughness` softens the background contribution by
-mixing it back toward the base material. `MaterialPatch.normalTexture` and
-`MaterialPatch.normalScale` perturb the offset direction when a normal texture
-is provided.
+`MaterialPatch.attenuationDistance` control local absorption with the glTF
+attenuation-color-at-distance form: the sampled background is multiplied by
+`attenuationColor^(thickness / attenuationDistance)` when an attenuation
+distance is provided. `MaterialPatch.roughness` softens the background
+contribution by mixing it back toward the base material.
+`MaterialPatch.normalTexture` and `MaterialPatch.normalScale` perturb the
+offset direction when a normal texture is provided. The unlit transmission
+shader outputs premultiplied RGB for its alpha-blended glass pass, matching the
+transparent-surface convention used by common renderer shader APIs.
 
 Known glass limits are explicit: no nested glass correctness, caustics,
 path-traced transmission, multiple refraction bounces, or order-independent
@@ -35,6 +44,11 @@ overlay primitive that shares the source geometry. The overlay shader emits a
 bounded coating contribution through `MaterialInputs.emissive` and alpha
 blending, so real GLB base color, metallic-roughness, normal, occlusion, and
 emissive detail remain owned by the original material.
+The overlay also computes a clearcoat Fresnel term and uses it to attenuate
+base-layer energy through translucent black alpha before adding the coating
+lobe. This follows the common two-layer clearcoat model direction: add a
+second specular lobe while reducing the base layer by the coat Fresnel instead
+of simply stacking an unrelated highlight on top.
 
 `MaterialPatch.clearcoatRoughness` controls only the coating lobe width and
 peak. Higher coating roughness broadens/reduces the added lobe without changing
@@ -58,8 +72,9 @@ DamagedHelmet manual-clearcoat iOS Simulator run remains candidate-only because
 the older replacement path looked overly stylized/striped on complex source
 materials. A follow-up ToyCar iOS Simulator run verifies that the overlay path
 preserves the authored source material while adding visible glass and
-clearcoat effects, but package-local production support is still not
-advertised.
+clearcoat effects. Task 012 accepts this repo-owned custom shader path as the
+production route for the verified iOS Simulator scope after shader preflight
+and acceptance metrics pass.
 
 Production clearcoat uses `flutter_scene` `.fmat` metadata through
 `PreprocessedMaterial`. A lit `.fmat` must use that material wrapper so the
@@ -70,7 +85,13 @@ paths, but it is not the production wrapper for lit clearcoat.
 ## Source And License Boundaries
 
 External renderer source is not copied into the package-local Dart or shader
-implementation. three.js is used only as a visual reference-renderer dependency
-for trend comparison against the shared fixture GLB. If reference harness code
-copies any third-party source in the future, its license notice must be carried
-with that copied code.
+implementation. Filament and SceneKit were used as public material-model
+references only: Filament for IOR/Fresnel energy separation and transparent
+surface blending direction, and SceneKit for the public transparent-surface,
+view-vector, and Fresnel shader-surface concepts available in its SDK headers.
+SceneKit does not expose a `KHR_materials_transmission` equivalent field in the
+public material surface, so it is not treated as a native transmission backend.
+three.js is used only as a visual reference-renderer dependency for trend
+comparison against the shared fixture GLB. If reference harness code copies any
+third-party source in the future, its license notice must be carried with that
+copied code.

@@ -69,20 +69,21 @@ MVP core material support:
 
 Transmission/glass support is a v1.0 release blocker. It requires real
 `KHR_materials_transmission`, `KHR_materials_ior`, and `KHR_materials_volume`
-behavior; the viewer must not present alpha blending as glass. Package-local
-shader fixture evidence exists, but the current backend remains candidate-only
-and does not advertise production support. ToyCar iOS Simulator evidence shows
-the candidate glass shader on a real authored transmission node; macOS,
-Android, Web, and physical iOS evidence remain deferred.
+behavior; the viewer must not present alpha blending as glass. The
+repository-owned `flutterSceneCustomShader` backend is the production path for
+the verified iOS Simulator scope after shader preflight and evidence checks.
+It remains bounded screen-space glass, not nested glass, order-independent
+transparency, caustics, or path-traced volume transport. macOS, Android, Web,
+and physical iOS evidence remain deferred/not run.
 
 Clearcoat support is also a v1.0 release blocker for automotive paint,
 varnished wood, carbon fiber, and premium coated surfaces. It requires real
 `KHR_materials_clearcoat`-style behavior; the viewer must not present lower
-roughness as clearcoat. A package-local lit clearcoat backend exists as
-candidate evidence, but it does not advertise production support. It has local
-iOS Simulator shader-load, synthetic visual-matrix, and ToyCar real-asset
-evidence, but production support is still not advertised; macOS, Android, Web,
-and physical iOS evidence remain deferred.
+roughness as clearcoat. The repository-owned lit clearcoat `.fmat` overlay is
+the production path for the verified iOS Simulator scope after shader preflight
+and evidence checks. Renderer-native upstream clearcoat remains a future
+integration path. macOS, Android, Web, and physical iOS evidence remain
+deferred/not run.
 
 Explicit non-goals for v1:
 
@@ -108,10 +109,11 @@ before tessellation could even be considered.
 documentation, tooling, and validation checks are in place; the
 `flutter_scene` adapter is still being implemented. Treat the package as
 pre-release until runtime adapter checks pass and the transmission/glass and
-clearcoat release blockers are resolved with production-ready renderer
-evidence on the documented target scope or real upstream renderer support.
-As of Task 011, glass and clearcoat have local iOS Simulator candidate
-evidence, including ToyCar real-asset evidence, but are not production-ready.
+clearcoat release blockers are resolved with production-ready evidence on each
+documented target scope or real upstream renderer support. As of Task 012,
+glass and clearcoat have verified local iOS Simulator evidence for the
+repo-owned `flutterSceneCustomShader` backend; physical iOS, macOS, Android,
+and Web remain deferred/not run.
 
 ## Development
 

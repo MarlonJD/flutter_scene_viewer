@@ -1,12 +1,67 @@
 {
   "version": 1,
-  "status": "candidate-only",
+  "status": "production-reference",
   "notes": [
-    "This corpus defines required real-asset roles for renderer-native material extension promotion.",
+    "This corpus defines required real-asset roles for repo-owned custom shader material extension production support.",
     "Assets are not vendored in this repository; evidence tooling must download or otherwise stage them explicitly before visual acceptance runs.",
+    "Khronos Sample Viewer or three.js reference renders define the intended visual direction for staged assets.",
     "UV0/TEXCOORD_0 is required for every texture-bearing extension input."
   ],
   "assets": [
+    {
+      "id": "glass_vase_flowers",
+      "role": "glass_only",
+      "displayName": "GlassVaseFlowers",
+      "source": "Khronos glTF Sample Assets",
+      "sourceUrl": "https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/GlassVaseFlowers",
+      "downloadUrl": "https://raw.GithubUserContent.com/KhronosGroup/glTF-Sample-Assets/main/./Models/GlassVaseFlowers/glTF-Binary/GlassVaseFlowers.glb",
+      "referenceViewerUrl": "https://github.khronos.org/glTF-Sample-Viewer-Release/?model=https://raw.GithubUserContent.com/KhronosGroup/glTF-Sample-Assets/main/./Models/GlassVaseFlowers/glTF-Binary/GlassVaseFlowers.glb",
+      "license": "CC0 1.0 Universal",
+      "vendored": false,
+      "localPath": null,
+      "requires": [
+        "KHR_materials_transmission",
+        "KHR_materials_volume"
+      ],
+      "exercises": [
+        "alpha blend versus transmission distinction",
+        "refraction readability",
+        "volume attenuation",
+        "rough transmission blur"
+      ],
+      "minimumEvidence": [
+        "ios_simulator",
+        "threejs_reference",
+        "khronos_sample_viewer_reference"
+      ]
+    },
+    {
+      "id": "clearcoat_car_paint",
+      "role": "clearcoat_only",
+      "displayName": "ClearCoatCarPaint",
+      "source": "Khronos glTF Sample Assets",
+      "sourceUrl": "https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/ClearCoatCarPaint",
+      "downloadUrl": "https://raw.GithubUserContent.com/KhronosGroup/glTF-Sample-Assets/main/./Models/ClearCoatCarPaint/glTF-Binary/ClearCoatCarPaint.glb",
+      "referenceViewerUrl": "https://github.khronos.org/glTF-Sample-Viewer-Release/?model=https://raw.GithubUserContent.com/KhronosGroup/glTF-Sample-Assets/main/./Models/ClearCoatCarPaint/glTF-Binary/ClearCoatCarPaint.glb",
+      "license": "CC0 1.0 Universal",
+      "vendored": false,
+      "localPath": null,
+      "requires": [
+        "KHR_texture_transform",
+        "KHR_materials_clearcoat"
+      ],
+      "exercises": [
+        "clearcoat over car-paint base",
+        "microflake base material preservation",
+        "clearcoat normal tiling",
+        "smooth clearcoat highlight over rougher base"
+      ],
+      "minimumEvidence": [
+        "ios_simulator",
+        "threejs_reference",
+        "khronos_sample_viewer_reference"
+      ]
+    },
     {
       "id": "toycar_combined",
       "role": "combined_glass_clearcoat",

@@ -188,7 +188,10 @@ final class FlutterSceneRuntimeAdapter implements FlutterSceneAdapter {
       final shaderPreflight =
           await _materialExtensionBackend.preflightProductionSupport();
       _productionMaterialExtensionSupport =
-          _resolveProductionMaterialExtensionSupport(nativeCapability);
+          _resolveProductionMaterialExtensionSupport(
+        nativeCapability,
+        shaderPreflight,
+      );
       if (!_productionMaterialExtensionSupport.productionReady) {
         _diagnostics
           ..addAll(nativeCapability.diagnostics)
@@ -477,43 +480,53 @@ final class FlutterSceneRuntimeAdapter implements FlutterSceneAdapter {
     final loadedBaseColorTexture = await _loadTextureOverride(
       patch.baseColorTexture,
       address,
+      textureContent: flutter_scene.TextureContent.color,
     );
     final loadedMetallicRoughnessTexture = await _loadTextureOverride(
       patch.metallicRoughnessTexture,
       address,
+      textureContent: flutter_scene.TextureContent.data,
     );
     final loadedNormalTexture = await _loadTextureOverride(
       patch.normalTexture,
       address,
+      textureContent: flutter_scene.TextureContent.normal,
       normalMapScale: patch.normalScale,
     );
     final loadedEmissiveTexture = await _loadTextureOverride(
       patch.emissiveTexture,
       address,
+      textureContent: flutter_scene.TextureContent.color,
     );
     final loadedOcclusionTexture = await _loadTextureOverride(
       patch.occlusionTexture,
       address,
+      textureContent: flutter_scene.TextureContent.data,
     );
     final loadedTransmissionTexture = await _loadTextureOverride(
       patch.transmissionTexture,
       address,
+      textureContent: flutter_scene.TextureContent.data,
     );
     final loadedThicknessTexture = await _loadTextureOverride(
       patch.thicknessTexture,
       address,
+      textureContent: flutter_scene.TextureContent.data,
     );
     final loadedClearcoatTexture = await _loadTextureOverride(
       patch.clearcoatTexture,
       address,
+      textureContent: flutter_scene.TextureContent.data,
     );
     final loadedClearcoatRoughnessTexture = await _loadTextureOverride(
       patch.clearcoatRoughnessTexture,
       address,
+      textureContent: flutter_scene.TextureContent.data,
     );
     final loadedClearcoatNormalTexture = await _loadTextureOverride(
       patch.clearcoatNormalTexture,
       address,
+      textureContent: flutter_scene.TextureContent.normal,
     );
     for (final loadedTexture in <_TextureLoadResult?>[
       loadedBaseColorTexture,
@@ -765,10 +778,23 @@ final class FlutterSceneRuntimeAdapter implements FlutterSceneAdapter {
       return null;
     }
     if (root.name != address.nodePath.first) {
-      return null;
+      return _resolveUniqueDescendantTarget(root, address);
     }
-    var node = root;
-    for (final segment in address.nodePath.skip(1)) {
+    return _resolveTargetFrom(
+          root,
+          address.nodePath.skip(1),
+          primitiveIndex: address.primitiveIndex,
+        ) ??
+        _resolveUniqueDescendantTarget(root, address);
+  }
+
+  _ResolvedPrimitive? _resolveTargetFrom(
+    flutter_scene.Node start,
+    Iterable<String> pathSegments, {
+    required int primitiveIndex,
+  }) {
+    var node = start;
+    for (final segment in pathSegments) {
       final matches = <flutter_scene.Node>[
         for (final child in node.children)
           if (child.name == segment) child,
@@ -780,11 +806,44 @@ final class FlutterSceneRuntimeAdapter implements FlutterSceneAdapter {
     }
     final primitives = node.mesh?.primitives;
     if (primitives == null ||
-        address.primitiveIndex < 0 ||
-        address.primitiveIndex >= primitives.length) {
+        primitiveIndex < 0 ||
+        primitiveIndex >= primitives.length) {
       return null;
     }
-    return _ResolvedPrimitive(node, primitives[address.primitiveIndex]);
+    return _ResolvedPrimitive(node, primitives[primitiveIndex]);
+  }
+
+  _ResolvedPrimitive? _resolveUniqueDescendantTarget(
+    flutter_scene.Node root,
+    PartAddress address,
+  ) {
+    final matches = <flutter_scene.Node>[];
+
+    void visit(flutter_scene.Node node) {
+      if (node.name == address.nodePath.first) {
+        final resolved = _resolveTargetFrom(
+          node,
+          address.nodePath.skip(1),
+          primitiveIndex: address.primitiveIndex,
+        );
+        if (resolved != null) {
+          matches.add(resolved.node);
+        }
+      }
+      for (final child in node.children) {
+        visit(child);
+      }
+    }
+
+    visit(root);
+    if (matches.length != 1) {
+      return null;
+    }
+    return _resolveTargetFrom(
+      matches.single,
+      const <String>[],
+      primitiveIndex: address.primitiveIndex,
+    );
   }
 
   List<String>? _nodePathFor(flutter_scene.Node target) {
@@ -900,14 +959,17 @@ final class FlutterSceneRuntimeAdapter implements FlutterSceneAdapter {
   }
 
   Future<_TextureLoadResult?> _loadTextureOverride(
-      TextureSource? source, PartAddress address,
-      {double? normalMapScale}) async {
+    TextureSource? source,
+    PartAddress address, {
+    required flutter_scene.TextureContent textureContent,
+    double? normalMapScale,
+  }) async {
     if (source == null) {
       return null;
     }
     try {
       final texture = normalMapScale == null || normalMapScale == 1
-          ? await _loadTexture(source)
+          ? await _loadTexture(source, content: textureContent)
           : await _loadScaledNormalTexture(source, normalMapScale);
       return _TextureLoadResult(texture: texture);
     } on Object catch (error) {
@@ -925,39 +987,46 @@ final class FlutterSceneRuntimeAdapter implements FlutterSceneAdapter {
     }
   }
 
-  Future<Object> _loadTexture(TextureSource source) async {
+  Future<flutter_scene.TextureSource> _loadTexture(
+    TextureSource source, {
+    required flutter_scene.TextureContent content,
+  }) async {
     return switch (source) {
       AssetTextureSource(:final assetPath) =>
-        await flutter_scene.gpuTextureFromAsset(assetPath),
+        await flutter_scene.Texture2D.fromAsset(assetPath, content: content),
       BytesTextureSource(:final encodedBytes) =>
-        await flutter_scene.gpuTextureFromImage(
-            await flutter_scene.imageFromBytes(encodedBytes)),
+        await _textureFromEncodedBytes(encodedBytes, content: content),
       NetworkTextureSource(:final uri, :final headers) =>
-        await _loadNetworkTexture(uri, headers),
+        await _loadNetworkTexture(uri, headers, content: content),
     };
   }
 
-  Future<Object> _loadScaledNormalTexture(
+  Future<flutter_scene.TextureSource> _loadScaledNormalTexture(
     TextureSource source,
     double scale,
   ) async {
     final encodedBytes = await _loadEncodedTextureBytes(source);
     final image = await flutter_scene.imageFromBytes(encodedBytes);
-    final byteData = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
-    if (byteData == null) {
-      throw StateError('Unable to read normal texture pixels.');
+    try {
+      final byteData =
+          await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+      if (byteData == null) {
+        throw StateError('Unable to read normal texture pixels.');
+      }
+      final rgba = Uint8List.fromList(
+        byteData.buffer
+            .asUint8List(byteData.offsetInBytes, byteData.lengthInBytes),
+      );
+      final scaled = scaleNormalMapRgba(rgba, scale);
+      return flutter_scene.Texture2D.fromPixels(
+        scaled,
+        image.width,
+        image.height,
+        content: flutter_scene.TextureContent.normal,
+      );
+    } finally {
+      image.dispose();
     }
-    final rgba = Uint8List.fromList(
-      byteData.buffer
-          .asUint8List(byteData.offsetInBytes, byteData.lengthInBytes),
-    );
-    final scaled = scaleNormalMapRgba(rgba, scale);
-    final scaledImage = await _imageFromRgba(
-      scaled,
-      image.width,
-      image.height,
-    );
-    return flutter_scene.gpuTextureFromImage(scaledImage);
   }
 
   Future<Uint8List> _loadEncodedTextureBytes(TextureSource source) async {
@@ -970,29 +1039,25 @@ final class FlutterSceneRuntimeAdapter implements FlutterSceneAdapter {
     };
   }
 
-  Future<ui.Image> _imageFromRgba(
-    Uint8List rgba,
-    int width,
-    int height,
-  ) {
-    final completer = Completer<ui.Image>();
-    ui.decodeImageFromPixels(
-      rgba,
-      width,
-      height,
-      ui.PixelFormat.rgba8888,
-      completer.complete,
-    );
-    return completer.future;
+  Future<flutter_scene.TextureSource> _textureFromEncodedBytes(
+    Uint8List bytes, {
+    required flutter_scene.TextureContent content,
+  }) async {
+    final image = await flutter_scene.imageFromBytes(bytes);
+    try {
+      return await flutter_scene.Texture2D.fromImage(image, content: content);
+    } finally {
+      image.dispose();
+    }
   }
 
-  Future<Object> _loadNetworkTexture(
+  Future<flutter_scene.TextureSource> _loadNetworkTexture(
     Uri uri,
-    Map<String, String> headers,
-  ) async {
+    Map<String, String> headers, {
+    required flutter_scene.TextureContent content,
+  }) async {
     final bodyBytes = await _loadNetworkTextureBytes(uri, headers);
-    final image = await flutter_scene.imageFromBytes(bodyBytes);
-    return flutter_scene.gpuTextureFromImage(image);
+    return _textureFromEncodedBytes(bodyBytes, content: content);
   }
 
   Future<Uint8List> _loadNetworkTextureBytes(
@@ -1373,20 +1438,20 @@ final class _OriginalMaterialState {
   final int layers;
   final flutter_scene.Material material;
   final vm.Vector4? baseColorFactor;
-  final Object? baseColorTexture;
-  final Object? metallicRoughnessTexture;
-  final Object? normalTexture;
+  final flutter_scene.TextureSource? baseColorTexture;
+  final flutter_scene.TextureSource? metallicRoughnessTexture;
+  final flutter_scene.TextureSource? normalTexture;
   final double? normalScale;
   final double? metallic;
   final double? roughness;
   final vm.Vector4? emissiveFactor;
-  final Object? emissiveTexture;
-  final Object? occlusionTexture;
+  final flutter_scene.TextureSource? emissiveTexture;
+  final flutter_scene.TextureSource? occlusionTexture;
   final double? occlusionStrength;
   final flutter_scene.AlphaMode? alphaMode;
   final double? alphaCutoff;
   final vm.Vector4? unlitBaseColorFactor;
-  final Object? unlitBaseColorTexture;
+  final flutter_scene.TextureSource? unlitBaseColorTexture;
   final flutter_scene.AlphaMode? unlitAlphaMode;
 
   void restore(
@@ -1453,7 +1518,7 @@ final class _OriginalMaterialState {
 final class _TextureLoadResult {
   const _TextureLoadResult({this.texture, this.diagnostic});
 
-  final Object? texture;
+  final flutter_scene.TextureSource? texture;
   final ViewerDiagnostic? diagnostic;
 }
 
@@ -1527,7 +1592,13 @@ bool _usesMaterialExtensionBackendFor(
   final resolvedSupport = support ?? policy.support;
   if (policy.mode ==
       ViewerMaterialExtensionMode.productionFlutterSceneShaders) {
-    return false;
+    if (support == null) {
+      return false;
+    }
+    if (resolvedSupport.backendKind !=
+        MaterialExtensionBackendKind.flutterSceneCustomShader) {
+      return false;
+    }
   }
   if (patch.hasClearcoatOverride) {
     return resolvedSupport.clearcoat;
@@ -1556,15 +1627,25 @@ bool _usesNativeMaterialExtensionApplierFor(
   final resolvedSupport = support ?? policy.support;
   return policy.mode ==
           ViewerMaterialExtensionMode.productionFlutterSceneShaders &&
+      resolvedSupport.backendKind ==
+          MaterialExtensionBackendKind.rendererNative &&
       resolvedSupport.productionReady;
 }
 
 MaterialExtensionSupport _resolveProductionMaterialExtensionSupport(
-  NativeMaterialExtensionCapability nativeCapability,
-) {
+  NativeMaterialExtensionCapability nativeCapability, [
+  MaterialExtensionPreflightResult shaderPreflight =
+      const MaterialExtensionPreflightResult(
+    support: MaterialExtensionSupport.unsupported,
+  ),
+]) {
   final support = nativeCapability.support;
-  return support.productionReady
-      ? support
+  if (support.productionReady) {
+    return support;
+  }
+  final shaderSupport = shaderPreflight.support;
+  return shaderSupport.productionReady
+      ? shaderSupport
       : MaterialExtensionSupport.unsupported;
 }
 
@@ -1596,9 +1677,16 @@ bool debugUsesNativeMaterialExtensionApplierFor(
 
 @visibleForTesting
 MaterialExtensionSupport debugResolveProductionMaterialExtensionSupport(
-  NativeMaterialExtensionCapability nativeCapability,
-) =>
-    _resolveProductionMaterialExtensionSupport(nativeCapability);
+  NativeMaterialExtensionCapability nativeCapability, [
+  MaterialExtensionPreflightResult shaderPreflight =
+      const MaterialExtensionPreflightResult(
+    support: MaterialExtensionSupport.unsupported,
+  ),
+]) =>
+    _resolveProductionMaterialExtensionSupport(
+      nativeCapability,
+      shaderPreflight,
+    );
 
 @visibleForTesting
 ViewerDiagnostic? debugGlassNodeIsolationDiagnostic({
@@ -1609,6 +1697,15 @@ ViewerDiagnostic? debugGlassNodeIsolationDiagnostic({
       primitiveCount: primitiveCount,
       selectedPrimitiveIndex: selectedPrimitiveIndex,
     );
+
+@visibleForTesting
+bool debugCanResolvePartAddress(
+  flutter_scene.Node root,
+  PartAddress address,
+) {
+  final adapter = FlutterSceneRuntimeAdapter().._rootNode = root;
+  return adapter._resolveTarget(address) != null;
+}
 
 final class FlutterSceneAdapterUnavailableException implements Exception {
   const FlutterSceneAdapterUnavailableException(this.message);

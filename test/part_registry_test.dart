@@ -93,6 +93,53 @@ void main() {
     );
   });
 
+  test('PartTree resolves unique authored suffix paths under runtime roots',
+      () {
+    final registry = PartRegistry.fromSnapshot(
+      AdapterNodeSnapshot(
+        name: 'root',
+        children: <AdapterNodeSnapshot>[
+          AdapterNodeSnapshot(name: 'Sphere', primitiveCount: 1),
+        ],
+      ),
+    );
+
+    final resolved = registry.tree.resolvePart(
+      PartAddress(
+        nodePath: <String>['Sphere'],
+        primitiveIndex: 0,
+      ),
+    );
+
+    expect(resolved?.address.debugPath, 'root/Sphere#0');
+  });
+
+  test('PartTree does not resolve ambiguous authored suffix paths', () {
+    final registry = PartRegistry.fromSnapshot(
+      AdapterNodeSnapshot(
+        name: 'root',
+        children: <AdapterNodeSnapshot>[
+          AdapterNodeSnapshot(name: 'Left', children: <AdapterNodeSnapshot>[
+            AdapterNodeSnapshot(name: 'Sphere', primitiveCount: 1),
+          ]),
+          AdapterNodeSnapshot(name: 'Right', children: <AdapterNodeSnapshot>[
+            AdapterNodeSnapshot(name: 'Sphere', primitiveCount: 1),
+          ]),
+        ],
+      ),
+    );
+
+    expect(
+      registry.tree.resolvePart(
+        PartAddress(
+          nodePath: <String>['Sphere'],
+          primitiveIndex: 0,
+        ),
+      ),
+      isNull,
+    );
+  });
+
   test('PartRegistry carries primitive texture coordinate capability', () {
     final registry = PartRegistry.fromSnapshot(
       AdapterNodeSnapshot(

@@ -1,0 +1,18 @@
+{
+  "backendKind": "flutterSceneCustomShader",
+  "target": "iOS Simulator",
+  "status": "verified locally",
+  "platform": "iOS",
+  "glass": {
+    "transmission0Spread": 14,
+    "transmission1Spread": 239,
+    "iorDelta": 5.111805555555556
+  },
+  "clearcoat": {
+    "zeroHighlight": 242,
+    "fullHighlight": 254,
+    "smoothPeak": 254,
+    "roughPeak": 250,
+    "baseMaterialPreserved": true
+  }
+}

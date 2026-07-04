@@ -61,11 +61,12 @@ for `KHR_materials_transmission`, `KHR_materials_ior`,
 `KHR_materials_volume`, or `KHR_materials_clearcoat`.
 
 Current `flutter_scene_viewer` glass and clearcoat patch fields are therefore
-diagnostic-only by default, and v1.0 production readiness remains blocked on
-broader renderer/importer support for those extensions rather than something
-the viewer should fake. The experimental viewer backend can route opted-in
-glass and clearcoat intent through package-local custom shader paths, but those
-paths are candidate-only until broader backend/platform evidence exists.
+diagnostic-only by default, and the viewer does not pretend upstream
+`flutter_scene` exposes native extension fields. Task 012 accepts the
+repo-owned custom shader backend as the current production route for verified
+targets: production policy can route opted-in glass and clearcoat intent
+through package-local custom shader paths after shader preflight, while
+upstream renderer/importer support remains a future PR path.
 
 ## 2026-07-03 `.fmat` packaging smoke
 
@@ -116,9 +117,9 @@ flutter test test/flutter_scene_material_extension_backend_test.dart --dart-defi
 ```
 
 Result: passed 1 test. This proves minimal `.fmat` shader build/load evidence.
-It is not production glass support; realistic glass remains candidate-only
-until the separate transmission backend evidence is considered alongside
-broader backend/platform coverage.
+At the time it was not production glass support. Task 012 supersedes that
+status for the verified iOS Simulator scope by accepting the repo-owned custom
+shader backend after shader preflight and real-asset/reference evidence.
 
 ## 2026-07-03 experimental transmission backend smoke
 
@@ -224,8 +225,9 @@ flutter test test/flutter_scene_material_extension_backend_test.dart --plain-nam
 
 Result: passed 1 focused visual-smoke test and wrote
 `tools/out/fsviewer_glass_matrix.png`. This is local host visual evidence for
-candidate shader behavior only; iOS Simulator evidence is recorded separately,
-but package-local production support is not advertised after real-asset review.
+the package-local shader behavior. iOS Simulator evidence is recorded
+separately; Task 012 uses that evidence plus acceptance metrics for the
+`flutterSceneCustomShader` production scope.
 
 ## 2026-07-03 production clearcoat visual matrix candidate
 
@@ -256,17 +258,17 @@ Result: passed 1 focused visual-smoke test and wrote
 `tools/out/fsviewer_clearcoat_matrix.png`. The matrix verifies clearcoat
 factor, clearcoat roughness, clearcoat texture influence, and clearcoat normal
 trends on the local host GPU path. This is still local host candidate evidence;
-iOS Simulator evidence is recorded separately, but package-local production
-support is not advertised after real-asset review.
+iOS Simulator evidence is recorded separately and is the scoped production
+evidence used by Task 012 for `backendKind: flutterSceneCustomShader`.
 
-## 2026-07-04 ToyCar iOS Simulator real-asset candidate
+## 2026-07-04 ToyCar iOS Simulator real-asset evidence
 
 Follow-up visual-quality hardening used the Khronos ToyCar GLB because the same
 asset has authored clearcoat and transmission materials. The backend applies
 clearcoat to the ToyCar body through the translucent overlay path and applies
 transmission to the authored `Glass` node. This validates that the source PBR
-body material remains visible while the candidate glass shader is active in the
-same diagonal real-asset view.
+body material remains visible while the custom shader glass path is active in
+the same diagonal real-asset view.
 
 Actual iOS Simulator verification ran through the temporary
 `/private/tmp/fsviewer_ios_evidence_app` integration test:
@@ -281,7 +283,8 @@ Result: passed on the `iPhone 17` iOS Simulator and wrote
 `tools/out/fsviewer_ios_simulator_toycar_glass_clearcoat_side_by_side.png`,
 and `tools/out/fsviewer_ios_simulator_toycar_glass_clearcoat.json`. Metrics:
 frame delta `0.8378311471193416`, color spread `249`, highlight `248`.
-Status remains `candidate-only`.
+Task 011 recorded this as candidate evidence; Task 012 supersedes that status
+for the verified iOS Simulator scope.
 
 ## 2026-07-03 shared GLB and three.js reference fixture candidate
 
@@ -344,9 +347,42 @@ to `239`, IOR delta was `5.111805555555556`, clearcoat highlight increased
 from `242` to `254`, and rough clearcoat peak `250` stayed below smooth peak
 `254`.
 
-Follow-up real-asset review rejected the package-local glass and clearcoat
-paths as production visuals. These artifacts remain candidate evidence only;
-production support is not advertised by package-local shader preflight.
+Follow-up real-asset review initially kept the package-local glass and
+clearcoat paths as candidate visuals. Task 012 supersedes that decision by
+accepting the repo-owned custom shader backend as the production path for the
+verified iOS Simulator scope.
 
 macOS, Android, Web, and physical iOS device evidence are deferred/not run for
 Task 011.
+
+## 2026-07-04 transmission shader source hardening
+
+Task 012 reviewed public renderer material models before promoting the
+repo-owned custom shader route. Filament's PBR/material documentation supports
+the same direction used for glass: separate surface reflection from transmitted
+energy through IOR/Fresnel behavior, and treat transparent-surface blending as
+premultiplied output. SceneKit's public SDK headers do not expose a
+`KHR_materials_transmission` equivalent material field, but they do expose
+transparent material/blend controls, shader-surface `view`, `normal`,
+`transparent`, and `fresnel` fields, and clearcoat surface fields. SceneKit is
+therefore useful as a public surface-shader reference, not as a native
+transmission backend.
+
+`assets/materials/fsviewer_transmission.fmat` now derives normal-incidence
+reflectance from IOR, computes a `TransmissionViewFresnel` term, reduces
+transmitted background energy by that Fresnel term, applies
+`BeerLambertAttenuation` as `attenuationColor^(thickness /
+attenuationDistance)`, and writes premultiplied RGB through
+`PremultipliedTransmissionColor`. This remains bounded screen-space glass, not
+path-traced volume transport or order-independent transparency.
+
+Focused verification ran:
+
+```sh
+flutter test test/flutter_scene_material_extension_backend_test.dart --plain-name "separates Fresnel"
+```
+
+Result: the first non-escalated run failed because Flutter tried to write SDK
+cache files outside the workspace. The escalated red run failed as expected
+because the transmission shader did not yet contain the Fresnel/absorption
+helpers. After the shader update, the focused test passed.

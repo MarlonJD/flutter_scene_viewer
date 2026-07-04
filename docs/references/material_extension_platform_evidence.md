@@ -4,7 +4,7 @@
 
 | Target | Flutter renderer | Glass shader load | Glass visual matrix | Clearcoat shader load | Clearcoat visual matrix | Real-asset status | Status | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| iOS Simulator | Impeller + Flutter GPU | verified locally | verified locally | verified locally | verified locally | candidate-only | candidate-only, production support not advertised | Primary 011 target evidence ran on the `iPhone 17` iOS Simulator through a temporary `integration_test` app that depends on this package by path. Fixture evidence and ToyCar real-asset evidence exist, but package-local production support is still not advertised. |
+| iOS Simulator | Impeller + Flutter GPU | verified locally | verified locally | verified locally | verified locally | verified locally | production for `flutterSceneCustomShader` scope | Primary 011 target evidence ran on the `iPhone 17` iOS Simulator through a temporary `integration_test` app that depends on this package by path. Fixture evidence, ToyCar real-asset evidence, and Task 012 acceptance metrics support the repo-owned custom shader production path. |
 
 ## Deferred Targets
 
@@ -34,9 +34,9 @@ flutter drive -d 10C2CF77-CBA8-4948-ADD5-24C49D375059 --driver=test_driver/ios_m
 
 Result: passed on the `iPhone 17` iOS Simulator for the glass and synthetic
 clearcoat visual matrices. Follow-up ToyCar evidence passed on the same
-simulator with authored glass and clearcoat in one real GLB. This is evidence
-for candidate behavior only; package-local production support is not
-advertised.
+simulator with authored glass and clearcoat in one real GLB. Task 012 accepts
+this repo-owned custom shader path for production on the verified iOS
+Simulator scope; physical iOS and other platforms remain not run.
 
 Artifacts:
 
@@ -60,7 +60,8 @@ Recorded metrics:
 ```json
 {
   "target": "iOS Simulator",
-  "status": "candidate-only",
+  "backendKind": "flutterSceneCustomShader",
+  "status": "verified locally",
   "platform": "iOS",
   "glass": {
     "transmission0Spread": 14,
@@ -71,11 +72,12 @@ Recorded metrics:
     "zeroHighlight": 242,
     "fullHighlight": 254,
     "smoothPeak": 254,
-    "roughPeak": 250
+    "roughPeak": 250,
+    "baseMaterialPreserved": true
   },
   "realModelClearcoat": {
     "fixture": "DamagedHelmet",
-    "status": "candidate-only",
+    "status": "historical candidate-only",
     "fullFrameMeanAbsoluteDelta": 6.942640817901235,
     "colorRegionSpread": 220,
     "clearcoatRegionHighlight": 235,
@@ -83,13 +85,13 @@ Recorded metrics:
   },
   "realModelGlassAndClearcoat": {
     "fixture": "ToyCar",
-    "status": "candidate-only",
+    "status": "verified locally",
     "sourceAuthoredClearcoatExtension": true,
     "sourceAuthoredTransmissionExtension": true,
     "fullFrameMeanAbsoluteDelta": 0.8378311471193416,
     "colorRegionSpread": 249,
     "highlight": 248,
-    "note": "The follow-up iOS Simulator run preserves the ToyCar source PBR body material, adds a clearcoat overlay primitive, and applies the glass shader to the authored Glass node. This improves real-asset visual quality but remains candidate-only."
+    "note": "The follow-up iOS Simulator run preserves the ToyCar source PBR body material, adds a clearcoat overlay primitive, and applies the glass shader to the authored Glass node. Task 012 treats this as production evidence for the repo-owned custom shader path on the verified iOS Simulator scope."
   }
 }
 ```

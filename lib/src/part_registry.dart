@@ -43,7 +43,17 @@ final class PartTree {
     if (_ambiguousAddresses.contains(address)) {
       return null;
     }
-    return _recordsByAddress[address];
+    final direct = _recordsByAddress[address];
+    if (direct != null) {
+      return direct;
+    }
+    final suffixMatches = <PartRecord>[
+      for (final record in _recordsByAddress.values)
+        if (record.primitiveIndex == address.primitiveIndex &&
+            _pathEndsWith(record.nodePath, address.nodePath))
+          record,
+    ];
+    return suffixMatches.length == 1 ? suffixMatches.single : null;
   }
 
   bool isAmbiguous(PartAddress address) =>
@@ -61,6 +71,19 @@ final class PartTree {
     }
     return Map<PartAddress, PartRecord>.unmodifiable(recordsByAddress);
   }
+}
+
+bool _pathEndsWith(List<String> path, List<String> suffix) {
+  if (suffix.isEmpty || suffix.length > path.length) {
+    return false;
+  }
+  final offset = path.length - suffix.length;
+  for (var index = 0; index < suffix.length; index += 1) {
+    if (path[offset + index] != suffix[index]) {
+      return false;
+    }
+  }
+  return true;
 }
 
 /// A scene node in the preserved assembly hierarchy.

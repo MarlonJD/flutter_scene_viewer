@@ -1,8 +1,11 @@
 import 'package:flutter_scene/scene.dart' as flutter_scene;
+import 'package:flutter_scene/src/gpu/gpu.dart' as flutter_scene_internal_gpu;
 import 'package:flutter_scene_viewer/flutter_scene_viewer.dart';
 import 'package:flutter_scene_viewer/src/internal/flutter_scene_adapter.dart';
+import 'package:flutter_scene_viewer/src/internal/flutter_scene_material_extension_backend.dart';
 import 'package:flutter_scene_viewer/src/internal/material_extension_native_capability.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:vector_math/vector_math.dart' as vm;
 
 void main() {
   test('adapter maps public alpha modes to flutter_scene alpha modes', () {
@@ -83,7 +86,7 @@ void main() {
     );
   });
 
-  test('production support is not advertised without backend preflight', () {
+  test('production support waits for backend preflight', () {
     expect(
       debugUsesMaterialExtensionBackendFor(
         const ViewerMaterialExtensionPolicy.productionShaders(),
@@ -93,9 +96,8 @@ void main() {
     );
   });
 
-  test('adapter resolves production support from renderer native capability',
-      () {
-    final unsupported = debugResolveProductionMaterialExtensionSupport(
+  test('adapter resolves production support from custom shader preflight', () {
+    final candidate = debugResolveProductionMaterialExtensionSupport(
       const NativeMaterialExtensionCapability(
         support: MaterialExtensionSupport(
           transmission: true,
@@ -106,7 +108,21 @@ void main() {
         ),
       ),
     );
-    final supported = debugResolveProductionMaterialExtensionSupport(
+    final customShader = debugResolveProductionMaterialExtensionSupport(
+      const NativeMaterialExtensionCapability(
+        support: MaterialExtensionSupport.unsupported,
+      ),
+      const MaterialExtensionPreflightResult(
+        support: MaterialExtensionSupport(
+          transmission: true,
+          ior: true,
+          volume: true,
+          clearcoat: true,
+          backendKind: MaterialExtensionBackendKind.flutterSceneCustomShader,
+        ),
+      ),
+    );
+    final native = debugResolveProductionMaterialExtensionSupport(
       const NativeMaterialExtensionCapability(
         support: MaterialExtensionSupport(
           transmission: true,
@@ -118,11 +134,41 @@ void main() {
       ),
     );
 
-    expect(unsupported, MaterialExtensionSupport.unsupported);
-    expect(supported.productionReady, isTrue);
+    expect(candidate, MaterialExtensionSupport.unsupported);
+    expect(customShader.productionReady, isTrue);
     expect(
-      supported.backendKind,
+      customShader.backendKind,
+      MaterialExtensionBackendKind.flutterSceneCustomShader,
+    );
+    expect(native.productionReady, isTrue);
+    expect(
+      native.backendKind,
       MaterialExtensionBackendKind.rendererNative,
+    );
+  });
+
+  test('production custom shader support uses package local backend', () {
+    const policy = ViewerMaterialExtensionPolicy.productionShaders();
+    const patch = MaterialPatch(transmission: 1.0, ior: 1.45);
+    const support = MaterialExtensionSupport(
+      transmission: true,
+      ior: true,
+      volume: true,
+      clearcoat: true,
+      backendKind: MaterialExtensionBackendKind.flutterSceneCustomShader,
+    );
+
+    expect(
+      debugUsesMaterialExtensionBackendFor(policy, patch, support: support),
+      isTrue,
+    );
+    expect(
+      debugUsesNativeMaterialExtensionApplierFor(
+        policy,
+        patch,
+        support: support,
+      ),
+      isFalse,
     );
   });
 
@@ -164,4 +210,57 @@ void main() {
     expect(diagnostic.details['primitiveCount'], 2);
     expect(diagnostic.details['primitiveIndex'], 0);
   });
+
+  test('adapter resolves GLB node paths below a synthetic runtime root', () {
+    final material = flutter_scene.ShaderMaterial();
+    final sphere = flutter_scene.Node(
+      name: 'Sphere',
+      mesh: flutter_scene.Mesh(_StubGeometry(), material),
+    );
+    final root = flutter_scene.Node(name: 'Scene')..children.add(sphere);
+
+    expect(
+      debugCanResolvePartAddress(
+        root,
+        PartAddress(
+          nodePath: <String>['Sphere'],
+          primitiveIndex: 0,
+        ),
+      ),
+      isTrue,
+    );
+
+    final matchingWrapper = flutter_scene.Node(name: 'Sphere')
+      ..children.add(
+        flutter_scene.Node(
+          name: 'Sphere',
+          mesh: flutter_scene.Mesh(_StubGeometry(), material),
+        ),
+      );
+
+    expect(
+      debugCanResolvePartAddress(
+        matchingWrapper,
+        PartAddress(
+          nodePath: <String>['Sphere'],
+          primitiveIndex: 0,
+        ),
+      ),
+      isTrue,
+    );
+  });
+}
+
+final class _StubGeometry extends flutter_scene.Geometry {
+  @override
+  void bind(
+    flutter_scene_internal_gpu.RenderPass pass,
+    flutter_scene_internal_gpu.HostBuffer transientsBuffer,
+    vm.Matrix4 modelTransform,
+    vm.Matrix4 cameraTransform,
+    vm.Vector3 cameraPosition, {
+    flutter_scene_internal_gpu.Shader? shaderOverride,
+  }) {
+    throw UnsupportedError('Stub geometry is not renderable.');
+  }
 }

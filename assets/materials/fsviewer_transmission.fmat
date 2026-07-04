@@ -46,6 +46,78 @@ fragment {
     return mix(center, filtered, roughness);
   }
 
+  float IorReflectance(float ior) {
+    float ratio = (ior - 1.0) / (ior + 1.0);
+    return ratio * ratio;
+  }
+
+  float TransmissionViewFresnel(vec3 normal, vec3 view_direction, float ior) {
+    float n_dot_v = clamp(dot(normal, view_direction), 0.0, 1.0);
+    float f0 = IorReflectance(ior);
+    return f0 + (1.0 - f0) * pow(1.0 - n_dot_v, 5.0);
+  }
+
+  vec3 BeerLambertAttenuation(vec3 attenuation_color, float thickness,
+                              float attenuation_distance) {
+    if (thickness <= 0.0 || attenuation_distance <= 0.0) {
+      return vec3(1.0);
+    }
+    vec3 safe_color = clamp(attenuation_color, vec3(0.001), vec3(1.0));
+    return pow(safe_color, vec3(thickness / attenuation_distance));
+  }
+
+  float TransmissionContourResponse(vec3 normal, vec3 view_direction,
+                                    float fresnel) {
+    float n_dot_v = clamp(dot(normal, view_direction), 0.0, 1.0);
+    float silhouette = smoothstep(0.18, 0.86, 1.0 - n_dot_v);
+    float fresnel_edge = smoothstep(0.03, 0.28, fresnel);
+    return clamp(max(silhouette, fresnel_edge), 0.0, 1.0);
+  }
+
+  vec4 TransmissionMaterialColor(vec3 color, float alpha) {
+    return vec4(color, alpha);
+  }
+
+  vec3 TransmissionSourceDetail(vec3 base_color, vec3 absorption,
+                                float rim_response) {
+    vec3 source_detail = base_color * mix(absorption, vec3(1.0), 0.42);
+    vec3 rim_detail =
+        source_detail * (0.64 + rim_response * 0.26) +
+        vec3(0.24, 0.30, 0.18) * rim_response;
+    return mix(source_detail, rim_detail, rim_response);
+  }
+
+  vec3 TransmissionGlassContour(vec3 color, vec3 source_detail,
+                                vec3 absorption, float contour_response,
+                                float rim_response) {
+    vec3 dense_edge =
+        source_detail * mix(vec3(0.86), absorption * 0.82, contour_response);
+    vec3 rim_highlight = vec3(0.16, 0.24, 0.12) * rim_response;
+    return mix(color, dense_edge + rim_highlight,
+               clamp(contour_response * 0.58 + rim_response * 0.24, 0.0,
+                     0.82));
+  }
+
+  vec3 TransmissionSpecularCue(vec3 normal, vec3 view_direction,
+                               float transmission, float roughness,
+                               float contour_response) {
+    vec3 key_direction = normalize(vec3(-0.42, 0.55, 0.72));
+    vec3 fill_direction = normalize(vec3(0.48, 0.24, 0.84));
+    vec3 key_half = normalize(key_direction + view_direction);
+    vec3 fill_half = normalize(fill_direction + view_direction);
+    float key_exponent = mix(160.0, 36.0, roughness);
+    float fill_exponent = mix(96.0, 22.0, roughness);
+    float key_glint =
+        pow(max(dot(normal, key_half), 0.0), key_exponent) *
+        mix(0.72, 0.24, roughness);
+    float fill_glint =
+        pow(max(dot(normal, fill_half), 0.0), fill_exponent) *
+        mix(0.34, 0.12, roughness);
+    float rim_glint = contour_response * mix(0.10, 0.04, roughness);
+    return vec3(0.92, 1.0, 0.78) * transmission *
+           (key_glint + fill_glint + rim_glint);
+  }
+
   void Surface(inout MaterialInputs material) {
     vec4 base_color = texture(baseColorTexture, v_texture_coords) * material_params.baseColorFactor;
     float transmission = clamp(material_params.transmissionIorThicknessRoughness.x * texture(transmissionTexture, v_texture_coords).r, 0.0, 1.0);
@@ -57,22 +129,54 @@ fragment {
 
     vec2 screen_uv = clamp(gl_FragCoord.xy * inverse_viewport, vec2(0.001), vec2(0.999));
     vec3 world_normal = normalize(v_normal);
+    vec3 view_direction = normalize(v_viewvector);
     vec3 tangent_normal = texture(normalTexture, v_texture_coords).xyz * 2.0 - 1.0;
     vec2 normal_offset = world_normal.xy + tangent_normal.xy * normal_scale;
     vec2 refraction_offset = normal_offset * transmission * (ior - 1.0) * (0.035 + thickness * 0.06);
+    vec3 glass_normal =
+        normalize(world_normal + vec3(tangent_normal.xy * normal_scale, 0.0));
+    float glass_fresnel =
+        TransmissionViewFresnel(glass_normal, view_direction, ior);
+    float transmitted_energy = transmission * (1.0 - glass_fresnel);
+    float surface_reflection = transmission * glass_fresnel;
+    float contour_response =
+        TransmissionContourResponse(glass_normal, view_direction,
+                                    glass_fresnel);
+    float rim_response =
+        max(smoothstep(0.03, 0.28, glass_fresnel),
+            contour_response * 0.62);
     vec3 background = RoughTransmissionBackground(
         screen_uv, refraction_offset, roughness, inverse_viewport);
 
     vec3 attenuation_color = material_params.attenuationColorDistance.rgb;
     float attenuation_distance = material_params.attenuationColorDistance.a;
-    float attenuation_weight = attenuation_distance > 0.0
-        ? clamp(thickness / attenuation_distance, 0.0, 1.0)
-        : 0.0;
-    vec3 attenuated_background = mix(background, background * attenuation_color, attenuation_weight);
+    vec3 absorption =
+        BeerLambertAttenuation(attenuation_color, thickness,
+                               attenuation_distance);
+    vec3 attenuated_background = background * absorption;
     vec3 refracted = mix(attenuated_background, base_color.rgb, roughness * 0.35);
-    vec3 color = mix(base_color.rgb, refracted, transmission);
-    float alpha = mix(base_color.a, 0.65, transmission);
+    vec3 transmitted_color = mix(base_color.rgb, refracted, transmitted_energy);
+    vec3 reflection_tint = mix(vec3(1.0), base_color.rgb, roughness * 0.2);
+    vec3 color =
+        clamp(transmitted_color + reflection_tint * surface_reflection, 0.0,
+              1.0);
+    vec3 source_detail =
+        TransmissionSourceDetail(base_color.rgb, absorption, rim_response);
+    color = mix(color, source_detail,
+                clamp(transmission * (0.46 + rim_response * 0.34), 0.0,
+                      0.92));
+    color = TransmissionGlassContour(color, source_detail, absorption,
+                                     contour_response, rim_response);
+    color = clamp(color + TransmissionSpecularCue(
+                              glass_normal, view_direction, transmission,
+                              roughness, contour_response),
+                  0.0, 1.0);
+    float alpha =
+        clamp(mix(base_color.a, 0.56 + surface_reflection * 0.42,
+                  transmission) +
+                  contour_response * 0.18 + rim_response * 0.08,
+              0.0, 0.88);
 
-    material.base_color = vec4(color, alpha);
+    material.base_color = TransmissionMaterialColor(color, alpha);
   }
 }

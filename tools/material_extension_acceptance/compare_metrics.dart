@@ -117,9 +117,10 @@ MaterialExtensionAcceptanceMetrics compareMaterialExtensionMetrics({
   required Map<String, Object?> referenceMetrics,
 }) {
   final backendKind = _string(iosEvidence, 'backendKind');
-  if (backendKind != 'rendererNative') {
+  if (backendKind != 'flutterSceneCustomShader') {
     throw StateError(
-      'Native acceptance metrics require rendererNative evidence; found '
+      'Production acceptance metrics require flutterSceneCustomShader '
+      'evidence; found '
       '$backendKind.',
     );
   }
@@ -183,11 +184,12 @@ void _requireDirectionalReference(
   }
   if (transmissionSpreadDelta <= 0 || iorDelta <= 0) {
     throw StateError(
-        'Native glass metrics do not move in reference direction.');
+      'Custom shader glass metrics do not move in reference direction.',
+    );
   }
   if (factorHighlightDelta <= 0 || !roughPeakBelowSmoothPeak) {
     throw StateError(
-      'Native clearcoat metrics do not move in reference direction.',
+      'Custom shader clearcoat metrics do not move in reference direction.',
     );
   }
 }

@@ -35,18 +35,15 @@ persisted. `ViewerMaterialExtensionPolicy.experimentalShaders()` opts into
 candidate transmission, IOR, and volume intent where the attached backend can
 honestly render it. `enableClearcoat` defaults to `false`; setting it to
 `true` opts into the candidate clearcoat shader backend.
-`ViewerMaterialExtensionPolicy.productionShaders()` is a production-intent
-policy, not a promise that package-local shaders are production-ready. It
-requests transmission/glass and clearcoat by default, but the current
-package-local preflight returns candidate-only diagnostics and does not
-advertise production support. Production-ready support requires a
-renderer-native material-extension backend kind with transmission, IOR, volume,
-and clearcoat fields all available. The package-local shader backend is always
-`candidate-only` and cannot report production readiness. The policy does not
-permit fake fallbacks: if a backend cannot render the requested feature, it
-must report `unsupportedMaterialFeature`. In Task 011 the iOS Simulator
-evidence table records local shader-load and visual-matrix evidence, while
-macOS, Android, Web, and physical iOS are not evaluated.
+`ViewerMaterialExtensionPolicy.productionShaders()` opts into the
+repository-owned `flutter_scene` custom shader backend. After shader preflight
+passes, the backend reports `backendKind: flutterSceneCustomShader` and can be
+`productionReady` for the verified target scope. The policy does not permit
+fake fallbacks: if the backend cannot render the requested feature, it must
+report `unsupportedMaterialFeature`. Renderer-native upstream support remains
+a future integration path, not the current production gate. Current evidence is
+verified locally on iOS Simulator; macOS, Android, Web, and physical iOS remain
+deferred/not run.
 
 ```dart
 FlutterSceneViewer(
@@ -276,7 +273,10 @@ only after shader preflight and target support checks pass. Alpha blending or
 base-color alpha alone must not be presented as glass. Texture forms must still
 require authored UV0. The package-local backend has local GPU-gated visual
 matrix evidence, three.js reference trends, and verified local iOS Simulator
-shader-load/visual-matrix evidence. Other targets remain deferred/not run.
+shader-load/visual-matrix evidence. Its shader separates IOR-based Fresnel
+surface reflection from transmitted background energy and applies
+attenuationColor/distance as local absorption, but it still remains a bounded
+screen-space implementation. Other targets remain deferred/not run.
 
 Clearcoat is a v1 release blocker for coated product materials such as car
 paint, varnished wood, and carbon fiber gloss coat. The clearcoat patch fields
@@ -292,8 +292,8 @@ coating lobe for clearcoat factor, clearcoat roughness, clearcoat texture, and
 clearcoat normal inputs. Lowering roughness must not be presented as
 clearcoat. Texture forms must still require authored UV0. The package-local
 backend has verified local iOS Simulator shader-load, synthetic visual-matrix,
-and ToyCar real-asset evidence, but production support is still not advertised.
-Other targets remain deferred/not run.
+ToyCar real-asset evidence, and production acceptance metrics under
+`backendKind: flutterSceneCustomShader`. Other targets remain deferred/not run.
 
 ## Material override persistence
 

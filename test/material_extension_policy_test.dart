@@ -45,7 +45,11 @@ void main() {
     expect(policy.support.ior, isTrue);
     expect(policy.support.volume, isTrue);
     expect(policy.support.clearcoat, isTrue);
-    expect(policy.support.productionReady, isFalse);
+    expect(policy.support.productionReady, isTrue);
+    expect(
+      policy.support.backendKind,
+      MaterialExtensionBackendKind.flutterSceneCustomShader,
+    );
   });
 
   test('candidate shader backend cannot report production ready', () {
@@ -71,6 +75,18 @@ void main() {
       volume: true,
       clearcoat: true,
       backendKind: MaterialExtensionBackendKind.rendererNative,
+    );
+
+    expect(support.productionReady, isTrue);
+  });
+
+  test('flutter_scene custom shader backend can report production ready', () {
+    const support = MaterialExtensionSupport(
+      transmission: true,
+      ior: true,
+      volume: true,
+      clearcoat: true,
+      backendKind: MaterialExtensionBackendKind.flutterSceneCustomShader,
     );
 
     expect(support.productionReady, isTrue);
