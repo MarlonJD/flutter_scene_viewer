@@ -5,7 +5,11 @@ import 'package:http/http.dart' as http;
 
 import 'diagnostics.dart';
 import 'internal/flutter_scene_adapter.dart';
+import 'internal/glb_capability_reader.dart';
+import 'internal/glb_imported_texture_patch_reader.dart';
 import 'internal/glb_material_extension_reader.dart';
+import 'internal/glb_meshopt_rewriter.dart';
+import 'internal/glb_native_decoder_probe.dart';
 import 'material_extension_policy.dart';
 import 'material_patch.dart';
 import 'material_shading_mode.dart';
@@ -18,10 +22,14 @@ final class ModelLoaderOptions {
   const ModelLoaderOptions({
     this.maxBytes = 50 * 1024 * 1024,
     this.timeout = const Duration(seconds: 30),
+    this.decoderCapabilities = const GlbDecoderCapabilities(),
+    this.nativeDecoderProbe = const MethodChannelGlbNativeDecoderProbe(),
   });
 
   final int maxBytes;
   final Duration timeout;
+  final GlbDecoderCapabilities decoderCapabilities;
+  final GlbNativeDecoderProbe nativeDecoderProbe;
 }
 
 /// Result of a model load attempt.
@@ -107,17 +115,144 @@ final class ModelLoader {
       return ModelLoadResult.failure(sizeDiagnostic);
     }
 
-    final authoredExtensionResult = isBinaryGlb(loaded.bytes)
+    final isGlb = isBinaryGlb(loaded.bytes);
+    var importBytes = loaded.bytes;
+    var capabilityResult = isGlb
+        ? readGlbAssetCapabilities(
+            importBytes,
+            debugName: loaded.debugName,
+            decoderCapabilities: options.decoderCapabilities,
+          )
+        : const GlbAssetCapabilityResult();
+    var meshoptRewriteDiagnostics = const <ViewerDiagnostic>[];
+    if (isGlb && capabilityResult.meshoptCompressedBufferViewCount > 0) {
+      final meshoptRewrite = rewriteMeshoptCompressedGlb(
+        importBytes,
+        debugName: loaded.debugName,
+      );
+      meshoptRewriteDiagnostics =
+          meshoptRewrite.diagnostics.toList(growable: false);
+      final rewrittenBytes = meshoptRewrite.bytes;
+      if (rewrittenBytes != null) {
+        importBytes = rewrittenBytes;
+        capabilityResult = readGlbAssetCapabilities(
+          importBytes,
+          debugName: loaded.debugName,
+          decoderCapabilities: options.decoderCapabilities,
+        );
+      } else if (capabilityResult.extensionsRequired.contains(
+        kMeshoptCompressionExtension,
+      )) {
+        final meshoptDiagnostic = _diagnosticForExtension(
+          kMeshoptCompressionExtension,
+          meshoptRewriteDiagnostics,
+        );
+        return ModelLoadResult.failure(
+          meshoptDiagnostic ??
+              _blockingCapabilityDiagnostic(capabilityResult) ??
+              _meshoptRewriteDiagnostic(loaded.debugName),
+          diagnostics: <ViewerDiagnostic>[
+            ...meshoptRewriteDiagnostics,
+            ...capabilityResult.diagnostics,
+          ],
+        );
+      }
+    }
+    var nativeDecoderDiagnostics = const <ViewerDiagnostic>[];
+    if (isGlb && _blockingCapabilityDiagnostic(capabilityResult) != null) {
+      final requiredExtensions = capabilityResult.extensionsRequired;
+      final nativeAvailability =
+          await options.nativeDecoderProbe.checkAvailability(
+        requiredExtensions: requiredExtensions,
+        source: loaded.debugName,
+      );
+      nativeDecoderDiagnostics =
+          nativeAvailability.diagnostics.toList(growable: false);
+      final mergedDecoderCapabilities = options.decoderCapabilities.merge(
+        nativeAvailability.capabilities,
+      );
+      capabilityResult = readGlbAssetCapabilities(
+        importBytes,
+        debugName: loaded.debugName,
+        decoderCapabilities: mergedDecoderCapabilities,
+      );
+      if (_blockingCapabilityDiagnostic(capabilityResult) == null &&
+          _requiresNativeDecode(
+            requiredExtensions,
+            baseCapabilities: options.decoderCapabilities,
+            nativeCapabilities: nativeAvailability.capabilities,
+          )) {
+        final decodeResult = await options.nativeDecoderProbe.decodeGlb(
+          bytes: importBytes,
+          requiredExtensions: requiredExtensions,
+          source: loaded.debugName,
+        );
+        nativeDecoderDiagnostics = <ViewerDiagnostic>[
+          ...nativeDecoderDiagnostics,
+          ...decodeResult.diagnostics,
+        ];
+        final decodedBytes = decodeResult.bytes;
+        if (decodedBytes == null) {
+          return ModelLoadResult.failure(
+            _nativeDecodeDiagnostic(
+              nativeDecoderDiagnostics,
+              loaded.debugName,
+              requiredExtensions,
+            ),
+            diagnostics: nativeDecoderDiagnostics,
+          );
+        }
+        importBytes = decodedBytes;
+        capabilityResult = readGlbAssetCapabilities(
+          importBytes,
+          debugName: loaded.debugName,
+          decoderCapabilities: options.decoderCapabilities,
+        );
+      }
+    }
+    final blockingCapabilityDiagnostic =
+        _blockingCapabilityDiagnostic(capabilityResult);
+    if (blockingCapabilityDiagnostic != null) {
+      final nativeDiagnostic = _nativeDiagnosticFor(
+        blockingCapabilityDiagnostic,
+        nativeDecoderDiagnostics,
+      );
+      return ModelLoadResult.failure(
+        nativeDiagnostic ?? blockingCapabilityDiagnostic,
+        diagnostics: <ViewerDiagnostic>[
+          ...nativeDecoderDiagnostics,
+          ...capabilityResult.diagnostics,
+        ],
+      );
+    }
+    final authoredExtensionResult = isGlb
         ? readGlbMaterialExtensionIntent(
-            loaded.bytes,
+            importBytes,
             debugName: loaded.debugName,
           )
         : GlbMaterialExtensionReaderResult.empty;
+    final importedTexturePatchResult = isGlb
+        ? readGlbImportedTexturePatches(
+            importBytes,
+            debugName: loaded.debugName,
+          )
+        : GlbImportedTexturePatchResult.empty;
+    final authoredMaterialPatches = _mergeMaterialPatchMaps(
+      importedTexturePatchResult.patches,
+      authoredExtensionResult.patches,
+    );
+    final preImportDiagnostics = <ViewerDiagnostic>[
+      ...meshoptRewriteDiagnostics,
+      ...nativeDecoderDiagnostics,
+      ...capabilityResult.diagnostics,
+      ...importedTexturePatchResult.diagnostics,
+      ...authoredExtensionResult.diagnostics,
+    ];
 
     try {
       await adapter
           .loadGlbBytes(
-            loaded.bytes,
+            importBytes,
             debugName: loaded.debugName,
             materialShadingPolicy: materialShadingPolicy,
           )
@@ -129,12 +264,12 @@ final class ModelLoader {
           message: error.message,
           details: <String, Object?>{'source': loaded.debugName},
         ),
-        diagnostics: authoredExtensionResult.diagnostics,
+        diagnostics: preImportDiagnostics,
       );
     } on TimeoutException {
       return ModelLoadResult.failure(
         _timeoutDiagnostic(source),
-        diagnostics: authoredExtensionResult.diagnostics,
+        diagnostics: preImportDiagnostics,
       );
     } on Object catch (error) {
       return ModelLoadResult.failure(
@@ -146,7 +281,7 @@ final class ModelLoader {
             'error': error.toString(),
           },
         ),
-        diagnostics: authoredExtensionResult.diagnostics,
+        diagnostics: preImportDiagnostics,
       );
     }
 
@@ -156,7 +291,7 @@ final class ModelLoader {
     final adapterStats = adapter.modelStats;
     return ModelLoadResult.success(
       diagnostics: <ViewerDiagnostic>[
-        ...authoredExtensionResult.diagnostics,
+        ...preImportDiagnostics,
         ...adapter.collectDiagnostics(),
         ...registry.diagnostics,
       ],
@@ -168,7 +303,7 @@ final class ModelLoader {
       materialCount: adapterStats?.materialCount,
       primitiveCount:
           adapterStats?.primitiveCount ?? fallbackStats?.primitiveCount,
-      authoredMaterialPatches: authoredExtensionResult.patches,
+      authoredMaterialPatches: authoredMaterialPatches,
     );
   }
 
@@ -358,4 +493,127 @@ final class _ModelLoadFailure implements Exception {
   const _ModelLoadFailure(this.diagnostic);
 
   final ViewerDiagnostic diagnostic;
+}
+
+ViewerDiagnostic? _blockingCapabilityDiagnostic(
+  GlbAssetCapabilityResult result,
+) {
+  for (final diagnostic in result.diagnostics) {
+    if (diagnostic.code == ViewerDiagnosticCode.unsupportedModelFeature &&
+        diagnostic.details['required'] == true) {
+      return diagnostic;
+    }
+  }
+  return null;
+}
+
+ViewerDiagnostic? _nativeDiagnosticFor(
+  ViewerDiagnostic blockingDiagnostic,
+  List<ViewerDiagnostic> nativeDiagnostics,
+) {
+  final extension = blockingDiagnostic.details['extension'];
+  return _diagnosticForExtension(extension, nativeDiagnostics);
+}
+
+ViewerDiagnostic? _diagnosticForExtension(
+  Object? extension,
+  List<ViewerDiagnostic> diagnostics,
+) {
+  for (final diagnostic in diagnostics) {
+    if (diagnostic.code == ViewerDiagnosticCode.unsupportedModelFeature &&
+        diagnostic.details['extension'] == extension) {
+      return diagnostic;
+    }
+  }
+  return null;
+}
+
+bool _requiresNativeDecode(
+  Set<String> requiredExtensions, {
+  required GlbDecoderCapabilities baseCapabilities,
+  required GlbDecoderCapabilities nativeCapabilities,
+}) {
+  return (requiredExtensions.contains(kDracoMeshCompressionExtension) &&
+          !baseCapabilities.dracoMeshCompression &&
+          nativeCapabilities.dracoMeshCompression) ||
+      (requiredExtensions.contains(kBasisuTextureExtension) &&
+          !baseCapabilities.textureBasisu &&
+          nativeCapabilities.textureBasisu);
+}
+
+ViewerDiagnostic _nativeDecodeDiagnostic(
+  List<ViewerDiagnostic> diagnostics,
+  String? source,
+  Set<String> requiredExtensions,
+) {
+  for (final diagnostic in diagnostics.reversed) {
+    if (diagnostic.code == ViewerDiagnosticCode.unsupportedModelFeature &&
+        requiredExtensions.contains(diagnostic.details['extension'])) {
+      return diagnostic;
+    }
+  }
+  if (requiredExtensions.contains(kBasisuTextureExtension)) {
+    return ViewerDiagnostic(
+      code: ViewerDiagnosticCode.unsupportedModelFeature,
+      message:
+          'Native BasisU/KTX2 transcoder did not return decoded GLB bytes.',
+      details: <String, Object?>{
+        'source': source,
+        'extension': kBasisuTextureExtension,
+        'decoder': 'basisu',
+        'required': true,
+        'status': 'decodeFailed',
+        'pluginPackage': kBasisuPluginPackageName,
+        'configurationKey': kBasisuInfoPlistKey,
+        'androidManifestKey': kBasisuAndroidManifestKey,
+      },
+    );
+  }
+  return ViewerDiagnostic(
+    code: ViewerDiagnosticCode.unsupportedModelFeature,
+    message: 'Native Draco decoder did not return decoded GLB bytes.',
+    details: <String, Object?>{
+      'source': source,
+      'extension': kDracoMeshCompressionExtension,
+      'decoder': 'draco',
+      'required': true,
+      'status': 'decodeFailed',
+      'pluginPackage': kDracoPluginPackageName,
+      'configurationKey': kDracoInfoPlistKey,
+      'androidManifestKey': kDracoAndroidManifestKey,
+    },
+  );
+}
+
+ViewerDiagnostic _meshoptRewriteDiagnostic(String? source) {
+  return ViewerDiagnostic(
+    code: ViewerDiagnosticCode.unsupportedModelFeature,
+    message: 'Meshopt decoder did not return decoded GLB bytes.',
+    details: <String, Object?>{
+      'source': source,
+      'extension': kMeshoptCompressionExtension,
+      'decoder': 'meshopt',
+      'required': true,
+      'status': 'rewriteFailed',
+    },
+  );
+}
+
+Map<PartAddress, MaterialPatch> _mergeMaterialPatchMaps(
+  Map<PartAddress, MaterialPatch> first,
+  Map<PartAddress, MaterialPatch> second,
+) {
+  if (first.isEmpty) {
+    return second;
+  }
+  if (second.isEmpty) {
+    return first;
+  }
+  final result = <PartAddress, MaterialPatch>{...first};
+  for (final entry in second.entries) {
+    final existing = result[entry.key];
+    result[entry.key] =
+        existing == null ? entry.value : existing.merge(entry.value);
+  }
+  return Map<PartAddress, MaterialPatch>.unmodifiable(result);
 }

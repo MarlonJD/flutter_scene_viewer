@@ -6,7 +6,7 @@ void main(List<String> args) async {
     await buildMaterials(
       buildInput: config,
       buildOutput: output,
-      assetMode: MaterialAssetMode.dataAssetsRequired,
+      assetMode: MaterialAssetMode.dataAssetsIfAvailable,
       materials: const <String>[
         'assets/materials/fsviewer_debug_tint.fmat',
         'assets/materials/fsviewer_transmission.fmat',

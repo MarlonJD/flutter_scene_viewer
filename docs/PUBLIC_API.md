@@ -196,8 +196,17 @@ when a node path is ambiguous.
 Single-file GLB remains the default v1 path. A multi-file `.gltf` resolver is a
 bounded v1 candidate when target assets require external `.bin` and image files.
 That resolver should reuse the loader's timeout, byte-limit, cancellation,
-cache, and diagnostic policies, and should not imply Draco/meshopt/KTX2,
-progressive streaming, or virtual texturing support.
+cache, and diagnostic policies, and should not imply progressive streaming or
+virtual texturing support. Compression support is scoped to the runtime GLB
+pipeline: `EXT_meshopt_compression` is rewritten in Dart for embedded GLB
+bufferViews before adapter import, `KHR_draco_mesh_compression` requires the
+optional sibling decoder plugin, and KTX2 / `KHR_texture_basisu` requires the
+optional `flutter_scene_viewer_basisu` sibling transcoder plugin when a GLB
+contains compressed texture image payloads. The root loader has a
+MethodChannel contract for that optional transcoder and rewrites decoded KTX2
+images back into ordinary GLB image bufferViews before calling
+`flutter_scene`; missing, disabled, unlinked, malformed, oversized, or
+unsupported BasisU paths remain typed diagnostics rather than silent fallback.
 
 ## Material patch
 
@@ -230,6 +239,10 @@ Core patch fields:
 - `clearcoatRoughnessTexture`
 - `clearcoatNormalTexture`
 - `clearcoatNormalScale`
+- `specular`
+- `specularTexture`
+- `specularColorFactor`
+- `specularColorTexture`
 - `visible`
 
 Unsupported fields must be rejected with diagnostics, not silently ignored.
@@ -294,6 +307,17 @@ clearcoat. Texture forms must still require authored UV0. The package-local
 backend has verified local iOS Simulator shader-load, synthetic visual-matrix,
 ToyCar real-asset evidence, and production acceptance metrics under
 `backendKind: flutterSceneCustomShader`. Other targets remain deferred/not run.
+
+Specular fields are serializable request intent for `KHR_materials_specular`.
+With the default diagnostics-only policy, requests using those fields return
+`unsupportedMaterialFeature` diagnostics and are not applied or persisted.
+Authored GLB imports preserve `specularFactor`, `specularTexture`,
+`specularColorFactor`, and `specularColorTexture` as material intent so assets
+such as A1B32 do not collapse silently to ordinary metallic-roughness. Texture
+forms still require authored UV0. The current `flutter_scene` target does not
+expose renderer-native specular extension fields, so production rendering
+support remains deferred until a real backend advertises
+`MaterialExtensionSupport.specular`.
 
 ## Material override persistence
 

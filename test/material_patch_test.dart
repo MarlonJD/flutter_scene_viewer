@@ -169,6 +169,29 @@ void main() {
         contains('KHR_materials_clearcoat'));
   });
 
+  test('MaterialPatch reports specular fields as unsupported by default', () {
+    const patch = MaterialPatch(
+      specular: 0.7,
+      specularColorFactor: <double>[0.2, 0.3, 0.4],
+      specularTexture: TextureSource.asset('assets/specular.png'),
+      specularColorTexture: TextureSource.asset('assets/specular_color.png'),
+    );
+
+    final diagnostics = patch.validate(
+      PartAddress(nodePath: <String>['Root', 'Fabric'], primitiveIndex: 0),
+    );
+
+    expect(diagnostics, hasLength(1));
+    expect(
+      diagnostics.single.code,
+      ViewerDiagnosticCode.unsupportedMaterialFeature,
+    );
+    expect(
+      diagnostics.single.details['extensions'],
+      contains('KHR_materials_specular'),
+    );
+  });
+
   test('MaterialPatch merges clearcoat fields', () {
     const first = MaterialPatch(
       clearcoat: 0.4,
@@ -229,6 +252,11 @@ void main() {
       clearcoatNormalTexture:
           const TextureSource.asset('assets/clearcoat_normal.png'),
       clearcoatNormalScale: 0.7,
+      specular: 0.55,
+      specularTexture: const TextureSource.asset('assets/specular.png'),
+      specularColorFactor: const <double>[0.2, 0.3, 0.4],
+      specularColorTexture:
+          const TextureSource.asset('assets/specular_color.png'),
       visible: false,
     );
 
@@ -267,6 +295,10 @@ void main() {
     expect(roundTripped.clearcoatRoughnessTexture, isA<AssetTextureSource>());
     expect(roundTripped.clearcoatNormalTexture, isA<AssetTextureSource>());
     expect(roundTripped.clearcoatNormalScale, 0.7);
+    expect(roundTripped.specular, 0.55);
+    expect(roundTripped.specularTexture, isA<AssetTextureSource>());
+    expect(roundTripped.specularColorFactor, <double>[0.2, 0.3, 0.4]);
+    expect(roundTripped.specularColorTexture, isA<AssetTextureSource>());
     expect(roundTripped.visible, isFalse);
   });
 

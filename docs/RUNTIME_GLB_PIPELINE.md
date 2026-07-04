@@ -100,13 +100,138 @@ JSON chunk to preserve authored material extension intent that the installed
 `flutter_scene` importer does not expose. This reader verifies the GLB magic,
 version 2 header, declared length, and JSON chunk shape, then maps
 `KHR_materials_transmission`, `KHR_materials_ior`, `KHR_materials_volume`, and
-`KHR_materials_clearcoat` fields to internal `MaterialPatch` intent. Malformed
+`KHR_materials_clearcoat` fields to internal `MaterialPatch` intent. V2 also
+preserves `KHR_materials_specular` scalar, color, and texture intent for
+assets whose renderer cannot yet consume those fields. BufferView-backed GLB
+images referenced by transmission, thickness, clearcoat, clearcoat roughness,
+clearcoat normal, specular, and specular color textureInfo fields are copied
+into the authored patch instead of using placeholder texture bytes. Malformed
 extension values report `invalidMaterialOverride` diagnostics instead of
-throwing. Authored extension texture slots require `TEXCOORD_0`; UV1 is not
-substituted and UVs are never generated. Missing-UV diagnostics name the
-texture slots that triggered the requirement. Duplicate node paths are reported
-as `ambiguousNodePath`, and authored extension intent for that ambiguous
-address is not auto-applied.
+throwing.
+Authored extension texture slots require `TEXCOORD_0`; UV1 is not substituted
+and UVs are never generated. Missing-UV diagnostics name the texture slots that
+triggered the requirement. If an authored extension texture explicitly requests
+a non-zero `textureInfo.texCoord`, the reader reports
+`unsupportedModelFeature` and does not create a runtime patch for that texture,
+because the current adapter override path cannot bind non-UV0 texture
+coordinates. Duplicate node paths are reported as
+`ambiguousNodePath`, and authored extension intent for that ambiguous address
+is not auto-applied.
+
+V2 compression preflight uses the same bounded GLB JSON read before adapter
+import. The reader records `extensionsUsed`, `extensionsRequired`,
+`KHR_draco_mesh_compression` primitive counts, `EXT_meshopt_compression`
+bufferView counts, `KHR_texture_basisu` texture counts, imported texture-slot
+roles, textureInfo UV-set requirements, primitive UV evidence, and material
+extension counts. Missing imported texture UV sets produce `missingUvSet`
+diagnostics with mesh, primitive, material, UV set, and affected texture-slot
+details. If a required decoder is unavailable, the loader returns
+`unsupportedModelFeature` before calling `flutter_scene`, so unsupported
+compressed assets do not silently become placeholder or partially imported
+geometry. Unsupported compression extensions listed only in `extensionsUsed`
+emit the same diagnostic shape with `required: false`; these diagnostics are
+reported on successful loads when the GLB still has a valid fallback path.
+
+`EXT_meshopt_compression` is handled in Dart before adapter import for
+single-file GLB assets whose compressed data is stored in the embedded BIN
+buffer. The decoder covers the glTF meshopt modes `ATTRIBUTES`, `TRIANGLES`,
+and `INDICES`, and the `NONE`, `OCTAHEDRAL`, `QUATERNION`, and `EXPONENTIAL`
+post-decode filters. The loader expands each compressed bufferView into
+standard BIN bytes, updates the parent bufferView to point at the decoded data,
+removes bufferView and top-level `EXT_meshopt_compression` declarations once no
+compressed bufferViews remain, drops unreferenced fallback buffers when all
+remaining bufferViews reference `buffers[0]`, and re-runs capability preflight
+before calling `flutter_scene`. Malformed meshopt metadata, unsupported mode or
+filter names, compressed data stored in non-embedded/external buffers, and
+decoder failures return `unsupportedModelFeature` rewrite diagnostics. Required
+meshopt assets fail before adapter import if rewrite is impossible; optional
+meshopt assets may continue only when the original GLB still has a valid
+fallback path and the diagnostic remains non-blocking.
+
+For imported core material textures, V2 also reads GLB binary image
+bufferViews and returns authored texture patches keyed by `PartAddress`. The
+controller applies those patches immediately after adapter import, without
+persisting them as user overrides. This deliberately routes imported
+base-color/emissive maps through the color texture path, normal maps through
+the normal texture path, and metallic-roughness/occlusion maps through the data
+texture path, using the existing `flutter_scene` `TextureContent`-aware mipmap
+pipeline. Authored material extension texture bytes flow through the same
+patch mechanism, with transmission, thickness, clearcoat factor, clearcoat
+roughness, and specular factor as data textures; clearcoat normal as a normal
+texture; and specular color as preserved specular intent. Imported texture
+patches are created only for `textureInfo.texCoord` 0. Non-zero texCoord values
+produce diagnostics instead of being applied through the UV0 override path.
+External image URIs remain resolver work. GLB-embedded compressed KTX2/BasisU
+images use the optional native BasisU path described below; when that path is
+missing, disabled, or unable to transcode the payload, the loader reports
+diagnostics instead of silently treating compressed data as ordinary color
+textures. For GLB-embedded KTX2 images, those diagnostics include bounded
+container header details such as `vkFormat`, mip `levelCount`, and
+`supercompression` when the image bufferView is available, plus a `reason` and
+`nextStep` naming the missing or failed Khronos Basis Universal ETC1S/UASTC
+transcode path. The installed `flutter_scene` KTX2 utilities are for its own
+`universal/1` block payload and do not make glTF `KHR_texture_basisu`
+renderable by themselves.
+
+The root package now has the same optional-decoder shape for BasisU/KTX2 that
+Draco uses: apps may add the sibling `flutter_scene_viewer_basisu` native
+transcoder plugin without turning the main viewer package into a platform
+plugin. When the plugin advertises `textureBasisu`, the loader sends a
+`basisuImages` manifest containing the texture index, image index, image
+bufferView bytes, MIME type, and URI metadata to the native channel before
+adapter import. The plugin vendors Basis Universal plus Zstd, transcodes
+supported GLB-embedded KTX2 payloads to RGBA32, encodes them as standard PNG,
+and returns structured `decodedImages` entries with `imageIndex`, decoded PNG
+bytes, and MIME type. Root Dart owns the GLB rewrite: it appends decoded
+images as ordinary GLB image bufferViews, rewrites
+`textures[*].extensions.KHR_texture_basisu.source` into normal `source`
+references, removes top-level `KHR_texture_basisu` declarations when no
+compressed texture references remain, and re-runs preflight before calling
+`flutter_scene`. If the plugin is absent, disabled, unlinked, receives
+malformed input, or sees an unsupported KTX2 layout, the loader keeps the
+blocking diagnostic path.
+
+Draco native decoding is intentionally optional. The root package remains a
+pure Dart package; apps that need `KHR_draco_mesh_compression` add the sibling
+`packages/flutter_scene_viewer_draco` plugin. The plugin is enabled per app
+with `FlutterSceneViewerDracoEnabled` in iOS `Info.plist` or
+`flutter_scene_viewer_draco_enabled` Android manifest metadata. When the plugin
+is missing, disabled, or built without the C++ Draco decoder linked, the loader
+reports an actionable `unsupportedModelFeature` diagnostic naming the plugin
+package, platform configuration key, extension, decoder, and status. The
+optional sibling plugin vendors Google Draco 1.5.7 and links a decoder-only
+source set through Android CMake and the iOS podspec; the Android NDK/CMake and
+iOS ObjC++/C++ requirements are therefore carried only by the optional sibling
+plugin, not by the main viewer package. iOS has a candidate bridge that maps
+the `dracoPrimitives` manifest through Google Draco into `decodedPrimitives`;
+local CocoaPods/Xcode iOS Simulator build verification now covers A1B32
+rendering through that path. Android has the matching C++ primitive decode
+bridge plus JNI result marshaling to MethodChannel `decodedPrimitives`; Android
+NDK/SDK native app build verification is still pending.
+When native Draco support is available,
+the loader calls
+the plugin `decodeGlb` MethodChannel
+method before adapter import. The call includes a `dracoPrimitives` manifest
+so native code does not need a full glTF JSON parser: each entry carries the
+mesh index, primitive index, compressed bufferView bytes, Draco attribute-id
+mapping, and target accessor schema for every attribute and optional index
+accessor. The method may return already rewritten importer-ready GLB `bytes`,
+or structured `decodedPrimitives` payloads containing mesh index, primitive
+index, decoded attribute byte arrays, and optional decoded index bytes.
+Structured primitive payloads are rewritten in Dart by appending GLB
+bufferViews, binding the existing glTF accessors, removing primitive
+`KHR_draco_mesh_compression` entries, and dropping the top-level Draco
+required/used extension only after no compressed primitives remain. The Dart
+rewrite requires native output to include every compressed attribute declared
+by the Draco extension plus decoded index bytes when the primitive references
+an index accessor. Decoded attribute and index payload sizes are checked
+against the referenced accessor `componentType`, `type`, and `count`; missing
+payloads or size mismatches produce `unsupportedModelFeature` rewrite
+diagnostics instead of binding corrupt or partial geometry. The loader then
+re-runs capability preflight on the rewritten GLB bytes. The adapter only
+receives importer-ready GLB; if the decode method returns diagnostics or leaves
+required compression in the GLB, loading fails loudly instead of passing
+compressed geometry into `flutter_scene`.
 
 After a successful load, authored extension patches are applied through the
 same controller validation and adapter diagnostic path as runtime material

@@ -5,6 +5,7 @@ enum ViewerDiagnosticCode {
   primitiveNotFound,
   unsupportedMaterialFeature,
   invalidMaterialOverride,
+  unsupportedModelFeature,
   modelTooLarge,
   textureTooLarge,
   invalidModelUrl,

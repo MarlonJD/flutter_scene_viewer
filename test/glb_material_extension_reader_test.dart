@@ -4,12 +4,17 @@ import 'dart:typed_data';
 import 'package:flutter_scene_viewer/src/diagnostics.dart';
 import 'package:flutter_scene_viewer/src/internal/glb_material_extension_reader.dart';
 import 'package:flutter_scene_viewer/src/part_address.dart';
+import 'package:flutter_scene_viewer/src/texture_source.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test('reads authored transmission glass extensions from binary GLB JSON', () {
+    final textureBytes = <Uint8List>[
+      Uint8List.fromList(<int>[21, 22]),
+      Uint8List.fromList(<int>[23, 24]),
+    ];
     final result = readGlbMaterialExtensionIntent(
-      _glb(<String, Object?>{
+      _glbWithBin(<String, Object?>{
         'asset': <String, Object?>{'version': '2.0'},
         'scene': 0,
         'scenes': <Object?>[
@@ -38,19 +43,48 @@ void main() {
             'extensions': <String, Object?>{
               'KHR_materials_transmission': <String, Object?>{
                 'transmissionFactor': 0.75,
-                'transmissionTexture': <String, Object?>{'index': 2},
+                'transmissionTexture': <String, Object?>{'index': 0},
               },
               'KHR_materials_ior': <String, Object?>{'ior': 1.45},
               'KHR_materials_volume': <String, Object?>{
                 'thicknessFactor': 0.02,
-                'thicknessTexture': <String, Object?>{'index': 3},
+                'thicknessTexture': <String, Object?>{'index': 1},
                 'attenuationColor': <Object?>[0.8, 0.95, 1.0],
                 'attenuationDistance': 4.0,
               },
             },
           },
         ],
-      }),
+        'textures': <Object?>[
+          for (var index = 0; index < textureBytes.length; index += 1)
+            <String, Object?>{'source': index},
+        ],
+        'images': <Object?>[
+          for (var index = 0; index < textureBytes.length; index += 1)
+            <String, Object?>{
+              'mimeType': 'image/png',
+              'bufferView': index,
+            },
+        ],
+        'bufferViews': <Object?>[
+          for (var index = 0, offset = 0;
+              index < textureBytes.length;
+              offset += textureBytes[index].length, index += 1)
+            <String, Object?>{
+              'buffer': 0,
+              'byteOffset': offset,
+              'byteLength': textureBytes[index].length,
+            },
+        ],
+        'buffers': <Object?>[
+          <String, Object?>{
+            'byteLength': textureBytes.fold<int>(
+              0,
+              (sum, bytes) => sum + bytes.length,
+            ),
+          },
+        ],
+      }, textureBytes),
       debugName: 'glass.glb',
     );
 
@@ -62,12 +96,371 @@ void main() {
 
     expect(result.diagnostics, isEmpty);
     expect(patch.transmission, 0.75);
-    expect(patch.transmissionTexture, isNotNull);
+    expect(
+      (patch.transmissionTexture! as BytesTextureSource).encodedBytes,
+      textureBytes[0],
+    );
     expect(patch.ior, 1.45);
     expect(patch.thickness, 0.02);
-    expect(patch.thicknessTexture, isNotNull);
+    expect(
+      (patch.thicknessTexture! as BytesTextureSource).encodedBytes,
+      textureBytes[1],
+    );
     expect(patch.attenuationColor, <double>[0.8, 0.95, 1.0]);
     expect(patch.attenuationDistance, 4.0);
+  });
+
+  test('reads authored specular and IOR extensions from binary GLB JSON', () {
+    final result = readGlbMaterialExtensionIntent(
+      _glb(<String, Object?>{
+        'asset': <String, Object?>{'version': '2.0'},
+        'scene': 0,
+        'scenes': <Object?>[
+          <String, Object?>{
+            'nodes': <Object?>[0],
+          },
+        ],
+        'nodes': <Object?>[
+          <String, Object?>{'name': 'A1B32', 'mesh': 0},
+        ],
+        'meshes': <Object?>[
+          <String, Object?>{
+            'primitives': <Object?>[
+              <String, Object?>{
+                'attributes': <String, Object?>{
+                  'POSITION': 0,
+                  'NORMAL': 1,
+                  'TEXCOORD_0': 2,
+                },
+                'material': 0,
+              },
+            ],
+          },
+        ],
+        'materials': <Object?>[
+          <String, Object?>{
+            'extensions': <String, Object?>{
+              'KHR_materials_specular': <String, Object?>{
+                'specularFactor': 0.6,
+                'specularColorFactor': <Object?>[0.18, 0.19, 0.2],
+              },
+              'KHR_materials_ior': <String, Object?>{'ior': 1.45},
+            },
+          },
+        ],
+      }),
+      debugName: 'a1b32-style.glb',
+    );
+
+    final address = PartAddress(
+      nodePath: <String>['A1B32'],
+      primitiveIndex: 0,
+    );
+    final patch = result.patches[address]!;
+
+    expect(result.diagnostics, isEmpty);
+    expect(patch.specular, 0.6);
+    expect(patch.specularColorFactor, <double>[0.18, 0.19, 0.2]);
+    expect(patch.ior, 1.45);
+  });
+
+  test('reads authored extension texture bytes from GLB image bufferViews', () {
+    final textureBytes = <Uint8List>[
+      Uint8List.fromList(<int>[1, 2]),
+      Uint8List.fromList(<int>[3, 4, 5]),
+      Uint8List.fromList(<int>[6]),
+      Uint8List.fromList(<int>[7, 8]),
+      Uint8List.fromList(<int>[9, 10, 11]),
+      Uint8List.fromList(<int>[12]),
+      Uint8List.fromList(<int>[13, 14]),
+    ];
+    final result = readGlbMaterialExtensionIntent(
+      _glbWithBin(
+        <String, Object?>{
+          'asset': <String, Object?>{'version': '2.0'},
+          'scene': 0,
+          'scenes': <Object?>[
+            <String, Object?>{
+              'nodes': <Object?>[0],
+            },
+          ],
+          'nodes': <Object?>[
+            <String, Object?>{'name': 'CoatedGlass', 'mesh': 0},
+          ],
+          'meshes': <Object?>[
+            <String, Object?>{
+              'primitives': <Object?>[
+                <String, Object?>{
+                  'attributes': <String, Object?>{
+                    'POSITION': 0,
+                    'TEXCOORD_0': 1,
+                  },
+                  'material': 0,
+                },
+              ],
+            },
+          ],
+          'materials': <Object?>[
+            <String, Object?>{
+              'extensions': <String, Object?>{
+                'KHR_materials_transmission': <String, Object?>{
+                  'transmissionTexture': <String, Object?>{'index': 0},
+                },
+                'KHR_materials_volume': <String, Object?>{
+                  'thicknessTexture': <String, Object?>{'index': 1},
+                },
+                'KHR_materials_clearcoat': <String, Object?>{
+                  'clearcoatTexture': <String, Object?>{'index': 2},
+                  'clearcoatRoughnessTexture': <String, Object?>{'index': 3},
+                  'clearcoatNormalTexture': <String, Object?>{
+                    'index': 4,
+                    'scale': 0.25,
+                  },
+                },
+                'KHR_materials_specular': <String, Object?>{
+                  'specularTexture': <String, Object?>{'index': 5},
+                  'specularColorTexture': <String, Object?>{'index': 6},
+                },
+              },
+            },
+          ],
+          'textures': <Object?>[
+            for (var index = 0; index < textureBytes.length; index += 1)
+              <String, Object?>{'source': index},
+          ],
+          'images': <Object?>[
+            for (var index = 0; index < textureBytes.length; index += 1)
+              <String, Object?>{
+                'mimeType': 'image/png',
+                'bufferView': index,
+              },
+          ],
+          'bufferViews': <Object?>[
+            for (var index = 0, offset = 0;
+                index < textureBytes.length;
+                offset += textureBytes[index].length, index += 1)
+              <String, Object?>{
+                'buffer': 0,
+                'byteOffset': offset,
+                'byteLength': textureBytes[index].length,
+              },
+          ],
+          'buffers': <Object?>[
+            <String, Object?>{
+              'byteLength': textureBytes.fold<int>(
+                0,
+                (sum, bytes) => sum + bytes.length,
+              ),
+            },
+          ],
+        },
+        textureBytes,
+      ),
+      debugName: 'extension-textures.glb',
+    );
+
+    final patch = result.patches[PartAddress(
+      nodePath: <String>['CoatedGlass'],
+      primitiveIndex: 0,
+    )]!;
+
+    expect(result.diagnostics, isEmpty);
+    expect(
+      (patch.transmissionTexture! as BytesTextureSource).encodedBytes,
+      textureBytes[0],
+    );
+    expect(
+      (patch.thicknessTexture! as BytesTextureSource).encodedBytes,
+      textureBytes[1],
+    );
+    expect(
+      (patch.clearcoatTexture! as BytesTextureSource).encodedBytes,
+      textureBytes[2],
+    );
+    expect(
+      (patch.clearcoatRoughnessTexture! as BytesTextureSource).encodedBytes,
+      textureBytes[3],
+    );
+    expect(
+      (patch.clearcoatNormalTexture! as BytesTextureSource).encodedBytes,
+      textureBytes[4],
+    );
+    expect(patch.clearcoatNormalScale, 0.25);
+    expect(
+      (patch.specularTexture! as BytesTextureSource).encodedBytes,
+      textureBytes[5],
+    );
+    expect(
+      (patch.specularColorTexture! as BytesTextureSource).encodedBytes,
+      textureBytes[6],
+    );
+  });
+
+  test('reports BasisU extension texture sources as unsupported', () {
+    final result = readGlbMaterialExtensionIntent(
+      _glbWithBin(
+        <String, Object?>{
+          'asset': <String, Object?>{'version': '2.0'},
+          'scene': 0,
+          'scenes': <Object?>[
+            <String, Object?>{
+              'nodes': <Object?>[0],
+            },
+          ],
+          'nodes': <Object?>[
+            <String, Object?>{'name': 'GlassPanel', 'mesh': 0},
+          ],
+          'meshes': <Object?>[
+            <String, Object?>{
+              'primitives': <Object?>[
+                <String, Object?>{
+                  'attributes': <String, Object?>{
+                    'POSITION': 0,
+                    'TEXCOORD_0': 1,
+                  },
+                  'material': 0,
+                },
+              ],
+            },
+          ],
+          'materials': <Object?>[
+            <String, Object?>{
+              'extensions': <String, Object?>{
+                'KHR_materials_transmission': <String, Object?>{
+                  'transmissionTexture': <String, Object?>{'index': 0},
+                },
+              },
+            },
+          ],
+          'textures': <Object?>[
+            <String, Object?>{
+              'extensions': <String, Object?>{
+                'KHR_texture_basisu': <String, Object?>{'source': 0},
+              },
+            },
+          ],
+          'images': <Object?>[
+            <String, Object?>{
+              'mimeType': 'image/ktx2',
+              'bufferView': 0,
+            },
+          ],
+          'bufferViews': <Object?>[
+            <String, Object?>{
+              'buffer': 0,
+              'byteLength': _basisuKtx2Header.length,
+            },
+          ],
+          'buffers': <Object?>[
+            <String, Object?>{'byteLength': 4},
+          ],
+        },
+        <Uint8List>[_basisuKtx2Header],
+      ),
+      debugName: 'basisu-extension.glb',
+    );
+
+    expect(result.patches, isEmpty);
+    expect(result.diagnostics, hasLength(1));
+    expect(
+      result.diagnostics.single.code,
+      ViewerDiagnosticCode.unsupportedModelFeature,
+    );
+    expect(
+      result.diagnostics.single.details['requiredExtension'],
+      'KHR_texture_basisu',
+    );
+    expect(
+      result.diagnostics.single.details['status'],
+      'basisuTranscodeUnavailable',
+    );
+    expect(
+      result.diagnostics.single.details['reason'],
+      contains('Basis Universal ETC1S/UASTC transcode support'),
+    );
+    expect(
+      result.diagnostics.single.details['nextStep'],
+      contains('optional BasisU transcoder plugin'),
+    );
+    expect(
+      result.diagnostics.single.details['ktx2'],
+      containsPair('supercompression', 'basisLz'),
+    );
+    expect(
+      result.diagnostics.single.details['ktx2'],
+      containsPair('vkFormat', 0),
+    );
+  });
+
+  test('reports authored extension textures that require non-zero texCoord',
+      () {
+    final result = readGlbMaterialExtensionIntent(
+      _glbWithBin(
+        <String, Object?>{
+          'asset': <String, Object?>{'version': '2.0'},
+          'scene': 0,
+          'scenes': <Object?>[
+            <String, Object?>{
+              'nodes': <Object?>[0],
+            },
+          ],
+          'nodes': <Object?>[
+            <String, Object?>{'name': 'CoatedGlass', 'mesh': 0},
+          ],
+          'meshes': <Object?>[
+            <String, Object?>{
+              'primitives': <Object?>[
+                <String, Object?>{
+                  'attributes': <String, Object?>{
+                    'POSITION': 0,
+                    'TEXCOORD_0': 1,
+                    'TEXCOORD_1': 2,
+                  },
+                  'material': 0,
+                },
+              ],
+            },
+          ],
+          'materials': <Object?>[
+            <String, Object?>{
+              'extensions': <String, Object?>{
+                'KHR_materials_transmission': <String, Object?>{
+                  'transmissionTexture': <String, Object?>{
+                    'index': 0,
+                    'texCoord': 1,
+                  },
+                },
+              },
+            },
+          ],
+          'textures': <Object?>[
+            <String, Object?>{'source': 0},
+          ],
+          'images': <Object?>[
+            <String, Object?>{'mimeType': 'image/png', 'bufferView': 0},
+          ],
+          'bufferViews': <Object?>[
+            <String, Object?>{'buffer': 0, 'byteLength': 3},
+          ],
+          'buffers': <Object?>[
+            <String, Object?>{'byteLength': 3},
+          ],
+        },
+        <Uint8List>[
+          Uint8List.fromList(<int>[1, 2, 3])
+        ],
+      ),
+      debugName: 'extension-texcoord1.glb',
+    );
+
+    expect(result.patches, isEmpty);
+    expect(result.diagnostics, hasLength(1));
+    expect(
+      result.diagnostics.single.code,
+      ViewerDiagnosticCode.unsupportedModelFeature,
+    );
+    expect(result.diagnostics.single.details['field'], 'transmissionTexture');
+    expect(result.diagnostics.single.details['uvSet'], 1);
   });
 
   test('reports malformed extension values as diagnostics', () {
@@ -153,8 +546,11 @@ void main() {
   });
 
   test('reports missing UV0 for texture-bearing authored extensions', () {
+    final textureBytes = <Uint8List>[
+      Uint8List.fromList(<int>[31, 32])
+    ];
     final result = readGlbMaterialExtensionIntent(
-      _glb(<String, Object?>{
+      _glbWithBin(<String, Object?>{
         'asset': <String, Object?>{'version': '2.0'},
         'scene': 0,
         'scenes': <Object?>[
@@ -179,12 +575,27 @@ void main() {
           <String, Object?>{
             'extensions': <String, Object?>{
               'KHR_materials_transmission': <String, Object?>{
-                'transmissionTexture': <String, Object?>{'index': 2},
+                'transmissionTexture': <String, Object?>{'index': 0},
               },
             },
           },
         ],
-      }),
+        'textures': <Object?>[
+          <String, Object?>{'source': 0},
+        ],
+        'images': <Object?>[
+          <String, Object?>{'mimeType': 'image/png', 'bufferView': 0},
+        ],
+        'bufferViews': <Object?>[
+          <String, Object?>{
+            'buffer': 0,
+            'byteLength': textureBytes.single.length,
+          },
+        ],
+        'buffers': <Object?>[
+          <String, Object?>{'byteLength': textureBytes.single.length},
+        ],
+      }, textureBytes),
     );
 
     expect(result.patches, isEmpty);
@@ -194,8 +605,12 @@ void main() {
   });
 
   test('reports texture slots for authored extension UV0 diagnostics', () {
+    final textureBytes = <Uint8List>[
+      for (var index = 0; index < 5; index += 1)
+        Uint8List.fromList(<int>[40 + index]),
+    ];
     final result = readGlbMaterialExtensionIntent(
-      _glb(<String, Object?>{
+      _glbWithBin(<String, Object?>{
         'asset': <String, Object?>{'version': '2.0'},
         'scene': 0,
         'scenes': <Object?>[
@@ -223,20 +638,49 @@ void main() {
           <String, Object?>{
             'extensions': <String, Object?>{
               'KHR_materials_transmission': <String, Object?>{
-                'transmissionTexture': <String, Object?>{'index': 2},
+                'transmissionTexture': <String, Object?>{'index': 0},
               },
               'KHR_materials_volume': <String, Object?>{
-                'thicknessTexture': <String, Object?>{'index': 3},
+                'thicknessTexture': <String, Object?>{'index': 1},
               },
               'KHR_materials_clearcoat': <String, Object?>{
-                'clearcoatTexture': <String, Object?>{'index': 4},
-                'clearcoatRoughnessTexture': <String, Object?>{'index': 5},
-                'clearcoatNormalTexture': <String, Object?>{'index': 6},
+                'clearcoatTexture': <String, Object?>{'index': 2},
+                'clearcoatRoughnessTexture': <String, Object?>{'index': 3},
+                'clearcoatNormalTexture': <String, Object?>{'index': 4},
               },
             },
           },
         ],
-      }),
+        'textures': <Object?>[
+          for (var index = 0; index < textureBytes.length; index += 1)
+            <String, Object?>{'source': index},
+        ],
+        'images': <Object?>[
+          for (var index = 0; index < textureBytes.length; index += 1)
+            <String, Object?>{
+              'mimeType': 'image/png',
+              'bufferView': index,
+            },
+        ],
+        'bufferViews': <Object?>[
+          for (var index = 0, offset = 0;
+              index < textureBytes.length;
+              offset += textureBytes[index].length, index += 1)
+            <String, Object?>{
+              'buffer': 0,
+              'byteOffset': offset,
+              'byteLength': textureBytes[index].length,
+            },
+        ],
+        'buffers': <Object?>[
+          <String, Object?>{
+            'byteLength': textureBytes.fold<int>(
+              0,
+              (sum, bytes) => sum + bytes.length,
+            ),
+          },
+        ],
+      }, textureBytes),
     );
 
     expect(result.patches, isEmpty);
@@ -303,4 +747,78 @@ Uint8List _glb(Map<String, Object?> json) {
   return bytes;
 }
 
+Uint8List _glbWithBin(Map<String, Object?> json, List<Uint8List> chunks) {
+  final jsonBytes = utf8.encode(jsonEncode(json));
+  final paddedJsonLength = _align4(jsonBytes.length);
+  final binLength = chunks.fold<int>(0, (sum, bytes) => sum + bytes.length);
+  final paddedBinLength = _align4(binLength);
+  final totalLength = 12 + 8 + paddedJsonLength + 8 + paddedBinLength;
+  final bytes = Uint8List(totalLength);
+  final data = ByteData.sublistView(bytes);
+  data
+    ..setUint32(0, 0x46546C67, Endian.little)
+    ..setUint32(4, 2, Endian.little)
+    ..setUint32(8, totalLength, Endian.little)
+    ..setUint32(12, paddedJsonLength, Endian.little)
+    ..setUint32(16, 0x4E4F534A, Endian.little);
+  bytes.setRange(20, 20 + jsonBytes.length, jsonBytes);
+  for (var index = 20 + jsonBytes.length;
+      index < 20 + paddedJsonLength;
+      index += 1) {
+    bytes[index] = 0x20;
+  }
+  final binHeaderOffset = 20 + paddedJsonLength;
+  data
+    ..setUint32(binHeaderOffset, paddedBinLength, Endian.little)
+    ..setUint32(binHeaderOffset + 4, 0x004E4942, Endian.little);
+  var binOffset = binHeaderOffset + 8;
+  for (final chunk in chunks) {
+    bytes.setRange(binOffset, binOffset + chunk.length, chunk);
+    binOffset += chunk.length;
+  }
+  return bytes;
+}
+
 int _align4(int value) => (value + 3) & ~3;
+
+final Uint8List _basisuKtx2Header = _ktx2Header(
+  vkFormat: 0,
+  pixelWidth: 4,
+  pixelHeight: 4,
+  levelCount: 1,
+  supercompressionScheme: 1,
+);
+
+Uint8List _ktx2Header({
+  required int vkFormat,
+  required int pixelWidth,
+  required int pixelHeight,
+  required int levelCount,
+  required int supercompressionScheme,
+}) {
+  final bytes = Uint8List(80);
+  final data = ByteData.sublistView(bytes);
+  bytes.setRange(0, 12, const <int>[
+    0xAB,
+    0x4B,
+    0x54,
+    0x58,
+    0x20,
+    0x32,
+    0x30,
+    0xBB,
+    0x0D,
+    0x0A,
+    0x1A,
+    0x0A,
+  ]);
+  data
+    ..setUint32(12, vkFormat, Endian.little)
+    ..setUint32(16, 1, Endian.little)
+    ..setUint32(20, pixelWidth, Endian.little)
+    ..setUint32(24, pixelHeight, Endian.little)
+    ..setUint32(36, 1, Endian.little)
+    ..setUint32(40, levelCount, Endian.little)
+    ..setUint32(44, supercompressionScheme, Endian.little);
+  return bytes;
+}

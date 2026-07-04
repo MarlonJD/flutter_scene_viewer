@@ -24,6 +24,7 @@ final class MaterialExtensionSupport {
     this.ior = false,
     this.volume = false,
     this.clearcoat = false,
+    this.specular = false,
     this.backendKind = MaterialExtensionBackendKind.none,
   });
 
@@ -33,6 +34,7 @@ final class MaterialExtensionSupport {
   final bool ior;
   final bool volume;
   final bool clearcoat;
+  final bool specular;
   final MaterialExtensionBackendKind backendKind;
 
   bool get productionReady =>
@@ -50,12 +52,13 @@ final class MaterialExtensionSupport {
         other.ior == ior &&
         other.volume == volume &&
         other.clearcoat == clearcoat &&
+        other.specular == specular &&
         other.backendKind == backendKind;
   }
 
   @override
   int get hashCode =>
-      Object.hash(transmission, ior, volume, clearcoat, backendKind);
+      Object.hash(transmission, ior, volume, clearcoat, specular, backendKind);
 }
 
 /// Public policy for opt-in material extension backends.

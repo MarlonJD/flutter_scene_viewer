@@ -23,6 +23,7 @@ void main() {
     expect(policy.support.ior, isTrue);
     expect(policy.support.volume, isTrue);
     expect(policy.support.clearcoat, isFalse);
+    expect(policy.support.specular, isFalse);
   });
 
   test('experimental shader policy exposes clearcoat only when enabled', () {
@@ -45,6 +46,7 @@ void main() {
     expect(policy.support.ior, isTrue);
     expect(policy.support.volume, isTrue);
     expect(policy.support.clearcoat, isTrue);
+    expect(policy.support.specular, isFalse);
     expect(policy.support.productionReady, isTrue);
     expect(
       policy.support.backendKind,
@@ -58,6 +60,7 @@ void main() {
       ior: true,
       volume: true,
       clearcoat: true,
+      specular: true,
       backendKind: MaterialExtensionBackendKind.packageLocalCandidate,
     );
 
@@ -74,6 +77,7 @@ void main() {
       ior: true,
       volume: true,
       clearcoat: true,
+      specular: true,
       backendKind: MaterialExtensionBackendKind.rendererNative,
     );
 
@@ -86,6 +90,7 @@ void main() {
       ior: true,
       volume: true,
       clearcoat: true,
+      specular: true,
       backendKind: MaterialExtensionBackendKind.flutterSceneCustomShader,
     );
 
@@ -99,6 +104,7 @@ void main() {
         ior: true,
         volume: true,
         clearcoat: true,
+        specular: true,
         backendKind: MaterialExtensionBackendKind.packageLocalCandidate,
       ),
       isNot(
@@ -107,6 +113,7 @@ void main() {
           ior: true,
           volume: true,
           clearcoat: true,
+          specular: false,
           backendKind: MaterialExtensionBackendKind.rendererNative,
         ),
       ),
@@ -157,6 +164,20 @@ void main() {
     final diagnostics = patch.validate(
       PartAddress(nodePath: <String>['Root', 'Paint'], primitiveIndex: 0),
       support: const MaterialExtensionSupport(clearcoat: true),
+    );
+
+    expect(diagnostics, isEmpty);
+  });
+
+  test('MaterialPatch validation accepts supported specular intent', () {
+    const patch = MaterialPatch(
+      specular: 0.4,
+      specularColorFactor: <double>[0.7, 0.8, 0.9],
+    );
+
+    final diagnostics = patch.validate(
+      PartAddress(nodePath: <String>['Root', 'Fabric'], primitiveIndex: 0),
+      support: const MaterialExtensionSupport(specular: true),
     );
 
     expect(diagnostics, isEmpty);

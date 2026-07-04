@@ -140,11 +140,29 @@ also require UV0; the default adapter reports them as unsupported first unless
 an opt-in backend advertises glass support. Clearcoat texture, clearcoat
 roughness texture, and clearcoat normal texture requests likewise require UV0;
 the default policy reports them as unsupported first unless an opt-in backend
-advertises clearcoat support.
+advertises clearcoat support. Specular texture and specular color texture
+requests also require UV0; current renderer support is diagnostic-only unless a
+future backend advertises `KHR_materials_specular` support.
 
 Authored GLB extension texture slots follow the same UV0 rule. UV1 is never
 substituted for `transmissionTexture`, `thicknessTexture`, clearcoat textures,
-or material/effect masks, and the viewer never generates UVs.
+specular textures, or material/effect masks, and the viewer never generates
+UVs. When those authored extension textures reference GLB binary image
+bufferViews, V2 preserves the encoded bytes in the authored material patch so
+the adapter can load them through the appropriate color, normal, or data
+texture path. If an imported textureInfo requests `texCoord` 1 or higher, the
+viewer reports a capability diagnostic instead of applying the texture through
+UV0. External image URIs and KTX2/BasisU texture sources remain decoder work
+and produce capability diagnostics rather than placeholder textures. For
+GLB-embedded KTX2 image bufferViews, the diagnostic includes the parsed KTX2
+header summary where available so the missing BasisU transcode path is
+actionable, including a reason and next step. The installed `flutter_scene`
+KTX2 utilities do not decode Khronos Basis Universal ETC1S/UASTC payloads for
+glTF `KHR_texture_basisu`. The root loader can now hand KTX2 image bytes to an
+optional native BasisU/KTX2 transcoder and rewrite returned PNG/JPEG bytes into
+ordinary GLB texture sources, but a real optional transcoder or upstream
+importer path is still required before those assets render instead of
+diagnosing the missing decoder.
 
 ## Excluded from v1
 

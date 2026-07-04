@@ -1,0 +1,26 @@
+name: flutter_scene_viewer_basisu
+description: Optional native BasisU/KTX2 transcoder plugin for flutter_scene_viewer.
+version: 0.1.0-alpha.0
+publish_to: none
+
+environment:
+  sdk: ">=3.6.0 <4.0.0"
+  flutter: ">=3.24.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  lints: ^5.0.0
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: com.marlonjd.flutter_scene_viewer_basisu
+        pluginClass: FlutterSceneViewerBasisuPlugin
+      ios:
+        pluginClass: FlutterSceneViewerBasisuPlugin

@@ -6,11 +6,14 @@ import 'package:flutter/services.dart';
 import 'package:flutter_scene/scene.dart' as flutter_scene;
 import 'package:flutter_scene_viewer/src/diagnostics.dart';
 import 'package:flutter_scene_viewer/src/internal/flutter_scene_adapter.dart';
+import 'package:flutter_scene_viewer/src/internal/glb_capability_reader.dart';
+import 'package:flutter_scene_viewer/src/internal/glb_native_decoder_probe.dart';
 import 'package:flutter_scene_viewer/src/internal/render_surface.dart';
 import 'package:flutter_scene_viewer/src/material_shading_mode.dart';
 import 'package:flutter_scene_viewer/src/model_loader.dart';
 import 'package:flutter_scene_viewer/src/model_source.dart';
 import 'package:flutter_scene_viewer/src/part_address.dart';
+import 'package:flutter_scene_viewer/src/texture_source.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -142,6 +145,440 @@ void main() {
       result.diagnostics.single.code,
       ViewerDiagnosticCode.invalidMaterialOverride,
     );
+  });
+
+  test('merges imported core texture patches into authored material patches',
+      () async {
+    final adapter = FakeFlutterSceneAdapter();
+    final loader = ModelLoader(adapter: adapter);
+    final imageBytes = Uint8List.fromList(<int>[1, 2, 3, 4]);
+
+    final result = await loader.load(
+      ModelSource.bytes(
+        _glbWithBin(
+          <String, Object?>{
+            'asset': <String, Object?>{'version': '2.0'},
+            'scene': 0,
+            'scenes': <Object?>[
+              <String, Object?>{
+                'nodes': <Object?>[0],
+              },
+            ],
+            'nodes': <Object?>[
+              <String, Object?>{'name': 'TextilePanel', 'mesh': 0},
+            ],
+            'meshes': <Object?>[
+              <String, Object?>{
+                'primitives': <Object?>[
+                  <String, Object?>{
+                    'attributes': <String, Object?>{
+                      'POSITION': 0,
+                      'TEXCOORD_0': 1,
+                    },
+                    'material': 0,
+                  },
+                ],
+              },
+            ],
+            'materials': <Object?>[
+              <String, Object?>{
+                'pbrMetallicRoughness': <String, Object?>{
+                  'baseColorTexture': <String, Object?>{'index': 0},
+                },
+              },
+            ],
+            'textures': <Object?>[
+              <String, Object?>{'source': 0},
+            ],
+            'images': <Object?>[
+              <String, Object?>{'mimeType': 'image/png', 'bufferView': 0},
+            ],
+            'bufferViews': <Object?>[
+              <String, Object?>{
+                'buffer': 0,
+                'byteOffset': 0,
+                'byteLength': imageBytes.length,
+              },
+            ],
+            'buffers': <Object?>[
+              <String, Object?>{'byteLength': imageBytes.length},
+            ],
+          },
+          imageBytes,
+        ),
+        debugName: 'texture-patch.glb',
+      ),
+    );
+
+    expect(result.isSuccess, isTrue);
+    final patch = result.authoredMaterialPatches[PartAddress(
+      nodePath: const <String>['TextilePanel'],
+      primitiveIndex: 0,
+    )]!;
+    expect(
+      (patch.baseColorTexture! as BytesTextureSource).encodedBytes,
+      imageBytes,
+    );
+  });
+
+  test('fails before adapter import when required Draco decoder is missing',
+      () async {
+    final adapter = FakeFlutterSceneAdapter();
+    final loader = ModelLoader(adapter: adapter);
+
+    final result = await loader.load(
+      ModelSource.bytes(
+        _glb(<String, Object?>{
+          'asset': <String, Object?>{'version': '2.0'},
+          'extensionsUsed': <Object?>['KHR_draco_mesh_compression'],
+          'extensionsRequired': <Object?>['KHR_draco_mesh_compression'],
+          'meshes': <Object?>[
+            <String, Object?>{
+              'primitives': <Object?>[
+                <String, Object?>{
+                  'material': 0,
+                  'extensions': <String, Object?>{
+                    'KHR_draco_mesh_compression': <String, Object?>{
+                      'bufferView': 0,
+                      'attributes': <String, Object?>{'POSITION': 0},
+                    },
+                  },
+                },
+              ],
+            },
+          ],
+        }),
+        debugName: 'required-draco.glb',
+      ),
+    );
+
+    expect(result.isSuccess, isFalse);
+    expect(
+        result.diagnostic?.code, ViewerDiagnosticCode.unsupportedModelFeature);
+    expect(
+        result.diagnostic?.details['extension'], 'KHR_draco_mesh_compression');
+    expect(result.diagnostic?.details['required'], isTrue);
+    expect(result.diagnostic?.details['status'], 'pluginMissing');
+    expect(
+      result.diagnostic?.details['pluginPackage'],
+      'flutter_scene_viewer_draco',
+    );
+    expect(
+      result.diagnostic?.details['configurationKey'],
+      'FlutterSceneViewerDracoEnabled',
+    );
+    expect(adapter.loadedBytes, isEmpty);
+  });
+
+  test('passes required Draco assets to adapter when decoder is available',
+      () async {
+    final adapter = FakeFlutterSceneAdapter();
+    final loader = ModelLoader(
+      adapter: adapter,
+      options: const ModelLoaderOptions(
+        decoderCapabilities: GlbDecoderCapabilities(
+          dracoMeshCompression: true,
+        ),
+      ),
+    );
+    final bytes = _glb(<String, Object?>{
+      'asset': <String, Object?>{'version': '2.0'},
+      'extensionsUsed': <Object?>['KHR_draco_mesh_compression'],
+      'extensionsRequired': <Object?>['KHR_draco_mesh_compression'],
+      'meshes': <Object?>[
+        <String, Object?>{
+          'primitives': <Object?>[
+            <String, Object?>{
+              'material': 0,
+              'extensions': <String, Object?>{
+                'KHR_draco_mesh_compression': <String, Object?>{
+                  'bufferView': 0,
+                  'attributes': <String, Object?>{'POSITION': 0},
+                },
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    final result = await loader.load(
+      ModelSource.bytes(bytes, debugName: 'required-draco.glb'),
+    );
+
+    expect(result.isSuccess, isTrue);
+    expect(adapter.loadedBytes.single, bytes);
+  });
+
+  test('loads optional Draco assets with non-blocking diagnostics', () async {
+    final adapter = FakeFlutterSceneAdapter();
+    final loader = ModelLoader(adapter: adapter);
+    final bytes = _glb(<String, Object?>{
+      'asset': <String, Object?>{'version': '2.0'},
+      'extensionsUsed': <Object?>['KHR_draco_mesh_compression'],
+      'meshes': <Object?>[
+        <String, Object?>{
+          'primitives': <Object?>[
+            <String, Object?>{
+              'material': 0,
+              'extensions': <String, Object?>{
+                'KHR_draco_mesh_compression': <String, Object?>{
+                  'bufferView': 0,
+                  'attributes': <String, Object?>{'POSITION': 0},
+                },
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    final result = await loader.load(
+      ModelSource.bytes(bytes, debugName: 'optional-draco.glb'),
+    );
+
+    expect(result.isSuccess, isTrue);
+    expect(adapter.loadedBytes.single, bytes);
+    expect(result.diagnostics, hasLength(1));
+    expect(
+      result.diagnostics.single.code,
+      ViewerDiagnosticCode.unsupportedModelFeature,
+    );
+    expect(result.diagnostics.single.details['required'], isFalse);
+  });
+
+  test('rewrites required meshopt bufferViews before adapter import', () async {
+    final adapter = FakeFlutterSceneAdapter();
+    final loader = ModelLoader(adapter: adapter);
+    final bytes = _glbWithBin(
+      <String, Object?>{
+        'asset': <String, Object?>{'version': '2.0'},
+        'extensionsUsed': <Object?>['EXT_meshopt_compression'],
+        'extensionsRequired': <Object?>['EXT_meshopt_compression'],
+        'buffers': <Object?>[
+          <String, Object?>{'byteLength': 30},
+          <String, Object?>{
+            'byteLength': 4,
+            'extensions': <String, Object?>{
+              'EXT_meshopt_compression': <String, Object?>{
+                'fallback': true,
+              },
+            },
+          },
+        ],
+        'bufferViews': <Object?>[
+          <String, Object?>{
+            'buffer': 1,
+            'byteOffset': 0,
+            'byteLength': 4,
+            'byteStride': 4,
+            'extensions': <String, Object?>{
+              'EXT_meshopt_compression': <String, Object?>{
+                'buffer': 0,
+                'byteOffset': 0,
+                'byteLength': 30,
+                'byteStride': 4,
+                'count': 1,
+                'mode': 'ATTRIBUTES',
+              },
+            },
+          },
+        ],
+      },
+      _meshoptAttributeStream(<int>[1, 2, 3, 4]),
+    );
+
+    final result = await loader.load(
+      ModelSource.bytes(bytes, debugName: 'required-meshopt.glb'),
+    );
+
+    expect(result.isSuccess, isTrue, reason: result.diagnostic?.toString());
+    expect(adapter.loadedBytes, hasLength(1));
+    final capabilities = readGlbAssetCapabilities(adapter.loadedBytes.single);
+    expect(capabilities.extensionsRequired, isEmpty);
+    expect(capabilities.extensionsUsed, isEmpty);
+    expect(capabilities.meshoptCompressedBufferViewCount, 0);
+    expect(
+      result.diagnostics.where(
+        (diagnostic) =>
+            diagnostic.details['extension'] == 'EXT_meshopt_compression',
+      ),
+      isEmpty,
+    );
+  });
+
+  test('reports native Draco opt-in diagnostics before adapter import',
+      () async {
+    final adapter = FakeFlutterSceneAdapter();
+    final loader = ModelLoader(
+      adapter: adapter,
+      options: const ModelLoaderOptions(
+        nativeDecoderProbe: FakeNativeDecoderProbe(
+          GlbNativeDecoderAvailability(
+            diagnosticsByExtension: <String, ViewerDiagnostic>{
+              'KHR_draco_mesh_compression': ViewerDiagnostic(
+                code: ViewerDiagnosticCode.unsupportedModelFeature,
+                message: 'Native Draco decoder is installed but disabled.',
+                details: <String, Object?>{
+                  'extension': 'KHR_draco_mesh_compression',
+                  'decoder': 'draco',
+                  'required': true,
+                  'status': 'disabled',
+                  'configurationKey': 'FlutterSceneViewerDracoEnabled',
+                },
+              ),
+            },
+          ),
+        ),
+      ),
+    );
+
+    final result = await loader.load(
+      ModelSource.bytes(
+        _glb(<String, Object?>{
+          'asset': <String, Object?>{'version': '2.0'},
+          'extensionsUsed': <Object?>['KHR_draco_mesh_compression'],
+          'extensionsRequired': <Object?>['KHR_draco_mesh_compression'],
+          'meshes': <Object?>[
+            <String, Object?>{
+              'primitives': <Object?>[
+                <String, Object?>{
+                  'extensions': <String, Object?>{
+                    'KHR_draco_mesh_compression': <String, Object?>{
+                      'bufferView': 0,
+                      'attributes': <String, Object?>{'POSITION': 0},
+                    },
+                  },
+                },
+              ],
+            },
+          ],
+        }),
+        debugName: 'disabled-draco.glb',
+      ),
+    );
+
+    expect(result.isSuccess, isFalse);
+    expect(
+        result.diagnostic?.code, ViewerDiagnosticCode.unsupportedModelFeature);
+    expect(result.diagnostic?.details['status'], 'disabled');
+    expect(
+      result.diagnostic?.details['configurationKey'],
+      'FlutterSceneViewerDracoEnabled',
+    );
+    expect(adapter.loadedBytes, isEmpty);
+  });
+
+  test('uses native Draco capability probe before adapter import', () async {
+    final adapter = FakeFlutterSceneAdapter();
+    final compressedBytes = _glb(<String, Object?>{
+      'asset': <String, Object?>{'version': '2.0'},
+      'extensionsUsed': <Object?>['KHR_draco_mesh_compression'],
+      'extensionsRequired': <Object?>['KHR_draco_mesh_compression'],
+      'meshes': <Object?>[
+        <String, Object?>{
+          'primitives': <Object?>[
+            <String, Object?>{
+              'extensions': <String, Object?>{
+                'KHR_draco_mesh_compression': <String, Object?>{
+                  'bufferView': 0,
+                  'attributes': <String, Object?>{'POSITION': 0},
+                },
+              },
+            },
+          ],
+        },
+      ],
+    });
+    final decodedBytes = _glb(<String, Object?>{
+      'asset': <String, Object?>{'version': '2.0'},
+      'meshes': <Object?>[
+        <String, Object?>{
+          'primitives': <Object?>[
+            <String, Object?>{
+              'attributes': <String, Object?>{'POSITION': 0},
+            },
+          ],
+        },
+      ],
+    });
+    final loader = ModelLoader(
+      adapter: adapter,
+      options: ModelLoaderOptions(
+        nativeDecoderProbe: FakeNativeDecoderProbe(
+          const GlbNativeDecoderAvailability(
+            capabilities: GlbDecoderCapabilities(
+              dracoMeshCompression: true,
+            ),
+          ),
+          decodedBytes: decodedBytes,
+        ),
+      ),
+    );
+
+    final result = await loader.load(
+      ModelSource.bytes(compressedBytes, debugName: 'native-draco.glb'),
+    );
+
+    expect(result.isSuccess, isTrue);
+    expect(adapter.loadedBytes.single, decodedBytes);
+  });
+
+  test('uses native BasisU capability probe before adapter import', () async {
+    final adapter = FakeFlutterSceneAdapter();
+    final compressedBytes = _glbWithBin(
+      <String, Object?>{
+        'asset': <String, Object?>{'version': '2.0'},
+        'extensionsUsed': <Object?>['KHR_texture_basisu'],
+        'extensionsRequired': <Object?>['KHR_texture_basisu'],
+        'buffers': <Object?>[
+          <String, Object?>{'byteLength': 4},
+        ],
+        'bufferViews': <Object?>[
+          <String, Object?>{'buffer': 0, 'byteOffset': 0, 'byteLength': 4},
+        ],
+        'images': <Object?>[
+          <String, Object?>{'mimeType': 'image/ktx2', 'bufferView': 0},
+        ],
+        'textures': <Object?>[
+          <String, Object?>{
+            'extensions': <String, Object?>{
+              'KHR_texture_basisu': <String, Object?>{'source': 0},
+            },
+          },
+        ],
+      },
+      Uint8List.fromList(<int>[9, 9, 9, 9]),
+    );
+    final decodedBytes = _glb(<String, Object?>{
+      'asset': <String, Object?>{'version': '2.0'},
+      'images': <Object?>[
+        <String, Object?>{'mimeType': 'image/png', 'bufferView': 0},
+      ],
+      'textures': <Object?>[
+        <String, Object?>{'source': 0},
+      ],
+    });
+    final loader = ModelLoader(
+      adapter: adapter,
+      options: ModelLoaderOptions(
+        nativeDecoderProbe: FakeNativeDecoderProbe(
+          const GlbNativeDecoderAvailability(
+            capabilities: GlbDecoderCapabilities(
+              textureBasisu: true,
+            ),
+          ),
+          decodedBytes: decodedBytes,
+        ),
+      ),
+    );
+
+    final result = await loader.load(
+      ModelSource.bytes(compressedBytes, debugName: 'native-basisu.glb'),
+    );
+
+    expect(result.isSuccess, isTrue, reason: result.diagnostic?.toString());
+    expect(adapter.loadedBytes.single, decodedBytes);
   });
 
   test('loads asset sources through the configured asset bundle', () async {
@@ -430,6 +867,38 @@ final class MemoryAssetBundle extends CachingAssetBundle {
   }
 }
 
+final class FakeNativeDecoderProbe implements GlbNativeDecoderProbe {
+  const FakeNativeDecoderProbe(
+    this.availability, {
+    this.decodedBytes,
+    this.decodeDiagnostics = const <ViewerDiagnostic>[],
+  });
+
+  final GlbNativeDecoderAvailability availability;
+  final Uint8List? decodedBytes;
+  final List<ViewerDiagnostic> decodeDiagnostics;
+
+  @override
+  Future<GlbNativeDecoderAvailability> checkAvailability({
+    required Set<String> requiredExtensions,
+    String? source,
+  }) async {
+    return availability;
+  }
+
+  @override
+  Future<GlbNativeDecodeResult> decodeGlb({
+    required Uint8List bytes,
+    required Set<String> requiredExtensions,
+    String? source,
+  }) async {
+    return GlbNativeDecodeResult(
+      bytes: decodedBytes,
+      diagnostics: decodeDiagnostics,
+    );
+  }
+}
+
 Uint8List _glb(Map<String, Object?> json) {
   final jsonBytes = utf8.encode(jsonEncode(json));
   final paddedJsonLength = _align4(jsonBytes.length);
@@ -445,6 +914,43 @@ Uint8List _glb(Map<String, Object?> json) {
   bytes.setRange(20, 20 + jsonBytes.length, jsonBytes);
   for (var index = 20 + jsonBytes.length; index < bytes.length; index += 1) {
     bytes[index] = 0x20;
+  }
+  return bytes;
+}
+
+Uint8List _glbWithBin(Map<String, Object?> json, Uint8List bin) {
+  final jsonBytes = utf8.encode(jsonEncode(json));
+  final paddedJsonLength = _align4(jsonBytes.length);
+  final paddedBinLength = _align4(bin.length);
+  final totalLength = 12 + 8 + paddedJsonLength + 8 + paddedBinLength;
+  final bytes = Uint8List(totalLength);
+  final data = ByteData.sublistView(bytes);
+  data
+    ..setUint32(0, 0x46546C67, Endian.little)
+    ..setUint32(4, 2, Endian.little)
+    ..setUint32(8, totalLength, Endian.little)
+    ..setUint32(12, paddedJsonLength, Endian.little)
+    ..setUint32(16, 0x4E4F534A, Endian.little);
+  bytes.setRange(20, 20 + jsonBytes.length, jsonBytes);
+  for (var index = 20 + jsonBytes.length;
+      index < 20 + paddedJsonLength;
+      index += 1) {
+    bytes[index] = 0x20;
+  }
+  final binHeaderOffset = 20 + paddedJsonLength;
+  data
+    ..setUint32(binHeaderOffset, paddedBinLength, Endian.little)
+    ..setUint32(binHeaderOffset + 4, 0x004E4942, Endian.little);
+  bytes.setRange(binHeaderOffset + 8, binHeaderOffset + 8 + bin.length, bin);
+  return bytes;
+}
+
+Uint8List _meshoptAttributeStream(List<int> values) {
+  final bytes = Uint8List(30);
+  bytes[0] = 0xa1;
+  bytes[1] = 0xff;
+  for (var index = 0; index < values.length; index += 1) {
+    bytes[2 + index] = values[index] * 2;
   }
   return bytes;
 }

@@ -5,9 +5,11 @@ import '../diagnostics.dart';
 import '../material_patch.dart';
 import '../part_address.dart';
 import '../texture_source.dart';
+import 'ktx2_header_reader.dart';
 
 const int _glbMagic = 0x46546C67;
 const int _jsonChunkType = 0x4E4F534A;
+const int _binChunkType = 0x004E4942;
 const int _maxJsonChunkBytes = 8 * 1024 * 1024;
 
 final class GlbMaterialExtensionReaderResult {
@@ -45,7 +47,11 @@ GlbMaterialExtensionReaderResult readGlbMaterialExtensionIntent(
   if (json == null) {
     return GlbMaterialExtensionReaderResult.empty;
   }
-  return _GlbMaterialExtensionMapper(json, debugName: debugName).map();
+  return _GlbMaterialExtensionMapper(
+    json,
+    bin: jsonResult.bin,
+    debugName: debugName,
+  ).map();
 }
 
 _JsonChunkReadResult _readJsonChunk(
@@ -76,6 +82,8 @@ _JsonChunkReadResult _readJsonChunk(
   }
 
   var offset = 12;
+  Map<String, Object?>? json;
+  Uint8List? bin;
   while (offset + 8 <= declaredLength) {
     final chunkLength = data.getUint32(offset, Endian.little);
     final chunkType = data.getUint32(offset + 4, Endian.little);
@@ -90,25 +98,34 @@ _JsonChunkReadResult _readJsonChunk(
         _glbFailure(debugName, 'GLB chunk length exceeds declared file size.'),
       );
     }
-    if (chunkType == _jsonChunkType) {
+    if (chunkType == _jsonChunkType && json == null) {
       try {
         final decoded = jsonDecode(
           utf8.decode(bytes.sublist(offset, offset + chunkLength)),
         );
         if (decoded is Map) {
-          return _JsonChunkReadResult.json(_objectMap(decoded));
+          json = _objectMap(decoded);
+        } else {
+          return _JsonChunkReadResult.diagnostic(
+            _glbFailure(debugName, 'GLB JSON chunk must decode to an object.'),
+          );
         }
-        return _JsonChunkReadResult.diagnostic(
-          _glbFailure(debugName, 'GLB JSON chunk must decode to an object.'),
-        );
       } on Object catch (error) {
         return _JsonChunkReadResult.diagnostic(
           _glbFailure(debugName, 'GLB JSON chunk could not be decoded.',
               error: error),
         );
       }
+    } else if (chunkType == _binChunkType && bin == null) {
+      bin = Uint8List.fromList(
+        Uint8List.sublistView(bytes, offset, offset + chunkLength),
+      );
     }
     offset += chunkLength;
+  }
+
+  if (json != null) {
+    return _JsonChunkReadResult.json(json, bin: bin);
   }
 
   return _JsonChunkReadResult.diagnostic(
@@ -117,9 +134,14 @@ _JsonChunkReadResult _readJsonChunk(
 }
 
 final class _GlbMaterialExtensionMapper {
-  _GlbMaterialExtensionMapper(this.json, {required this.debugName});
+  _GlbMaterialExtensionMapper(
+    this.json, {
+    required this.bin,
+    required this.debugName,
+  });
 
   final Map<String, Object?> json;
+  final Uint8List? bin;
   final String? debugName;
   final List<ViewerDiagnostic> diagnostics = <ViewerDiagnostic>[];
   final Map<String, int> _nodePathCounts = <String, int>{};
@@ -209,6 +231,11 @@ final class _GlbMaterialExtensionMapper {
     double? clearcoatRoughness;
     TextureSource? clearcoatRoughnessTexture;
     TextureSource? clearcoatNormalTexture;
+    double? clearcoatNormalScale;
+    double? specular;
+    TextureSource? specularTexture;
+    List<double>? specularColorFactor;
+    TextureSource? specularColorTexture;
 
     final transmissionExtension = _extension(
       extensions,
@@ -236,7 +263,7 @@ final class _GlbMaterialExtensionMapper {
         );
         invalid = invalid || texture.invalid;
         transmissionTexture = texture.value;
-        if (texture.value != null) {
+        if (texture.requiresUv) {
           textureSlots.add('transmissionTexture');
         }
       }
@@ -283,7 +310,7 @@ final class _GlbMaterialExtensionMapper {
         );
         invalid = invalid || texture.invalid;
         thicknessTexture = texture.value;
-        if (texture.value != null) {
+        if (texture.requiresUv) {
           textureSlots.add('thicknessTexture');
         }
         final color = _doubleListField(
@@ -329,7 +356,7 @@ final class _GlbMaterialExtensionMapper {
         );
         invalid = invalid || texture.invalid;
         clearcoatTexture = texture.value;
-        if (texture.value != null) {
+        if (texture.requiresUv) {
           textureSlots.add('clearcoatTexture');
         }
         final roughness = _doubleField(
@@ -348,7 +375,7 @@ final class _GlbMaterialExtensionMapper {
         );
         invalid = invalid || roughnessTexture.invalid;
         clearcoatRoughnessTexture = roughnessTexture.value;
-        if (roughnessTexture.value != null) {
+        if (roughnessTexture.requiresUv) {
           textureSlots.add('clearcoatRoughnessTexture');
         }
         final normalTexture = _textureField(
@@ -359,8 +386,66 @@ final class _GlbMaterialExtensionMapper {
         );
         invalid = invalid || normalTexture.invalid;
         clearcoatNormalTexture = normalTexture.value;
-        if (normalTexture.value != null) {
+        if (normalTexture.requiresUv) {
           textureSlots.add('clearcoatNormalTexture');
+        }
+        final normalScale = _textureInfoDoubleField(
+          extension,
+          'clearcoatNormalTexture',
+          'scale',
+          'KHR_materials_clearcoat',
+          materialIndex,
+        );
+        invalid = invalid || normalScale.invalid;
+        clearcoatNormalScale = normalScale.value;
+      }
+    }
+
+    final specularExtension =
+        _extension(extensions, 'KHR_materials_specular', materialIndex);
+    if (specularExtension.invalid) {
+      invalid = true;
+    } else {
+      final extension = specularExtension.value;
+      if (extension != null) {
+        final factor = _doubleField(
+          extension,
+          'specularFactor',
+          'KHR_materials_specular',
+          materialIndex,
+        );
+        invalid = invalid || factor.invalid;
+        specular = factor.value;
+        final texture = _textureField(
+          extension,
+          'specularTexture',
+          'KHR_materials_specular',
+          materialIndex,
+        );
+        invalid = invalid || texture.invalid;
+        specularTexture = texture.value;
+        if (texture.requiresUv) {
+          textureSlots.add('specularTexture');
+        }
+        final colorFactor = _doubleListField(
+          extension,
+          'specularColorFactor',
+          'KHR_materials_specular',
+          materialIndex,
+          length: 3,
+        );
+        invalid = invalid || colorFactor.invalid;
+        specularColorFactor = colorFactor.value;
+        final colorTexture = _textureField(
+          extension,
+          'specularColorTexture',
+          'KHR_materials_specular',
+          materialIndex,
+        );
+        invalid = invalid || colorTexture.invalid;
+        specularColorTexture = colorTexture.value;
+        if (colorTexture.requiresUv) {
+          textureSlots.add('specularColorTexture');
         }
       }
     }
@@ -381,6 +466,11 @@ final class _GlbMaterialExtensionMapper {
       clearcoatRoughness: clearcoatRoughness,
       clearcoatRoughnessTexture: clearcoatRoughnessTexture,
       clearcoatNormalTexture: clearcoatNormalTexture,
+      clearcoatNormalScale: clearcoatNormalScale,
+      specular: specular,
+      specularTexture: specularTexture,
+      specularColorFactor: specularColorFactor,
+      specularColorTexture: specularColorTexture,
     );
     if (patch.isEmpty) {
       return null;
@@ -619,6 +709,32 @@ final class _GlbMaterialExtensionMapper {
     return const _DoubleListRead.invalid();
   }
 
+  _DoubleRead _textureInfoDoubleField(
+    Map<String, Object?> extension,
+    String textureField,
+    String field,
+    String extensionName,
+    int materialIndex,
+  ) {
+    final textureInfo = _map(extension[textureField]);
+    if (textureInfo == null || !textureInfo.containsKey(field)) {
+      return const _DoubleRead();
+    }
+    final value = textureInfo[field];
+    if (value is num) {
+      return _DoubleRead(value: value.toDouble());
+    }
+    diagnostics.add(
+      _invalidExtensionDiagnostic(
+        extensionName: extensionName,
+        field: '$textureField.$field',
+        materialIndex: materialIndex,
+        value: value,
+      ),
+    );
+    return const _DoubleRead.invalid();
+  }
+
   _TextureRead _textureField(
     Map<String, Object?> extension,
     String field,
@@ -642,11 +758,300 @@ final class _GlbMaterialExtensionMapper {
       );
       return const _TextureRead.invalid();
     }
+    final texCoord = _intValue(textureInfo['texCoord']) ?? 0;
+    if (texCoord != 0) {
+      diagnostics.add(
+        _textureDiagnostic(
+          extensionName: extensionName,
+          field: field,
+          materialIndex: materialIndex,
+          textureIndex: index,
+          reason:
+              'Authored material extension texture patches currently support only TEXCOORD_0.',
+          uvSet: texCoord,
+        ),
+      );
+      return const _TextureRead();
+    }
+    final bytes = _textureBytes(
+      index,
+      extensionName: extensionName,
+      field: field,
+      materialIndex: materialIndex,
+    );
+    if (bytes == null) {
+      return const _TextureRead(requiresUv: true);
+    }
     return _TextureRead(
+      requiresUv: true,
       value: TextureSource.bytes(
-        Uint8List(0),
+        bytes,
         debugName: 'glb-texture:$index:$extensionName.$field',
       ),
+    );
+  }
+
+  Uint8List? _textureBytes(
+    int textureIndex, {
+    required String extensionName,
+    required String field,
+    required int materialIndex,
+  }) {
+    final textures = _list(json['textures']);
+    if (textures == null ||
+        textureIndex < 0 ||
+        textureIndex >= textures.length) {
+      diagnostics.add(
+        _textureDiagnostic(
+          extensionName: extensionName,
+          field: field,
+          materialIndex: materialIndex,
+          textureIndex: textureIndex,
+          reason: 'Texture index is outside the glTF textures array.',
+        ),
+      );
+      return null;
+    }
+    final texture = _map(textures[textureIndex]);
+    final basisu = _map(_map(texture?['extensions'])?['KHR_texture_basisu']);
+    if (basisu != null) {
+      diagnostics.add(
+        _textureDiagnostic(
+          extensionName: extensionName,
+          field: field,
+          materialIndex: materialIndex,
+          textureIndex: textureIndex,
+          reason:
+              'Texture uses KHR_texture_basisu and requires KTX2/BasisU transcode support.',
+          extension: 'KHR_texture_basisu',
+          details: _ktx2ImageDetails(
+            _intValue(basisu['source']) ?? _intValue(texture?['source']),
+          ),
+        ),
+      );
+      return null;
+    }
+    final imageIndex = _intValue(texture?['source']);
+    if (imageIndex == null) {
+      diagnostics.add(
+        _textureDiagnostic(
+          extensionName: extensionName,
+          field: field,
+          materialIndex: materialIndex,
+          textureIndex: textureIndex,
+          reason: 'Texture does not reference an image source.',
+        ),
+      );
+      return null;
+    }
+    return _imageBytes(
+      imageIndex,
+      extensionName: extensionName,
+      field: field,
+      materialIndex: materialIndex,
+      textureIndex: textureIndex,
+    );
+  }
+
+  Uint8List? _imageBytes(
+    int imageIndex, {
+    required String extensionName,
+    required String field,
+    required int materialIndex,
+    required int textureIndex,
+  }) {
+    final images = _list(json['images']);
+    if (images == null || imageIndex < 0 || imageIndex >= images.length) {
+      diagnostics.add(
+        _textureDiagnostic(
+          extensionName: extensionName,
+          field: field,
+          materialIndex: materialIndex,
+          textureIndex: textureIndex,
+          reason: 'Image index is outside the glTF images array.',
+        ),
+      );
+      return null;
+    }
+    final image = _map(images[imageIndex]);
+    final mimeType = _stringValue(image?['mimeType']);
+    final uri = _stringValue(image?['uri']);
+    if (mimeType == 'image/ktx2' ||
+        (uri?.toLowerCase().endsWith('.ktx2') ?? false)) {
+      diagnostics.add(
+        _textureDiagnostic(
+          extensionName: extensionName,
+          field: field,
+          materialIndex: materialIndex,
+          textureIndex: textureIndex,
+          reason: 'KTX2 image transcode is not available for GLB textures.',
+          extension: 'KHR_texture_basisu',
+          details: _ktx2ImageDetails(imageIndex),
+        ),
+      );
+      return null;
+    }
+    final bufferViewIndex = _intValue(image?['bufferView']);
+    if (bufferViewIndex == null) {
+      diagnostics.add(
+        _textureDiagnostic(
+          extensionName: extensionName,
+          field: field,
+          materialIndex: materialIndex,
+          textureIndex: textureIndex,
+          reason: 'Imported texture image is not stored in a GLB bufferView.',
+        ),
+      );
+      return null;
+    }
+    final bufferViews = _list(json['bufferViews']);
+    if (bufferViews == null ||
+        bufferViewIndex < 0 ||
+        bufferViewIndex >= bufferViews.length) {
+      diagnostics.add(
+        _textureDiagnostic(
+          extensionName: extensionName,
+          field: field,
+          materialIndex: materialIndex,
+          textureIndex: textureIndex,
+          reason: 'Image bufferView index is outside the bufferViews array.',
+        ),
+      );
+      return null;
+    }
+    final bufferView = _map(bufferViews[bufferViewIndex]);
+    final byteOffset = _intValue(bufferView?['byteOffset']) ?? 0;
+    final byteLength = _intValue(bufferView?['byteLength']);
+    final bin = this.bin;
+    if (bin == null || byteLength == null) {
+      diagnostics.add(
+        _textureDiagnostic(
+          extensionName: extensionName,
+          field: field,
+          materialIndex: materialIndex,
+          textureIndex: textureIndex,
+          reason: 'GLB texture bufferView bytes are unavailable.',
+        ),
+      );
+      return null;
+    }
+    if (byteOffset < 0 ||
+        byteLength < 0 ||
+        byteOffset + byteLength > bin.lengthInBytes) {
+      diagnostics.add(
+        _textureDiagnostic(
+          extensionName: extensionName,
+          field: field,
+          materialIndex: materialIndex,
+          textureIndex: textureIndex,
+          reason: 'GLB texture bufferView exceeds the binary chunk.',
+        ),
+      );
+      return null;
+    }
+    return Uint8List.fromList(
+      Uint8List.sublistView(bin, byteOffset, byteOffset + byteLength),
+    );
+  }
+
+  Map<String, Object?> _ktx2ImageDetails(int? imageIndex) {
+    if (imageIndex == null) {
+      return const <String, Object?>{
+        'status': 'basisuTranscodeUnavailable',
+        'ktx2': <String, Object?>{
+          'headerStatus': 'unavailable',
+          'reason': 'Texture does not reference a KTX2 image source.',
+        },
+      };
+    }
+    final images = _list(json['images']);
+    if (images == null || imageIndex < 0 || imageIndex >= images.length) {
+      return <String, Object?>{
+        'status': 'basisuTranscodeUnavailable',
+        'ktx2': <String, Object?>{
+          'headerStatus': 'unavailable',
+          'imageIndex': imageIndex,
+          'reason': 'Image index is outside the glTF images array.',
+        },
+      };
+    }
+    final image = _map(images[imageIndex]);
+    final bufferViewIndex = _intValue(image?['bufferView']);
+    if (bufferViewIndex == null) {
+      return <String, Object?>{
+        'status': 'basisuTranscodeUnavailable',
+        'ktx2': <String, Object?>{
+          'headerStatus': 'unavailable',
+          'imageIndex': imageIndex,
+          'reason': 'KTX2 image is not stored in a GLB bufferView.',
+        },
+      };
+    }
+    final bytes = _bufferViewBytes(bufferViewIndex);
+    if (bytes == null) {
+      return <String, Object?>{
+        'status': 'basisuTranscodeUnavailable',
+        'ktx2': <String, Object?>{
+          'headerStatus': 'unavailable',
+          'imageIndex': imageIndex,
+          'bufferViewIndex': bufferViewIndex,
+          'reason': 'KTX2 image bufferView bytes are unavailable.',
+        },
+      };
+    }
+    return ktx2UnsupportedDetails(
+      bytes,
+      imageIndex: imageIndex,
+      bufferViewIndex: bufferViewIndex,
+    );
+  }
+
+  Uint8List? _bufferViewBytes(int bufferViewIndex) {
+    final bufferViews = _list(json['bufferViews']);
+    if (bufferViews == null ||
+        bufferViewIndex < 0 ||
+        bufferViewIndex >= bufferViews.length) {
+      return null;
+    }
+    final bufferView = _map(bufferViews[bufferViewIndex]);
+    final byteOffset = _intValue(bufferView?['byteOffset']) ?? 0;
+    final byteLength = _intValue(bufferView?['byteLength']);
+    final bin = this.bin;
+    if (bin == null ||
+        byteLength == null ||
+        byteOffset < 0 ||
+        byteLength < 0 ||
+        byteOffset + byteLength > bin.lengthInBytes) {
+      return null;
+    }
+    return Uint8List.sublistView(bin, byteOffset, byteOffset + byteLength);
+  }
+
+  ViewerDiagnostic _textureDiagnostic({
+    required String extensionName,
+    required String field,
+    required int materialIndex,
+    required int textureIndex,
+    required String reason,
+    String? extension,
+    int? uvSet,
+    Map<String, Object?> details = const <String, Object?>{},
+  }) {
+    return ViewerDiagnostic(
+      code: ViewerDiagnosticCode.unsupportedModelFeature,
+      message:
+          'Authored GLB material extension texture cannot be loaded through role-aware path.',
+      details: <String, Object?>{
+        'source': debugName,
+        'materialIndex': materialIndex,
+        'textureIndex': textureIndex,
+        'extension': extensionName,
+        'field': field,
+        'reason': reason,
+        if (extension != null) 'requiredExtension': extension,
+        if (uvSet != null) 'uvSet': uvSet,
+        ...details,
+      },
     );
   }
 
@@ -679,10 +1084,13 @@ final class _GlbMaterialExtensionMapper {
 }
 
 final class _JsonChunkReadResult {
-  const _JsonChunkReadResult.json(this.json) : diagnostic = null;
-  const _JsonChunkReadResult.diagnostic(this.diagnostic) : json = null;
+  const _JsonChunkReadResult.json(this.json, {this.bin}) : diagnostic = null;
+  const _JsonChunkReadResult.diagnostic(this.diagnostic)
+      : json = null,
+        bin = null;
 
   final Map<String, Object?>? json;
+  final Uint8List? bin;
   final ViewerDiagnostic? diagnostic;
 }
 
@@ -739,12 +1147,14 @@ final class _DoubleListRead {
 }
 
 final class _TextureRead {
-  const _TextureRead({this.value}) : invalid = false;
+  const _TextureRead({this.value, this.requiresUv = false}) : invalid = false;
   const _TextureRead.invalid()
       : value = null,
+        requiresUv = false,
         invalid = true;
 
   final TextureSource? value;
+  final bool requiresUv;
   final bool invalid;
 }
 

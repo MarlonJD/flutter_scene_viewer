@@ -44,6 +44,10 @@ final class MaterialPatch {
     this.clearcoatRoughnessTexture,
     this.clearcoatNormalTexture,
     this.clearcoatNormalScale,
+    this.specular,
+    this.specularTexture,
+    this.specularColorFactor,
+    this.specularColorTexture,
     this.visible,
   })  : assert(
           baseColorFactor == null || baseColorFactor.length == 4,
@@ -161,6 +165,30 @@ final class MaterialPatch {
   /// flutter_scene exposes real clearcoat support.
   final double? clearcoatNormalScale;
 
+  /// KHR_materials_specular scalar strength.
+  ///
+  /// This field is intentionally rejected by the current adapter until
+  /// flutter_scene exposes real specular support.
+  final double? specular;
+
+  /// KHR_materials_specular scalar strength texture.
+  ///
+  /// This field is intentionally rejected by the current adapter until
+  /// flutter_scene exposes real specular support.
+  final TextureSource? specularTexture;
+
+  /// KHR_materials_specular RGB color factor.
+  ///
+  /// This field is intentionally rejected by the current adapter until
+  /// flutter_scene exposes real specular support.
+  final List<double>? specularColorFactor;
+
+  /// KHR_materials_specular RGB color texture.
+  ///
+  /// This field is intentionally rejected by the current adapter until
+  /// flutter_scene exposes real specular support.
+  final TextureSource? specularColorTexture;
+
   final bool? visible;
 
   bool get isEmpty =>
@@ -191,6 +219,10 @@ final class MaterialPatch {
       clearcoatRoughnessTexture == null &&
       clearcoatNormalTexture == null &&
       clearcoatNormalScale == null &&
+      specular == null &&
+      specularTexture == null &&
+      specularColorFactor == null &&
+      specularColorTexture == null &&
       visible == null;
 
   bool get hasGlassOverride =>
@@ -210,6 +242,12 @@ final class MaterialPatch {
       clearcoatNormalTexture != null ||
       clearcoatNormalScale != null;
 
+  bool get hasSpecularOverride =>
+      specular != null ||
+      specularTexture != null ||
+      specularColorFactor != null ||
+      specularColorTexture != null;
+
   bool get hasTextureOverride =>
       baseColorTexture != null ||
       metallicRoughnessTexture != null ||
@@ -221,7 +259,9 @@ final class MaterialPatch {
       thicknessTexture != null ||
       clearcoatTexture != null ||
       clearcoatRoughnessTexture != null ||
-      clearcoatNormalTexture != null;
+      clearcoatNormalTexture != null ||
+      specularTexture != null ||
+      specularColorTexture != null;
 
   MaterialPatch merge(MaterialPatch next) => MaterialPatch(
         baseColorFactor: next.baseColorFactor ?? baseColorFactor,
@@ -254,6 +294,10 @@ final class MaterialPatch {
         clearcoatNormalTexture:
             next.clearcoatNormalTexture ?? clearcoatNormalTexture,
         clearcoatNormalScale: next.clearcoatNormalScale ?? clearcoatNormalScale,
+        specular: next.specular ?? specular,
+        specularTexture: next.specularTexture ?? specularTexture,
+        specularColorFactor: next.specularColorFactor ?? specularColorFactor,
+        specularColorTexture: next.specularColorTexture ?? specularColorTexture,
         visible: next.visible ?? visible,
       );
 
@@ -265,6 +309,8 @@ final class MaterialPatch {
       ..._glassSupportDiagnostics(address, support),
       if (hasClearcoatOverride && !support.clearcoat)
         _clearcoatUnsupportedDiagnostic(address),
+      if (hasSpecularOverride && !support.specular)
+        _specularUnsupportedDiagnostic(address),
     ];
     if (unsupportedDiagnostics.isNotEmpty) {
       return unsupportedDiagnostics;
@@ -284,6 +330,8 @@ final class MaterialPatch {
         _rangeDiagnostic(address, 'roughness', roughness!),
       if (!_isUnitInterval(occlusionStrength))
         _rangeDiagnostic(address, 'occlusionStrength', occlusionStrength!),
+      if (!_isUnitInterval(specular))
+        _rangeDiagnostic(address, 'specular', specular!),
       if (!_isUnitInterval(alphaCutoff))
         _rangeDiagnostic(address, 'alphaCutoff', alphaCutoff!),
     ];
@@ -332,6 +380,13 @@ final class MaterialPatch {
           'clearcoatNormalTexture': clearcoatNormalTexture!.toJson(),
         if (clearcoatNormalScale != null)
           'clearcoatNormalScale': clearcoatNormalScale,
+        if (specular != null) 'specular': specular,
+        if (specularTexture != null)
+          'specularTexture': specularTexture!.toJson(),
+        if (specularColorFactor != null)
+          'specularColorFactor': List<double>.of(specularColorFactor!),
+        if (specularColorTexture != null)
+          'specularColorTexture': specularColorTexture!.toJson(),
         if (visible != null) 'visible': visible,
       };
 
@@ -371,6 +426,11 @@ final class MaterialPatch {
       clearcoatNormalTexture: _textureSource(json, 'clearcoatNormalTexture'),
       clearcoatNormalScale:
           _doubleValue(json['clearcoatNormalScale'], 'clearcoatNormalScale'),
+      specular: _doubleValue(json['specular'], 'specular'),
+      specularTexture: _textureSource(json, 'specularTexture'),
+      specularColorFactor:
+          _doubleList(json['specularColorFactor'], 'specularColorFactor'),
+      specularColorTexture: _textureSource(json, 'specularColorTexture'),
       visible: json['visible'] as bool?,
     );
   }
@@ -479,6 +539,20 @@ ViewerDiagnostic _clearcoatUnsupportedDiagnostic(PartAddress address) {
     details: <String, Object?>{
       'part': address.debugPath,
       'extensions': const <String>['KHR_materials_clearcoat'],
+      'upstreamPackage': 'flutter_scene',
+      'status': 'unsupported',
+    },
+  );
+}
+
+ViewerDiagnostic _specularUnsupportedDiagnostic(PartAddress address) {
+  return ViewerDiagnostic(
+    code: ViewerDiagnosticCode.unsupportedMaterialFeature,
+    message:
+        'Specular material overrides require flutter_scene support for KHR_materials_specular.',
+    details: <String, Object?>{
+      'part': address.debugPath,
+      'extensions': const <String>['KHR_materials_specular'],
       'upstreamPackage': 'flutter_scene',
       'status': 'unsupported',
     },

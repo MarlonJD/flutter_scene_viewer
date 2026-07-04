@@ -70,6 +70,17 @@ Candidate scope:
 - simple rigid/node animation for product interactions such as doors,
   exploded views, and mechanical movement.
 
+Current V2 implementation status: `KHR_draco_mesh_compression` is wired
+through an optional sibling native decoder plugin with iOS Simulator A1B32
+evidence and Android native build evidence still pending; `EXT_meshopt_compression`
+is decoded in Dart by rewriting embedded GLB bufferViews before
+`flutter_scene` import; KTX2 / `KHR_texture_basisu` is handled through the
+optional `flutter_scene_viewer_basisu` sibling plugin, which vendors Basis
+Universal plus Zstd, transcodes GLB-embedded KTX2 images to PNG, and hands the
+decoded image payloads back to the root Dart GLB rewrite path before
+`flutter_scene` import. Full visual evidence for KTX2 samples still belongs to
+the V2 validation pass.
+
 Already-built raw HDR/EXR and Poly Haven environment paths may remain if they
 work, and they may be completed as bounded advanced opt-in environment sources.
 They are still not the default product workflow: no implicit network downloads,
@@ -100,6 +111,31 @@ Out of scope:
 
 Morph targets and blend shapes are V3+ or later candidates only if there is a
 clear product need and upstream support. They are not V1/V2 work.
+
+## V3 research lane: Flutter GPU material rendering
+
+V3 may also carry a bounded Flutter GPU / `flutter_scene` rendering research
+lane for material quality work that is too speculative for V2. This lane must
+not introduce a Filament backend, a general shader graph, or a replacement PBR
+renderer.
+
+Candidate scope:
+
+- targeted repo-local shader improvements for clearcoat and glass when they can
+  stay compatible with `flutter_scene` scene ownership;
+- Flutter GPU feasibility checks for better real-time refraction, transmission
+  compositing, and clearcoat highlights;
+- experimental ray/path-tracing reference views for visual validation or
+  offline comparison only, not as the default interactive mobile renderer;
+- explicit diagnostics when a material feature requires renderer capabilities
+  outside the current Flutter GPU / `flutter_scene` path.
+
+Out of scope:
+
+- Filament-backed rendering;
+- production claims of full physical glass, caustics, multi-bounce refraction,
+  or path tracing without measured target-platform evidence;
+- replacing the V2 production GLB pipeline or viewer/configurator API.
 
 ## V4: CAD/import research track
 
