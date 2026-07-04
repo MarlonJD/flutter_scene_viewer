@@ -29,6 +29,19 @@ Real-asset outputs:
 - `tools/out/reference_threejs_clearcoat_car_paint_real_asset.png`
 - `tools/out/reference_threejs_real_asset_metrics.json`
 
+For A1B32 textile debugging, render the required Draco asset with:
+
+```sh
+node tools/reference_renderers/threejs_material_extension_fixture/render_a1b32_reference.mjs /Users/marlonjd/Downloads/A1B32.glb
+```
+
+A1B32 outputs:
+
+- `tools/out/reference_threejs_a1b32_front_all.png`
+- `tools/out/reference_threejs_a1b32_front_repaired_back.png`
+- `tools/out/reference_threejs_a1b32_front_repaired_body_culled.png`
+- `tools/out/reference_threejs_a1b32_metrics.json`
+
 The real-asset mode uses `GLTFLoader`, fixed camera presets, neutral lighting,
 and a simple neutral backdrop so authored glass/transmission and clearcoat cues
 are visible in a repeatable screenshot.

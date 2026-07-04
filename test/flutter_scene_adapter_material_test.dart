@@ -249,6 +249,39 @@ void main() {
       isTrue,
     );
   });
+
+  test('visible patch hides only the addressed primitive in a shared node',
+      () async {
+    final firstGeometry = _StubGeometry();
+    final secondGeometry = _StubGeometry();
+    final root = flutter_scene.Node(
+      name: 'A1B32',
+      mesh: flutter_scene.Mesh.primitives(
+        primitives: <flutter_scene.MeshPrimitive>[
+          flutter_scene.MeshPrimitive(
+            firstGeometry,
+            flutter_scene.ShaderMaterial(),
+          ),
+          flutter_scene.MeshPrimitive(
+            secondGeometry,
+            flutter_scene.ShaderMaterial(),
+          ),
+        ],
+      ),
+    );
+
+    final diagnostics = await debugApplyMaterialPatchToRoot(
+      root,
+      PartAddress(nodePath: <String>['A1B32'], primitiveIndex: 1),
+      const MaterialPatch(visible: false),
+    );
+
+    expect(diagnostics, isEmpty);
+    expect(root.visible, isTrue);
+    expect(root.mesh!.primitives.first.geometry, same(firstGeometry));
+    expect(root.mesh!.primitives.last.geometry, isNot(same(secondGeometry)));
+    expect(root.mesh!.primitives, hasLength(2));
+  });
 }
 
 final class _StubGeometry extends flutter_scene.Geometry {

@@ -333,6 +333,126 @@ void main() {
     );
   });
 
+  test('hides A1B32-style internal body surfaces under opaque garments', () {
+    final whiteFabricBytes = _pngHeader(colorType: 2);
+    final blackDataMapBytes = _pngHeader(colorType: 2);
+    final result = readGlbImportedTexturePatches(
+      _glbWithBin(
+        <String, Object?>{
+          'asset': <String, Object?>{'version': '2.0'},
+          'scene': 0,
+          'scenes': <Object?>[
+            <String, Object?>{
+              'nodes': <Object?>[0],
+            },
+          ],
+          'nodes': <Object?>[
+            <String, Object?>{'name': 'A1B32', 'mesh': 0},
+          ],
+          'meshes': <Object?>[
+            <String, Object?>{
+              'primitives': <Object?>[
+                for (var material = 0; material < 6; material += 1)
+                  <String, Object?>{
+                    'attributes': <String, Object?>{
+                      'POSITION': 0,
+                      'TEXCOORD_0': 1,
+                    },
+                    'material': material,
+                  },
+              ],
+            },
+          ],
+          'materials': <Object?>[
+            <String, Object?>{
+              'name': 'top_FRONT_2219.041',
+              'pbrMetallicRoughness': <String, Object?>{
+                'baseColorTexture': <String, Object?>{'index': 0},
+              },
+            },
+            <String, Object?>{
+              'name': 'top_BACK_2219.040',
+              'pbrMetallicRoughness': <String, Object?>{
+                'baseColorTexture': <String, Object?>{'index': 1},
+              },
+            },
+            <String, Object?>{
+              'name': 'skirt_FRONT_2234.014',
+              'pbrMetallicRoughness': <String, Object?>{
+                'baseColorTexture': <String, Object?>{'index': 0},
+              },
+            },
+            <String, Object?>{
+              'name': 'skirt_BACK_2234.013',
+              'pbrMetallicRoughness': <String, Object?>{
+                'baseColorTexture': <String, Object?>{'index': 1},
+              },
+            },
+            <String, Object?>{'name': 'MAT_Body.040'},
+            <String, Object?>{'name': 'MAT_Legs.040'},
+          ],
+          'textures': <Object?>[
+            <String, Object?>{'source': 0},
+            <String, Object?>{'source': 1},
+          ],
+          'images': <Object?>[
+            <String, Object?>{
+              'name': 'beyaz_153916',
+              'mimeType': 'image/png',
+              'bufferView': 0,
+            },
+            <String, Object?>{
+              'name': 'R_0_153923',
+              'mimeType': 'image/png',
+              'bufferView': 1,
+            },
+          ],
+          'bufferViews': <Object?>[
+            <String, Object?>{
+              'buffer': 0,
+              'byteLength': whiteFabricBytes.length,
+            },
+            <String, Object?>{
+              'buffer': 0,
+              'byteOffset': whiteFabricBytes.length,
+              'byteLength': blackDataMapBytes.length,
+            },
+          ],
+          'buffers': <Object?>[
+            <String, Object?>{
+              'byteLength': whiteFabricBytes.length + blackDataMapBytes.length,
+            },
+          ],
+        },
+        <Uint8List>[whiteFabricBytes, blackDataMapBytes],
+      ),
+      debugName: 'a1b32-like.glb',
+    );
+
+    expect(
+      result
+          .patches[PartAddress(
+        nodePath: <String>['A1B32'],
+        primitiveIndex: 4,
+      )]
+          ?.visible,
+      isFalse,
+    );
+    expect(
+      result
+          .patches[PartAddress(
+        nodePath: <String>['A1B32'],
+        primitiveIndex: 5,
+      )]
+          ?.visible,
+      isFalse,
+    );
+    expect(
+      result.diagnostics.map((diagnostic) => diagnostic.details['repair']),
+      contains('hideInternalMannequinBody'),
+    );
+  });
+
   test('reports imported core texture slots that require non-zero texCoord',
       () {
     final imageBytes = <Uint8List>[

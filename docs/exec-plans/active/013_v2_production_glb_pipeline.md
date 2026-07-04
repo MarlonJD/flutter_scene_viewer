@@ -877,3 +877,24 @@ diagnostic support around the `flutter_scene` runtime importer.
   and showed `Load: success`, `Hierarchy: root=root parts=20`, and
   `Diagnostics: 4` for the expected material capability plus repair
   diagnostics.
+- 2026-07-05: compared A1B32 against a new local Three.js + `DRACOLoader`
+  reference harness. Raw Three.js `GLTFLoader` output reproduced the severe
+  black garment noise because the asset authors black `R_0*` maps as back-side
+  base color. A simulated neutral-white back repair still showed tan/gray
+  patches; isolating materials proved the remaining artifact came from
+  internal mannequin `MAT_Body*` and `MAT_Legs*` primitives protruding through
+  the opaque dress. The clean reference variant is stored at
+  `tools/out/reference_threejs_a1b32_front_repaired_body_culled.png`.
+  Implemented a narrow A1B32-style import repair that emits
+  `visible: false` authored patches for those internal body/leg primitives and
+  diagnostics with `repair: hideInternalMannequinBody`. Also fixed the runtime
+  adapter so `MaterialPatch.visible` on a `PartAddress` hides only the targeted
+  primitive slot by swapping in empty no-op geometry; it no longer hides the
+  whole node when a GLB has many primitives under one node. Verified locally
+  with `flutter test test/flutter_scene_adapter_material_test.dart
+  test/glb_imported_texture_patch_reader_test.dart`. iOS Simulator evidence is
+  stored at
+  `/private/tmp/fsviewer_ios_evidence_app/v2_a1b32_front_primitive_body_repair_ios.jpg`
+  and showed `Load: success`, `Hierarchy: root=root parts=20`, and
+  `Diagnostics: 6` for spec/IOR, back base-color, and internal mannequin repair
+  diagnostics.

@@ -169,6 +169,18 @@ leaking black data maps into the front view while making the repair explicit.
 The heuristic is limited to PNG `baseColorTexture` images named like `R_0*` on
 materials named like back-side textile materials.
 
+A1B32-style textile exports may also include full mannequin body and leg
+surfaces inside an opaque dress. Three.js reference isolation showed those
+internal `MAT_Body*` and `MAT_Legs*` primitives can protrude through or win
+depth tests against the repaired garment panels. When the GLB also matches the
+same white front fabric plus `R_0*` back data-map pattern, the importer emits
+`visible: false` authored patches for those internal body/leg primitives and
+adds `unsupportedModelFeature` diagnostics containing
+`repair: hideInternalMannequinBody`. The adapter applies visibility at the
+primitive slot by replacing the addressed primitive geometry with an empty
+no-op geometry, preserving node visibility and primitive indices for hierarchy,
+reset, and sibling primitives.
+
 Imported texture
 patches are created only for `textureInfo.texCoord` 0. Non-zero texCoord values
 produce diagnostics instead of being applied through the UV0 override path.

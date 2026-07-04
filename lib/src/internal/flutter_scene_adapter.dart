@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter/widgets.dart' show Key, Offset, Size, Widget;
 import 'package:flutter_scene/scene.dart' as flutter_scene;
+// ignore: implementation_imports
+import 'package:flutter_scene/src/gpu/gpu.dart' as flutter_scene_gpu;
 import 'package:http/http.dart' as http;
 import 'package:vector_math/vector_math.dart' as vm;
 
@@ -552,7 +554,7 @@ final class FlutterSceneRuntimeAdapter implements FlutterSceneAdapter {
     );
 
     if (patch.visible != null) {
-      target.node.visible = patch.visible!;
+      _applyPrimitiveVisibility(target, patch.visible!, address);
     }
     if (_usesNativeMaterialExtensionApplierFor(
       materialExtensionPolicy,
@@ -844,6 +846,21 @@ final class FlutterSceneRuntimeAdapter implements FlutterSceneAdapter {
       const <String>[],
       primitiveIndex: address.primitiveIndex,
     );
+  }
+
+  void _applyPrimitiveVisibility(
+    _ResolvedPrimitive target,
+    bool visible,
+    PartAddress address,
+  ) {
+    if (!visible) {
+      target.primitive.geometry = _HiddenPrimitiveGeometry.instance;
+      return;
+    }
+    final original = _originalMaterials[address];
+    if (original != null) {
+      target.primitive.geometry = original.geometry;
+    }
   }
 
   List<String>? _nodePathFor(flutter_scene.Node target) {
@@ -1367,6 +1384,7 @@ final class _OriginalMaterialState {
   const _OriginalMaterialState({
     required this.visible,
     required this.layers,
+    required this.geometry,
     required this.material,
     this.baseColorFactor,
     this.baseColorTexture,
@@ -1395,6 +1413,7 @@ final class _OriginalMaterialState {
       return _OriginalMaterialState(
         visible: node.visible,
         layers: node.layers,
+        geometry: primitive.geometry,
         material: material,
         baseColorFactor: material.baseColorFactor.clone(),
         // ignore: invalid_use_of_internal_member
@@ -1420,6 +1439,7 @@ final class _OriginalMaterialState {
       return _OriginalMaterialState(
         visible: node.visible,
         layers: node.layers,
+        geometry: primitive.geometry,
         material: material,
         unlitBaseColorFactor: material.baseColorFactor.clone(),
         // ignore: invalid_use_of_internal_member
@@ -1430,12 +1450,14 @@ final class _OriginalMaterialState {
     return _OriginalMaterialState(
       visible: node.visible,
       layers: node.layers,
+      geometry: primitive.geometry,
       material: material,
     );
   }
 
   final bool visible;
   final int layers;
+  final flutter_scene.Geometry geometry;
   final flutter_scene.Material material;
   final vm.Vector4? baseColorFactor;
   final flutter_scene.TextureSource? baseColorTexture;
@@ -1460,6 +1482,7 @@ final class _OriginalMaterialState {
   ) {
     node.visible = visible;
     node.layers = layers;
+    primitive.geometry = geometry;
     primitive.material = material;
     final restoredMaterial = primitive.material;
     if (restoredMaterial is flutter_scene.PhysicallyBasedMaterial) {
@@ -1513,6 +1536,22 @@ final class _OriginalMaterialState {
       }
     }
   }
+}
+
+final class _HiddenPrimitiveGeometry extends flutter_scene.Geometry {
+  _HiddenPrimitiveGeometry._();
+
+  static final instance = _HiddenPrimitiveGeometry._();
+
+  @override
+  void bind(
+    flutter_scene_gpu.RenderPass pass,
+    flutter_scene_gpu.HostBuffer transientsBuffer,
+    vm.Matrix4 modelTransform,
+    vm.Matrix4 cameraTransform,
+    vm.Vector3 cameraPosition, {
+    flutter_scene_gpu.Shader? shaderOverride,
+  }) {}
 }
 
 final class _TextureLoadResult {
@@ -1705,6 +1744,16 @@ bool debugCanResolvePartAddress(
 ) {
   final adapter = FlutterSceneRuntimeAdapter().._rootNode = root;
   return adapter._resolveTarget(address) != null;
+}
+
+@visibleForTesting
+Future<List<ViewerDiagnostic>> debugApplyMaterialPatchToRoot(
+  flutter_scene.Node root,
+  PartAddress address,
+  MaterialPatch patch,
+) {
+  final adapter = FlutterSceneRuntimeAdapter().._rootNode = root;
+  return adapter.applyMaterialPatch(address, patch);
 }
 
 final class FlutterSceneAdapterUnavailableException implements Exception {

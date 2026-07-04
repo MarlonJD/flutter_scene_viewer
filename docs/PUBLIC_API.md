@@ -260,6 +260,12 @@ reported as an invalid material override outside that range. With the current
 `flutter_scene` target, unlit material mask requests report diagnostics because
 the upstream unlit shader path treats mask like blend.
 
+`MaterialPatch.visible` is part visibility for the addressed `PartAddress`.
+When a GLB stores several primitives under one node, the runtime adapter keeps
+the node visible and hides only the addressed primitive slot, preserving sibling
+primitives and primitive indices. It is separate from alpha cutout/blend and
+does not change material opacity.
+
 `MaterialEffectMask` is an opaque-family packed data map. Its red, green, blue,
 and alpha channels can be assigned to material-effect targets such as
 `paintRegion`, `roughness`, `metallic`, `dirt`, or future clearcoat masks.

@@ -118,7 +118,64 @@ final class _GlbImportedTexturePatchMapper {
         patches[index] = patch;
       }
     }
+    for (final materialIndex in _a1b32InternalBodyRepairMaterialIndices(
+      materials,
+    )) {
+      final material = _map(materials[materialIndex]);
+      final materialName = _stringValue(material?['name']);
+      diagnostics.add(
+        ViewerDiagnostic(
+          code: ViewerDiagnosticCode.unsupportedModelFeature,
+          message:
+              'Repaired imported GLB internal mannequin surface that intersects an opaque textile garment.',
+          details: <String, Object?>{
+            'source': debugName,
+            'materialIndex': materialIndex,
+            if (materialName != null) 'materialName': materialName,
+            'repair': 'hideInternalMannequinBody',
+            'reason':
+                'The asset matches an A1B32-style textile export where internal body or leg geometry protrudes through opaque garment panels.',
+          },
+        ),
+      );
+      patches[materialIndex] = (patches[materialIndex] ?? const MaterialPatch())
+          .merge(const MaterialPatch(visible: false));
+    }
     return patches;
+  }
+
+  Set<int> _a1b32InternalBodyRepairMaterialIndices(List<Object?> materials) {
+    var hasOpaqueGarmentFront = false;
+    var hasBackDataBaseColorRepair = false;
+    final internalBodyIndices = <int>{};
+    for (var index = 0; index < materials.length; index += 1) {
+      final material = _map(materials[index]);
+      final materialName = _stringValue(material?['name']);
+      final normalizedName = materialName?.toLowerCase();
+      if (normalizedName == null) {
+        continue;
+      }
+      if ((normalizedName.startsWith('top_front') ||
+              normalizedName.startsWith('skirt_front')) &&
+          _baseColorImageName(material)?.toLowerCase().startsWith('beyaz') ==
+              true) {
+        hasOpaqueGarmentFront = true;
+      }
+      if ((normalizedName.contains('_back') ||
+              normalizedName.endsWith('back')) &&
+          (_baseColorImageName(material)?.toLowerCase().startsWith('r_0') ??
+              false)) {
+        hasBackDataBaseColorRepair = true;
+      }
+      if (normalizedName.startsWith('mat_body') ||
+          normalizedName.startsWith('mat_legs')) {
+        internalBodyIndices.add(index);
+      }
+    }
+    if (!hasOpaqueGarmentFront || !hasBackDataBaseColorRepair) {
+      return const <int>{};
+    }
+    return internalBodyIndices;
   }
 
   MaterialPatch? _patchForMaterial(
@@ -328,6 +385,25 @@ final class _GlbImportedTexturePatchMapper {
       return null;
     }
     return _map(images[imageIndex]);
+  }
+
+  String? _baseColorImageName(Map<String, Object?>? material) {
+    final pbr = _map(material?['pbrMetallicRoughness']);
+    final textureIndex = _intValue(_map(pbr?['baseColorTexture'])?['index']);
+    if (textureIndex == null) {
+      return null;
+    }
+    final textures = _list(json['textures']);
+    if (textures == null ||
+        textureIndex < 0 ||
+        textureIndex >= textures.length) {
+      return null;
+    }
+    final imageIndex = _intValue(_map(textures[textureIndex])?['source']);
+    if (imageIndex == null) {
+      return null;
+    }
+    return _stringValue(_imageMap(imageIndex)?['name']);
   }
 
   Uint8List? _imageBytes(
