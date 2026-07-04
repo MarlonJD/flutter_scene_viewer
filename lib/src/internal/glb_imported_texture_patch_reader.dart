@@ -126,10 +126,12 @@ final class _GlbImportedTexturePatchMapper {
     Map<String, Object?> material,
   ) {
     final pbr = _map(material['pbrMetallicRoughness']);
+    final materialName = _stringValue(material['name']);
     final baseColorTexture = _textureSource(
       _map(pbr?['baseColorTexture']),
       materialIndex: materialIndex,
       slot: 'baseColorTexture',
+      materialName: materialName,
     );
     final alphaMode = _alphaMode(material['alphaMode']) ??
         _inferredBaseColorAlphaMode(baseColorTexture);
@@ -186,6 +188,7 @@ final class _GlbImportedTexturePatchMapper {
     Map<String, Object?>? textureInfo, {
     required int materialIndex,
     required String slot,
+    String? materialName,
   }) {
     final textureIndex = _intValue(textureInfo?['index']);
     if (textureIndex == null) {
@@ -258,10 +261,73 @@ final class _GlbImportedTexturePatchMapper {
     if (imageBytes == null) {
       return null;
     }
+    if (_shouldRepairTextileDataBaseColor(
+      slot: slot,
+      materialName: materialName,
+      imageIndex: imageIndex,
+    )) {
+      final imageName = _stringValue(_imageMap(imageIndex)?['name']);
+      diagnostics.add(
+        ViewerDiagnostic(
+          code: ViewerDiagnosticCode.unsupportedModelFeature,
+          message:
+              'Repaired imported GLB base-color texture that appears to be a textile data map.',
+          details: <String, Object?>{
+            'source': debugName,
+            'materialIndex': materialIndex,
+            if (materialName != null) 'materialName': materialName,
+            'textureIndex': textureIndex,
+            'imageIndex': imageIndex,
+            if (imageName != null) 'imageName': imageName,
+            'textureSlot': slot,
+            'repair': 'neutralWhiteBaseColor',
+            'reason':
+                'The texture is named like an R_0 data/mask map but is authored in baseColorTexture on a back-side textile material.',
+          },
+        ),
+      );
+      return TextureSource.bytes(
+        _neutralWhitePngBytes(),
+        debugName: 'glb-texture:$textureIndex:$slot:neutral-white',
+      );
+    }
     return TextureSource.bytes(
       imageBytes,
       debugName: 'glb-texture:$textureIndex:$slot',
     );
+  }
+
+  bool _shouldRepairTextileDataBaseColor({
+    required String slot,
+    required String? materialName,
+    required int imageIndex,
+  }) {
+    if (slot != 'baseColorTexture') {
+      return false;
+    }
+    final image = _imageMap(imageIndex);
+    final mimeType = _stringValue(image?['mimeType']);
+    if (mimeType != 'image/png') {
+      return false;
+    }
+    final imageName = _stringValue(image?['name'])?.toLowerCase();
+    if (imageName == null || !imageName.startsWith('r_0')) {
+      return false;
+    }
+    final normalizedMaterialName = materialName?.toLowerCase();
+    if (normalizedMaterialName == null) {
+      return false;
+    }
+    return normalizedMaterialName.contains('_back') ||
+        normalizedMaterialName.endsWith('back');
+  }
+
+  Map<String, Object?>? _imageMap(int imageIndex) {
+    final images = _list(json['images']);
+    if (images == null || imageIndex < 0 || imageIndex >= images.length) {
+      return null;
+    }
+    return _map(images[imageIndex]);
   }
 
   Uint8List? _imageBytes(
@@ -769,6 +835,12 @@ bool _pngDeclaresAlphaChannel(Uint8List bytes) {
   }
   final colorType = bytes[25];
   return colorType == 4 || colorType == 6;
+}
+
+Uint8List _neutralWhitePngBytes() {
+  return base64Decode(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4//8/AAX+Av4N70a4AAAAAElFTkSuQmCC',
+  );
 }
 
 List<int>? _intList(Object? value) {

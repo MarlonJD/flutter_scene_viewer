@@ -158,7 +158,18 @@ texture path, using the existing `flutter_scene` `TextureContent`-aware mipmap
 pipeline. Authored material extension texture bytes flow through the same
 patch mechanism, with transmission, thickness, clearcoat factor, clearcoat
 roughness, and specular factor as data textures; clearcoat normal as a normal
-texture; and specular color as preserved specular intent. Imported texture
+texture; and specular color as preserved specular intent.
+
+Imported texture patching also has one narrow repair for malformed textile GLBs
+observed in A1B32-style exports: when a back-side material authors an `R_0*`
+PNG data/mask map as `baseColorTexture`, the patch reader replaces that slot
+with neutral white and emits an `unsupportedModelFeature` diagnostic containing
+`repair: neutralWhiteBaseColor`. This keeps double-sided back fabric from
+leaking black data maps into the front view while making the repair explicit.
+The heuristic is limited to PNG `baseColorTexture` images named like `R_0*` on
+materials named like back-side textile materials.
+
+Imported texture
 patches are created only for `textureInfo.texCoord` 0. Non-zero texCoord values
 produce diagnostics instead of being applied through the UV0 override path.
 External image URIs remain resolver work. GLB-embedded compressed KTX2/BasisU

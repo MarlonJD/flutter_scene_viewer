@@ -861,3 +861,19 @@ diagnostic support around the `flutter_scene` runtime importer.
   `flutter test test/glb_imported_texture_patch_reader_test.dart`. Simulator
   front evidence is stored at
   `/private/tmp/fsviewer_ios_evidence_app/v2_a1b32_front_alpha_repair_ios.jpg`.
+- 2026-07-05: fixed the remaining A1B32 front-view black speckling after the
+  alpha repair. Re-inspection showed the white front fabric textures
+  `beyaz_*` are correct, but the A1B32 back-side `top_BACK_*` and
+  `skirt_BACK_*` materials author solid-black `R_0_*` PNG data/mask maps in
+  `baseColorTexture`. Because the garment is double-sided and overlapping,
+  those back-side base colors leaked into the front view. Added a narrow
+  imported-texture repair that replaces back-side `R_0*` PNG base-color maps
+  with neutral white and emits an `unsupportedModelFeature` diagnostic with
+  `repair: neutralWhiteBaseColor`; it does not rewrite unrelated black
+  textures. Verified locally with
+  `flutter test test/glb_imported_texture_patch_reader_test.dart`. iOS
+  Simulator front evidence is stored at
+  `/private/tmp/fsviewer_ios_evidence_app/v2_a1b32_front_white_repair_ios.jpg`
+  and showed `Load: success`, `Hierarchy: root=root parts=20`, and
+  `Diagnostics: 4` for the expected material capability plus repair
+  diagnostics.

@@ -254,6 +254,85 @@ void main() {
     expect(patch.alphaCutoff, isNull);
   });
 
+  test('repairs textile back-side R_0 data maps used as base color', () {
+    final blackDataMapBytes = _pngHeader(colorType: 2);
+    final result = readGlbImportedTexturePatches(
+      _glbWithBin(
+        <String, Object?>{
+          'asset': <String, Object?>{'version': '2.0'},
+          'scene': 0,
+          'scenes': <Object?>[
+            <String, Object?>{
+              'nodes': <Object?>[0],
+            },
+          ],
+          'nodes': <Object?>[
+            <String, Object?>{'name': 'Dress', 'mesh': 0},
+          ],
+          'meshes': <Object?>[
+            <String, Object?>{
+              'primitives': <Object?>[
+                <String, Object?>{
+                  'attributes': <String, Object?>{
+                    'POSITION': 0,
+                    'TEXCOORD_0': 1,
+                  },
+                  'material': 0,
+                },
+              ],
+            },
+          ],
+          'materials': <Object?>[
+            <String, Object?>{
+              'name': 'skirt_BACK_2234.013',
+              'pbrMetallicRoughness': <String, Object?>{
+                'baseColorTexture': <String, Object?>{'index': 0},
+              },
+            },
+          ],
+          'textures': <Object?>[
+            <String, Object?>{'source': 0},
+          ],
+          'images': <Object?>[
+            <String, Object?>{
+              'name': 'R_0_153923',
+              'mimeType': 'image/png',
+              'bufferView': 0,
+            },
+          ],
+          'bufferViews': <Object?>[
+            <String, Object?>{
+              'buffer': 0,
+              'byteLength': blackDataMapBytes.length,
+            },
+          ],
+          'buffers': <Object?>[
+            <String, Object?>{'byteLength': blackDataMapBytes.length},
+          ],
+        },
+        <Uint8List>[blackDataMapBytes],
+      ),
+      debugName: 'a1b32-like.glb',
+    );
+
+    final patch = result.patches[PartAddress(
+      nodePath: <String>['Dress'],
+      primitiveIndex: 0,
+    )]!;
+    final texture = patch.baseColorTexture! as BytesTextureSource;
+    expect(texture.encodedBytes, isNot(blackDataMapBytes));
+    expect(texture.debugName, contains('neutral-white'));
+    expect(result.diagnostics, hasLength(1));
+    expect(
+      result.diagnostics.single.code,
+      ViewerDiagnosticCode.unsupportedModelFeature,
+    );
+    expect(
+      result.diagnostics.single.details,
+      containsPair('repair', 'neutralWhiteBaseColor'),
+    );
+  });
+
   test('reports imported core texture slots that require non-zero texCoord',
       () {
     final imageBytes = <Uint8List>[
