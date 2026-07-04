@@ -1,7 +1,7 @@
 material {
   name: "FSViewerClearcoat",
   shading_model: lit,
-  blending: opaque,
+  blending: alpha,
   culling: back,
   parameters: [
     { type: sampler2D, name: baseColorTexture, hint: default_white },
@@ -69,21 +69,13 @@ fragment {
     }
 
     float roughness_energy = mix(1.0, 0.1, roughness);
-    return (indirect + direct) * clearcoat * roughness_energy * 0.25;
+    return (indirect + direct) * clearcoat * roughness_energy;
   }
 
   void Surface(inout MaterialInputs material) {
     vec2 uv = v_texture_coords;
     vec4 base_color_tex = texture(baseColorTexture, uv);
-    vec3 albedo = SRGBToLinear(base_color_tex.rgb) *
-                  material_params.baseColorFactor.rgb * v_color.rgb;
-    float alpha = base_color_tex.a * material_params.baseColorFactor.a *
-                  v_color.a;
     vec4 metallic_roughness = texture(metallicRoughnessTexture, uv);
-    float metallic = clamp(material_params.materialFactors.x *
-                           metallic_roughness.b, 0.0, 1.0);
-    float roughness = clamp(material_params.materialFactors.y *
-                            metallic_roughness.g, kMinRoughness, 1.0);
     float clearcoat = clamp(material_params.materialFactors.z *
                             texture(clearcoatTexture, uv).r, 0.0, 1.0);
     float clearcoat_roughness =
@@ -105,15 +97,18 @@ fragment {
     vec3 clearcoat_specular = ClearcoatLobe(
         clearcoat_normal, view_direction, clearcoat, clearcoat_roughness,
         occlusion);
-    vec3 emissive = SRGBToLinear(texture(emissiveTexture, uv).rgb) *
-                    material_params.emissiveFactor.rgb;
+    float source_alpha = base_color_tex.a * material_params.baseColorFactor.a *
+                         v_color.a;
+    float overlay_alpha =
+        clamp(clearcoat * source_alpha *
+              mix(0.16, 0.28, 1.0 - clearcoat_roughness), 0.0, 0.32);
 
-    material.base_color = vec4(albedo, alpha);
-    material.metallic = metallic;
-    material.roughness = roughness;
+    material.base_color = vec4(vec3(0.0), overlay_alpha);
+    material.metallic = 0.0;
+    material.roughness = 1.0;
     material.normal = base_normal;
     material.occlusion = occlusion;
-    material.emissive = emissive + clearcoat_specular;
+    material.emissive = clearcoat_specular;
     PrepareMaterial(material);
   }
 }

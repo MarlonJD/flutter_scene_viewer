@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_scene/gpu.dart' as flutter_scene_gpu;
 import 'package:flutter_scene/scene.dart' as flutter_scene;
+// ignore: implementation_imports
+import 'package:flutter_scene/src/gpu/gpu.dart' as flutter_scene_internal_gpu;
 import 'package:vector_math/vector_math.dart' as vm;
 
 import '../diagnostics.dart';
@@ -119,15 +121,26 @@ final class FlutterSceneMaterialExtensionBackend {
             if (library[shaderName] == null) shaderName,
         ];
         if (missingShaders.isEmpty) {
-          return _productionPreflightResult =
-              const MaterialExtensionPreflightResult(
-            support: MaterialExtensionSupport(
-              transmission: true,
-              ior: true,
-              volume: true,
-              clearcoat: true,
-              productionReady: true,
-            ),
+          return _productionPreflightResult = MaterialExtensionPreflightResult(
+            support: MaterialExtensionSupport.unsupported,
+            diagnostics: <ViewerDiagnostic>[
+              ViewerDiagnostic(
+                code: ViewerDiagnosticCode.unsupportedMaterialFeature,
+                message:
+                    'Package-local material extension shaders are available, but remain candidate-only and are not production-ready for glass or clearcoat.',
+                details: <String, Object?>{
+                  'stage': 'shaderPreflight',
+                  'status': 'candidate-only',
+                  'assetPath': assetPath,
+                  'features': <String>[
+                    'transmission',
+                    'ior',
+                    'volume',
+                    'clearcoat',
+                  ],
+                },
+              ),
+            ],
           );
         }
         lastMissingShaders = List<String>.unmodifiable(missingShaders);
@@ -229,6 +242,7 @@ final class FlutterSceneMaterialExtensionBackend {
       renderTextureWidth: _renderTextureWidth,
       renderTextureHeight: _renderTextureHeight,
       bindFallbackTextures: _bindFallbackTextures,
+      sourceMaterial: primitive.material,
       baseColorTexture: baseColorTexture,
       normalTexture: normalTexture,
       transmissionTexture: transmissionTexture,
@@ -310,8 +324,11 @@ final class FlutterSceneMaterialExtensionBackend {
         originalMaterial: primitive.material,
       ),
     );
-    primitive.material = material;
-    _refreshMountedMesh(node);
+    _attachClearcoatOverlay(
+      node: node,
+      primitive: primitive,
+      material: material,
+    );
     return const <ViewerDiagnostic>[];
   }
 
@@ -377,6 +394,41 @@ final class FlutterSceneMaterialExtensionBackend {
     }
     node.mesh = flutter_scene.Mesh.primitives(
       primitives: List<flutter_scene.MeshPrimitive>.of(mesh.primitives),
+    );
+  }
+
+  void _attachClearcoatOverlay({
+    required flutter_scene.Node node,
+    required flutter_scene.MeshPrimitive primitive,
+    required flutter_scene.Material material,
+  }) {
+    final existingState = _states[primitive];
+    final existingOverlay = existingState?.overlayPrimitive;
+    if (existingOverlay != null) {
+      existingOverlay.material = material;
+      _refreshMountedMesh(node);
+      return;
+    }
+
+    final overlayPrimitive = flutter_scene.MeshPrimitive(
+      primitive.geometry,
+      material,
+    );
+    final mesh = node.mesh;
+    if (mesh == null) {
+      return;
+    }
+    final nextPrimitives = <flutter_scene.MeshPrimitive>[
+      ...mesh.primitives,
+      overlayPrimitive,
+    ];
+    node.mesh = flutter_scene.Mesh.primitives(primitives: nextPrimitives);
+    _states[primitive] = _MaterialExtensionState(
+      node: node,
+      primitive: primitive,
+      originalLayers: existingState?.originalLayers ?? node.layers,
+      originalMaterial: existingState?.originalMaterial ?? primitive.material,
+      overlayPrimitive: overlayPrimitive,
     );
   }
 
@@ -463,6 +515,9 @@ final class FlutterSceneMaterialExtensionBackend {
   ) {
     material
       ..isOpaqueOverride = false
+      ..cullingMode = config.sourceMaterial.doubleSided
+          ? flutter_scene_internal_gpu.CullMode.none
+          : flutter_scene_internal_gpu.CullMode.backFace
       ..setTexture(backgroundTextureName, config.backgroundTexture)
       ..setUniformBlockFromFloats(
         materialParamsBlockName,
@@ -526,7 +581,7 @@ final class FlutterSceneMaterialExtensionBackend {
     }
     material
       ..useEnvironment = true
-      ..isOpaqueOverride = true
+      ..isOpaqueOverride = false
       ..setUniformBlockFromFloats(
         materialParamsBlockName,
         _clearcoatMaterialParams(config),
@@ -799,6 +854,7 @@ final class FlutterSceneTransmissionMaterialConfig {
     required this.renderTextureWidth,
     required this.renderTextureHeight,
     required this.bindFallbackTextures,
+    required this.sourceMaterial,
     this.baseColorTexture,
     this.normalTexture,
     this.transmissionTexture,
@@ -810,6 +866,7 @@ final class FlutterSceneTransmissionMaterialConfig {
   final int renderTextureWidth;
   final int renderTextureHeight;
   final bool bindFallbackTextures;
+  final flutter_scene.Material sourceMaterial;
   final Object? baseColorTexture;
   final Object? normalTexture;
   final Object? transmissionTexture;
@@ -895,15 +952,31 @@ final class _MaterialExtensionState {
     required this.primitive,
     required this.originalLayers,
     required this.originalMaterial,
+    this.overlayPrimitive,
   });
 
   final flutter_scene.Node node;
   final flutter_scene.MeshPrimitive primitive;
   final int originalLayers;
   final flutter_scene.Material originalMaterial;
+  final flutter_scene.MeshPrimitive? overlayPrimitive;
 
   void restore() {
     node.layers = originalLayers;
+    final overlay = overlayPrimitive;
+    if (overlay != null) {
+      final mesh = node.mesh;
+      if (mesh == null || !mesh.primitives.contains(overlay)) {
+        return;
+      }
+      node.mesh = flutter_scene.Mesh.primitives(
+        primitives: <flutter_scene.MeshPrimitive>[
+          for (final primitive in mesh.primitives)
+            if (!identical(primitive, overlay)) primitive,
+        ],
+      );
+      return;
+    }
     primitive.material = originalMaterial;
   }
 }

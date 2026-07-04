@@ -148,24 +148,24 @@ supported imported materials onto a lit or unlit base material. Runtime
 `FlutterSceneViewer.materialExtensionPolicy` is the viewer-side capability
 gate for advanced material extension validation. The default diagnostics-only
 policy reports unsupported glass and clearcoat before those patches reach the
-adapter or persistence store. `productionShaders()` is an explicit opt-in that
-requests transmission, IOR, volume, and clearcoat support, but the runtime
-adapter advertises production support only after shader preflight and target
-checks pass. The adapter/backend must still return diagnostics for any feature
-it cannot honestly render.
+adapter or persistence store. `productionShaders()` is a production-intent
+policy that requests transmission, IOR, volume, and clearcoat support, but the
+current package-local preflight returns candidate-only diagnostics and does not
+advertise production support. The adapter/backend must still return diagnostics
+for any feature it cannot honestly render.
 
 The `.fmat` material packaging path uses `hook/build.dart` and
 `flutter_scene/build_hooks.dart` `buildMaterials(...)`. Task 011 hardens the
 package-local material extension backend. Transmission uses a bounded
 screen-space background render texture and reports diagnostics for unsupported
 node-isolation shapes. Clearcoat uses a lit `.fmat` `PreprocessedMaterial`,
-fills the base PBR `MaterialInputs`, and adds a separate coating lobe without
-lowering base roughness. Local host visual matrices and three.js reference
-trends exist. Task 011 has verified local iOS Simulator evidence for bounded
-glass and local iOS Simulator shader-load/synthetic visual-matrix
-evidence for clearcoat, but real textured GLB clearcoat evidence remains
-candidate-only and not production-ready. macOS, Android, Web, and physical iOS
-evidence remain deferred/not run.
+draws as a translucent shared-geometry overlay, and adds a separate coating
+lobe without replacing the source PBR material or lowering base roughness.
+Local host visual matrices and three.js reference trends exist, and ToyCar
+iOS Simulator evidence shows authored glass and clearcoat in one real GLB.
+The package-local glass and clearcoat paths remain candidate-only rather than
+production-ready.
+macOS, Android, Web, and physical iOS evidence remain deferred/not run.
 
 As of 2026-07-03, the installed `flutter_scene` 0.18.1 target does not expose
 real transmission/glass or clearcoat support. The local audit found no public
@@ -179,9 +179,9 @@ policy rejects runtime glass and clearcoat patches with
 `unsupportedMaterialFeature`; the production shader policy can route supported
 intent through package-local shader paths after preflight on documented
 verified targets. Task 011 verifies iOS Simulator locally only; other targets
-remain deferred/not run. Clearcoat is still candidate-only on real textured
-GLBs. Alpha blending is not accepted as a glass substitute, and low roughness
-is not accepted as a clearcoat substitute.
+remain deferred/not run. Clearcoat is still candidate-only and package-local
+production support is not advertised. Alpha blending is not accepted as a
+glass substitute, and low roughness is not accepted as a clearcoat substitute.
 
 Upstream `flutter_scene` PR candidates:
 

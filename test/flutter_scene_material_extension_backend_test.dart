@@ -37,7 +37,7 @@ void main() {
       expect(result.diagnostics.single.details['status'], 'unavailable');
     });
 
-    test('production preflight advertises support when shaders load', () async {
+    test('production preflight keeps local shaders candidate-only', () async {
       final backend = FlutterSceneMaterialExtensionBackend(
         loadShaderLibrary: (_) async => const _FakeShaderLibrary(
           entries: <String>{
@@ -49,12 +49,15 @@ void main() {
 
       final result = await backend.preflightProductionSupport();
 
-      expect(result.diagnostics, isEmpty);
-      expect(result.support.productionReady, isTrue);
-      expect(result.support.transmission, isTrue);
-      expect(result.support.ior, isTrue);
-      expect(result.support.volume, isTrue);
-      expect(result.support.clearcoat, isTrue);
+      expect(result.support.productionReady, isFalse);
+      expect(result.support.transmission, isFalse);
+      expect(result.support.ior, isFalse);
+      expect(result.support.volume, isFalse);
+      expect(result.support.clearcoat, isFalse);
+      expect(result.diagnostics.single.code,
+          ViewerDiagnosticCode.unsupportedMaterialFeature);
+      expect(result.diagnostics.single.details['stage'], 'shaderPreflight');
+      expect(result.diagnostics.single.details['status'], 'candidate-only');
     });
   });
 
@@ -261,6 +264,35 @@ void main() {
       expect(sceneViews, isEmpty);
     });
 
+    test('preserves double-sided source culling for glass shader material',
+        () async {
+      final originalMaterial = flutter_scene.ShaderMaterial()
+        ..doubleSided = true;
+      final node = flutter_scene.Node(
+        name: 'Glass',
+        mesh: flutter_scene.Mesh(_StubGeometry(), originalMaterial),
+      );
+      final primitive = node.mesh!.primitives.single;
+      final sceneViews = <flutter_scene.RenderView>[];
+      final backend = FlutterSceneMaterialExtensionBackend(
+        bindFallbackTextures: false,
+        createTransmissionMaterial: (_) async =>
+            flutter_scene.ShaderMaterial(isOpaqueOverride: false),
+      );
+
+      final diagnostics = await backend.applyTransmissionPatch(
+        sceneViews: sceneViews,
+        node: node,
+        primitive: primitive,
+        address: _address,
+        patch: const MaterialPatch(transmission: 1.0),
+      );
+
+      expect(diagnostics, isEmpty);
+      final material = primitive.material as flutter_scene.ShaderMaterial;
+      expect(material.cullingMode, flutter_scene_internal_gpu.CullMode.none);
+    });
+
     test('refreshes mounted render items when replacing and restoring material',
         () async {
       final originalMaterial = flutter_scene.ShaderMaterial();
@@ -306,10 +338,54 @@ void main() {
       final source =
           File('assets/materials/fsviewer_clearcoat.fmat').readAsStringSync();
 
+      expect(source, contains('blending: alpha'));
       expect(source, contains('SamplePrefilteredRadiance'));
       expect(source, contains('brdf_lut'));
       expect(source, contains('frag_info.environment_intensity'));
       expect(source, isNot(contains('key_direction')));
+    });
+
+    test('clearcoat adds translucent overlay without replacing source material',
+        () async {
+      final originalMaterial = flutter_scene.ShaderMaterial();
+      final node = flutter_scene.Node(
+        name: 'Paint',
+        mesh: flutter_scene.Mesh(_StubGeometry(), originalMaterial),
+      )..layers = 0x08;
+      final primitive = node.mesh!.primitives.single;
+      final backend = FlutterSceneMaterialExtensionBackend(
+        bindFallbackTextures: false,
+        createClearcoatMaterial: (_) async =>
+            flutter_scene.ShaderMaterial(isOpaqueOverride: true),
+      );
+
+      final diagnostics = await backend.applyClearcoatPatch(
+        node: node,
+        primitive: primitive,
+        address: _address,
+        patch: const MaterialPatch(
+          clearcoat: 1.0,
+          clearcoatRoughness: 0.05,
+        ),
+      );
+
+      expect(diagnostics, isEmpty);
+      expect(node.layers, 0x08);
+      expect(node.mesh!.primitives, hasLength(2));
+      expect(node.mesh!.primitives.first, same(primitive));
+      expect(primitive.material, same(originalMaterial));
+      final overlayPrimitive = node.mesh!.primitives.last;
+      expect(overlayPrimitive, isNot(same(primitive)));
+      expect(overlayPrimitive.geometry, same(primitive.geometry));
+      expect(overlayPrimitive.material, isA<flutter_scene.ShaderMaterial>());
+      expect(overlayPrimitive.material.isOpaque(), isFalse);
+
+      backend.resetClearcoatPatch(node: node, primitive: primitive);
+
+      expect(node.layers, 0x08);
+      expect(node.mesh!.primitives, hasLength(1));
+      expect(node.mesh!.primitives.single, same(primitive));
+      expect(primitive.material, same(originalMaterial));
     });
 
     test('production clearcoat binds all texture slots and factors', () async {
@@ -412,8 +488,12 @@ void main() {
       );
 
       expect(diagnostics, isEmpty);
-      final material = primitive.material as flutter_scene.PreprocessedMaterial;
+      expect(primitive.material, same(originalMaterial));
+      expect(node.mesh!.primitives, hasLength(2));
+      final material = node.mesh!.primitives.last.material
+          as flutter_scene.PreprocessedMaterial;
       expect(material.shadingModel.name, 'lit');
+      expect(material.isOpaque(), isFalse);
       final materialFactors =
           material.parameters.assignedValues['materialFactors'] as vm.Vector4;
       expect(materialFactors.z, closeTo(1.0, 0.0001));
@@ -436,7 +516,7 @@ void main() {
       expect(emissiveFactor.z, closeTo(0.3, 0.0001));
     });
 
-    test('assigns clearcoat shader material and preserves opaque rendering',
+    test('assigns translucent clearcoat overlay material and preserves source',
         () async {
       final originalMaterial = flutter_scene.ShaderMaterial();
       final node = flutter_scene.Node(
@@ -465,8 +545,11 @@ void main() {
       );
 
       expect(diagnostics, isEmpty);
-      final material = primitive.material as flutter_scene.ShaderMaterial;
-      expect(material.isOpaque(), isTrue);
+      expect(primitive.material, same(originalMaterial));
+      expect(node.mesh!.primitives, hasLength(2));
+      final material =
+          node.mesh!.primitives.last.material as flutter_scene.ShaderMaterial;
+      expect(material.isOpaque(), isFalse);
       expect(material.useEnvironment, isTrue);
       expect(material.uniformBlockNames, contains('MaterialParams'));
       final params = material.getUniformBlock('MaterialParams')!;
@@ -480,7 +563,7 @@ void main() {
     });
 
     test(
-        'refreshes mounted render items when replacing and restoring clearcoat',
+        'refreshes mounted render items when adding and restoring clearcoat overlay',
         () async {
       final originalMaterial = flutter_scene.ShaderMaterial();
       final node = flutter_scene.Node(
@@ -505,8 +588,10 @@ void main() {
         patch: const MaterialPatch(clearcoat: 1.0),
       );
 
-      expect(renderScene.items.single.material, same(primitive.material));
-      expect(renderScene.items.single.material, isNot(same(originalMaterial)));
+      expect(renderScene.items, hasLength(2));
+      expect(renderScene.items.first.material, same(originalMaterial));
+      expect(renderScene.items.last.material,
+          same(node.mesh!.primitives.last.material));
 
       backend.resetClearcoatPatch(
         node: node,

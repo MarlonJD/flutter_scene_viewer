@@ -62,5 +62,8 @@ Flutter metrics are compared by direction, not exact pixel values:
 The synthetic clearcoat matrix is shader-wiring evidence, not proof that every
 real textured asset is production-ready. The DamagedHelmet manual-clearcoat
 iOS Simulator run remains candidate-only because visual inspection still shows
-overly stylized/striped behavior. No second reference renderer is required for
-the Task 011 trend comparison.
+overly stylized/striped behavior in the older replacement path. A follow-up
+ToyCar iOS Simulator run verifies authored clearcoat and transmission in one
+real GLB after the clearcoat backend changed to a translucent shared-geometry
+overlay that preserves the source PBR material. No second reference renderer
+is required for the Task 011 trend comparison.

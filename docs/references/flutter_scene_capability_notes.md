@@ -224,17 +224,19 @@ flutter test test/flutter_scene_material_extension_backend_test.dart --plain-nam
 
 Result: passed 1 focused visual-smoke test and wrote
 `tools/out/fsviewer_glass_matrix.png`. This is local host visual evidence for
-shader behavior only; iOS Simulator remains the 011 production evidence target
-and is recorded separately.
+candidate shader behavior only; iOS Simulator evidence is recorded separately,
+but package-local production support is not advertised after real-asset review.
 
 ## 2026-07-03 production clearcoat visual matrix candidate
 
-Task 011 upgraded `FSViewerClearcoat` to a lit `.fmat` material that fills the
-base `MaterialInputs` fields and adds a separate clearcoat lobe through
-`material.emissive`. The production runtime path now loads the shader and
-sidecar metadata into `PreprocessedMaterial`; direct `ShaderMaterial` rendering
-of a lit `.fmat` shader crashed the local Flutter tester because the lit
-engine uniform block is not bound by that wrapper.
+Task 011 upgraded `FSViewerClearcoat` to a lit `.fmat` material. Follow-up
+visual-quality hardening changed it from an opaque replacement material into a
+translucent shared-geometry overlay that preserves the source primitive's PBR
+material and adds a separate clearcoat lobe through `material.emissive`. The
+runtime path loads the shader and sidecar metadata into
+`PreprocessedMaterial`; direct `ShaderMaterial` rendering of a lit `.fmat`
+shader crashed the local Flutter tester because the lit engine uniform block is
+not bound by that wrapper.
 
 Local non-GPU verification ran:
 
@@ -253,9 +255,33 @@ flutter test test/flutter_scene_material_extension_backend_test.dart --plain-nam
 Result: passed 1 focused visual-smoke test and wrote
 `tools/out/fsviewer_clearcoat_matrix.png`. The matrix verifies clearcoat
 factor, clearcoat roughness, clearcoat texture influence, and clearcoat normal
-trends on the local host GPU path. This is still local host visual evidence;
-iOS Simulator remains the 011 production evidence target and is recorded
-separately.
+trends on the local host GPU path. This is still local host candidate evidence;
+iOS Simulator evidence is recorded separately, but package-local production
+support is not advertised after real-asset review.
+
+## 2026-07-04 ToyCar iOS Simulator real-asset candidate
+
+Follow-up visual-quality hardening used the Khronos ToyCar GLB because the same
+asset has authored clearcoat and transmission materials. The backend applies
+clearcoat to the ToyCar body through the translucent overlay path and applies
+transmission to the authored `Glass` node. This validates that the source PBR
+body material remains visible while the candidate glass shader is active in the
+same diagonal real-asset view.
+
+Actual iOS Simulator verification ran through the temporary
+`/private/tmp/fsviewer_ios_evidence_app` integration test:
+
+```sh
+flutter drive -d 10C2CF77-CBA8-4948-ADD5-24C49D375059 --driver=test_driver/ios_material_extension_evidence_test.dart --target=integration_test/ios_material_extension_evidence_test.dart --dart-define=FLUTTER_SCENE_GPU_TESTS=true --dart-define=FLUTTER_SCENE_VISUAL_SMOKE=true --enable-impeller --enable-flutter-gpu
+```
+
+Result: passed on the `iPhone 17` iOS Simulator and wrote
+`tools/out/fsviewer_ios_simulator_toycar_glass_clearcoat_baseline.png`,
+`tools/out/fsviewer_ios_simulator_toycar_glass_clearcoat_enhanced.png`,
+`tools/out/fsviewer_ios_simulator_toycar_glass_clearcoat_side_by_side.png`,
+and `tools/out/fsviewer_ios_simulator_toycar_glass_clearcoat.json`. Metrics:
+frame delta `0.8378311471193416`, color spread `249`, highlight `248`.
+Status remains `candidate-only`.
 
 ## 2026-07-03 shared GLB and three.js reference fixture candidate
 
@@ -290,7 +316,7 @@ three.js transmission spread increasing from `24` to `37`, IOR delta
 `32.43768240567021`, clearcoat highlight increasing from `242` to `244`, and
 rough clearcoat peak `242` below smooth peak `244`.
 
-## 2026-07-03 iOS Simulator production evidence status
+## 2026-07-03 iOS Simulator candidate evidence status
 
 The package-level focused test was run locally and still skipped because it
 executes in the host Flutter tester:
@@ -317,6 +343,10 @@ Recorded iOS Simulator metrics: glass transmission spread increased from `14`
 to `239`, IOR delta was `5.111805555555556`, clearcoat highlight increased
 from `242` to `254`, and rough clearcoat peak `250` stayed below smooth peak
 `254`.
+
+Follow-up real-asset review rejected the package-local glass and clearcoat
+paths as production visuals. These artifacts remain candidate evidence only;
+production support is not advertised by package-local shader preflight.
 
 macOS, Android, Web, and physical iOS device evidence are deferred/not run for
 Task 011.

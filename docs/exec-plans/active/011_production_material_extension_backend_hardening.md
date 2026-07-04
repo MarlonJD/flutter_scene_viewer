@@ -293,7 +293,7 @@ test('production preflight reports unavailable shaders', () async {
   expect(result.diagnostics.single.details['stage'], 'shaderPreflight');
 });
 
-test('production preflight advertises support when shaders load', () async {
+test('production preflight keeps local shaders candidate-only', () async {
   final backend = FlutterSceneMaterialExtensionBackend(
     loadShaderLibrary: (_) async => _FakeShaderLibrary(
       entries: <String>{
@@ -305,9 +305,10 @@ test('production preflight advertises support when shaders load', () async {
 
   final result = await backend.preflightProductionSupport();
 
-  expect(result.support.productionReady, isTrue);
-  expect(result.support.transmission, isTrue);
-  expect(result.support.clearcoat, isTrue);
+  expect(result.support.productionReady, isFalse);
+  expect(result.support.transmission, isFalse);
+  expect(result.support.clearcoat, isFalse);
+  expect(result.diagnostics.single.details['status'], 'candidate-only');
 });
 ```
 
@@ -1056,18 +1057,19 @@ match the Flutter visual matrix directionally.
 
 - [x] `ViewerMaterialExtensionPolicy.productionShaders()` exists and is
   documented.
-- [x] Production support is not advertised unless backend preflight succeeds.
+- [x] Production support is not advertised by package-local shaders; preflight
+  reports `candidate-only` until real production-quality capability exists.
 - [x] Shader load failures produce diagnostics and do not persist overrides.
 - [x] Glass supports multiple glass primitives and restores all state on reset,
   reload, and clear.
 - [x] Glass reports diagnostics for unsupported node isolation or nested glass
   cases instead of producing misleading output.
-- [x] Glass visual matrix proves transmission, IOR, thickness, roughness, and
-  normal influence.
+- [x] Glass visual matrix proves candidate transmission, IOR, thickness,
+  roughness, and normal influence on fixtures.
 - [x] Clearcoat shader preserves base PBR lighting and adds a separate coating
   lobe.
-- [x] Clearcoat visual matrix proves factor, roughness, texture, and normal
-  influence.
+- [x] Clearcoat visual matrix proves candidate factor, roughness, texture, and
+  normal influence on fixtures.
 - [x] `docs/references/material_extension_shader_reference.md` documents
   glTF/PBR behavior references, local shader approximations, and
   license/attribution boundaries.
@@ -1079,7 +1081,8 @@ match the Flutter visual matrix directionally.
 - [x] iOS Simulator evidence uses literal labels and does not overclaim.
 - [x] macOS, Android, Web, and physical iOS device are explicitly marked
   `not run` or deferred from 011.
-- [x] Docs call the backend production-supported only on verified targets.
+- [x] Docs keep package-local glass and clearcoat `candidate-only` and do not
+  advertise production support.
 
 ## Progress log
 
@@ -1212,6 +1215,26 @@ match the Flutter visual matrix directionally.
   the real textured GLB result still remains `candidate-only` because visual
   inspection shows clearcoat/detail artifacts rather than production-quality
   coated material behavior.
+- 2026-07-03: Final real-asset review rejected the package-local glass and
+  clearcoat paths as production visuals. Root cause: the current `flutter_scene`
+  material surface does not expose real transmission or clearcoat material
+  inputs, so package-local glass is bounded screen-space approximation and
+  package-local clearcoat must route a coating approximation through emissive.
+  The fix is to stop advertising production support from package-local shader
+  preflight. `productionShaders()` remains a production-intent policy, but
+  preflight now returns `candidate-only` diagnostics and unsupported support
+  until real upstream material-extension capability or a better renderer
+  contract exists.
+- 2026-07-04: Follow-up visual-quality hardening after real-model review. Root
+  cause evidence showed clearcoat replacement was overwriting the source GLB
+  material instead of preserving authored PBR detail. The backend now keeps the
+  source primitive material in place, adds a shared-geometry translucent
+  clearcoat overlay primitive, and restores that overlay on reset/clear. The
+  clearcoat `.fmat` changed from opaque replacement to alpha overlay. Glass
+  shader material setup now preserves `doubleSided` source culling by disabling
+  back-face culling only when the source material requests it. ToyCar iOS
+  Simulator evidence now renders authored glass and clearcoat together in one
+  diagonal real-asset view while keeping production support `candidate-only`.
 
 ## Verification log
 
@@ -1519,3 +1542,93 @@ match the Flutter visual matrix directionally.
   side-by-side artifact is
   `tools/out/fsviewer_ios_simulator_damaged_helmet_manual_clearcoat_side_by_side.png`.
   Visual status remains `candidate-only`, not `production-ready`.
+- 2026-07-03: verified red for final production-support downgrade:
+  `flutter test test/flutter_scene_material_extension_backend_test.dart
+  --plain-name "production preflight keeps local shaders candidate-only"`
+  failed before implementation because shader preflight still returned
+  `productionReady == true`.
+- 2026-07-03: verified locally after disabling package-local production
+  advertisement: the same focused preflight command passed, and
+  `flutter test test/material_extension_policy_test.dart
+  test/flutter_scene_adapter_material_test.dart test/viewer_widget_test.dart
+  test/viewer_controller_material_test.dart
+  test/flutter_scene_material_extension_backend_test.dart --plain-name
+  "production"` passed with five GPU-gated skips.
+- 2026-07-04: verified red for clearcoat overlay hardening: `flutter test
+  test/flutter_scene_material_extension_backend_test.dart --plain-name
+  "clearcoat"` failed before implementation because
+  `assets/materials/fsviewer_clearcoat.fmat` still used `blending: opaque` and
+  `clearcoat adds translucent overlay without replacing source material`
+  observed only one mesh primitive.
+- 2026-07-04: verified locally after clearcoat overlay hardening: `flutter test
+  test/flutter_scene_material_extension_backend_test.dart --plain-name
+  "clearcoat"` passed with four GPU-gated skips.
+- 2026-07-04: verified red for glass double-sided culling hardening: `flutter
+  test test/flutter_scene_material_extension_backend_test.dart --plain-name
+  "preserves double-sided source culling"` failed before implementation because
+  the glass `ShaderMaterial` still used `CullMode.backFace`.
+- 2026-07-04: verified locally after glass double-sided culling hardening:
+  `flutter test test/flutter_scene_material_extension_backend_test.dart
+  --plain-name "preserves double-sided source culling"` passed.
+- 2026-07-04: verified locally for focused backend behavior after the visual
+  quality changes: `flutter test
+  test/flutter_scene_material_extension_backend_test.dart --plain-name
+  "experimental"` passed with one GPU-gated skip.
+- 2026-07-04: attempted iOS Simulator ToyCar evidence once and rejected the
+  result as invalid because Xcode failed to build the updated integration test
+  (`RenderCameraFrame` import missing) and the previously installed
+  DamagedHelmet test app ran. After importing the internal render-frame type,
+  re-ran `flutter drive -d 10C2CF77-CBA8-4948-ADD5-24C49D375059
+  --driver=test_driver/ios_material_extension_evidence_test.dart
+  --target=integration_test/ios_material_extension_evidence_test.dart
+  --dart-define=FLUTTER_SCENE_GPU_TESTS=true
+  --dart-define=FLUTTER_SCENE_VISUAL_SMOKE=true --enable-impeller
+  --enable-flutter-gpu`; the `iOS Simulator ToyCar glass and clearcoat demo`
+  passed on the `iPhone 17` iOS Simulator. Metrics were frame delta
+  `0.8378311471193416`, color spread `249`, and highlight `248`. Artifacts:
+  `tools/out/fsviewer_ios_simulator_toycar_glass_clearcoat_baseline.png`,
+  `tools/out/fsviewer_ios_simulator_toycar_glass_clearcoat_enhanced.png`,
+  `tools/out/fsviewer_ios_simulator_toycar_glass_clearcoat_side_by_side.png`,
+  and `tools/out/fsviewer_ios_simulator_toycar_glass_clearcoat.json`.
+- 2026-07-04: verified final focused material regression bundle after the
+  visual-quality hardening: `flutter test test/material_effect_mask_test.dart
+  test/material_patch_test.dart test/viewer_controller_material_test.dart
+  test/material_base_family_test.dart test/material_extension_policy_test.dart
+  test/glb_material_extension_reader_test.dart
+  test/flutter_scene_material_extension_backend_test.dart
+  test/flutter_scene_adapter_material_test.dart test/viewer_widget_test.dart`
+  passed 114 tests with 10 GPU-gated skips after rerunning with escalation for
+  Flutter SDK cache access.
+- 2026-07-04: verified final repository checks after the visual-quality
+  hardening: `bash tools/run_checks.sh` passed repo lint, Dart format check,
+  `flutter pub get`, `flutter analyze`, and full `flutter test` with 183
+  passing tests and 13 GPU-gated skips; `python3 tools/repo_lint.py` passed;
+  `git diff --check` reported no whitespace errors.
+- 2026-07-04: ran the exact host-side GPU smoke command from this plan:
+  `flutter test test/flutter_scene_material_extension_backend_test.dart
+  --plain-name "ios simulator production material extension visual matrix"
+  --dart-define=FLUTTER_SCENE_GPU_TESTS=true
+  --dart-define=FLUTTER_SCENE_VISUAL_SMOKE=true --enable-impeller
+  --enable-flutter-gpu`. It completed with the test skipped because the
+  package test runner reported `current target is android`; the valid iOS
+  Simulator evidence for this follow-up remains the `flutter drive` ToyCar run
+  above.
+- 2026-07-04: verified final three.js reference comparison after the shared
+  fixture GLB existed: `npm install --prefix
+  tools/reference_renderers/threejs_material_extension_fixture` reported
+  `up to date`; the first sandboxed `npm run render --prefix
+  tools/reference_renderers/threejs_material_extension_fixture` failed with
+  `listen EPERM: operation not permitted 127.0.0.1`, then the escalated rerun
+  exited 0 and regenerated
+  `tools/out/reference_threejs_glass_matrix.png`,
+  `tools/out/reference_threejs_clearcoat_matrix.png`, and
+  `tools/out/material_extension_reference_metrics.json`. Final reference
+  metrics: glass transmission spread `24 -> 37`, IOR delta
+  `32.43768240567021`, clearcoat highlight `242 -> 244`, and rough clearcoat
+  peak `242` below smooth peak `244`.
+- 2026-07-04: verified browser-driven test hygiene after the three.js run:
+  `ps -axo pid,ppid,stat,command | egrep
+  'threejs-reference-chrome-profile|puppeteer|HeadlessChrome|Google
+  Chrome.*remote-debugging|webdriver'` showed no leftover test browser,
+  Puppeteer, webdriver, HeadlessChrome, or remote-debugging Chrome processes
+  beyond the check command itself.

@@ -69,22 +69,20 @@ MVP core material support:
 
 Transmission/glass support is a v1.0 release blocker. It requires real
 `KHR_materials_transmission`, `KHR_materials_ior`, and `KHR_materials_volume`
-behavior; the viewer must not present alpha blending as glass. A package-local
-shader backend is available behind
-`ViewerMaterialExtensionPolicy.productionShaders()`, with shader preflight,
-typed diagnostics, local visual-matrix evidence, and three.js reference trends.
-It has verified local iOS Simulator visual evidence for the 011 target scope;
-macOS, Android, Web, and physical iOS evidence remain deferred.
+behavior; the viewer must not present alpha blending as glass. Package-local
+shader fixture evidence exists, but the current backend remains candidate-only
+and does not advertise production support. ToyCar iOS Simulator evidence shows
+the candidate glass shader on a real authored transmission node; macOS,
+Android, Web, and physical iOS evidence remain deferred.
 
 Clearcoat support is also a v1.0 release blocker for automotive paint,
 varnished wood, carbon fiber, and premium coated surfaces. It requires real
 `KHR_materials_clearcoat`-style behavior; the viewer must not present lower
-roughness as clearcoat. A package-local lit clearcoat backend is available
-behind the same production policy opt-in, preserves base PBR lighting, and adds
-a separate coating lobe. It has verified local iOS Simulator shader-load and
-synthetic visual-matrix evidence, but real textured GLB evidence remains
-candidate-only and not production-ready; macOS, Android, Web, and physical iOS
-evidence remain deferred.
+roughness as clearcoat. A package-local lit clearcoat backend exists as
+candidate evidence, but it does not advertise production support. It has local
+iOS Simulator shader-load, synthetic visual-matrix, and ToyCar real-asset
+evidence, but production support is still not advertised; macOS, Android, Web,
+and physical iOS evidence remain deferred.
 
 Explicit non-goals for v1:
 
@@ -112,8 +110,8 @@ documentation, tooling, and validation checks are in place; the
 pre-release until runtime adapter checks pass and the transmission/glass and
 clearcoat release blockers are resolved with production-ready renderer
 evidence on the documented target scope or real upstream renderer support.
-As of Task 011, glass has local iOS Simulator evidence, while clearcoat is still
-candidate-only on real textured GLBs.
+As of Task 011, glass and clearcoat have local iOS Simulator candidate
+evidence, including ToyCar real-asset evidence, but are not production-ready.
 
 ## Development
 

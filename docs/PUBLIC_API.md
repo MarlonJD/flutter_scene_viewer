@@ -35,15 +35,15 @@ persisted. `ViewerMaterialExtensionPolicy.experimentalShaders()` opts into
 candidate transmission, IOR, and volume intent where the attached backend can
 honestly render it. `enableClearcoat` defaults to `false`; setting it to
 `true` opts into the candidate clearcoat shader backend.
-`ViewerMaterialExtensionPolicy.productionShaders()` is the production backend
-opt-in. It requests transmission/glass and clearcoat by default, but production
-support is not advertised until backend shader preflight and target checks pass
-for the attached viewer. The policy does not permit fake fallbacks: if a
+`ViewerMaterialExtensionPolicy.productionShaders()` is a production-intent
+policy, not a promise that package-local shaders are production-ready. It
+requests transmission/glass and clearcoat by default, but the current
+package-local preflight returns candidate-only diagnostics and does not
+advertise production support. The policy does not permit fake fallbacks: if a
 backend cannot render the requested feature, it must report
-`unsupportedMaterialFeature`. In Task 011 this opt-in remains
-iOS-Simulator-scoped; the iOS Simulator evidence table records local
-shader-load and visual-matrix evidence, while macOS, Android, Web, and
-physical iOS are not evaluated in 011.
+`unsupportedMaterialFeature`. In Task 011 the iOS Simulator evidence table
+records local shader-load and visual-matrix evidence, while macOS, Android,
+Web, and physical iOS are not evaluated.
 
 ```dart
 FlutterSceneViewer(
@@ -283,14 +283,14 @@ diagnostics and are not applied or persisted. Experimental policy keeps
 clearcoat disabled unless `enableClearcoat: true` is requested and the attached
 backend can load the candidate clearcoat shader. Production policy can allow
 clearcoat only after shader preflight and target support checks pass. The
-current internal backend implements a lit clearcoat `.fmat` material that
-preserves base PBR lighting and adds a separate coating lobe for clearcoat
-factor, clearcoat roughness, clearcoat texture, and clearcoat normal inputs.
-Lowering roughness must not be presented as clearcoat. Texture forms must still
-require authored UV0. The package-local backend has verified local iOS
-Simulator shader-load and synthetic visual-matrix evidence, but real textured
-GLB evidence remains candidate-only and not production-ready. Other targets
-remain deferred/not run.
+current internal backend implements a lit, translucent clearcoat `.fmat`
+overlay that preserves the source primitive material and adds a separate
+coating lobe for clearcoat factor, clearcoat roughness, clearcoat texture, and
+clearcoat normal inputs. Lowering roughness must not be presented as
+clearcoat. Texture forms must still require authored UV0. The package-local
+backend has verified local iOS Simulator shader-load, synthetic visual-matrix,
+and ToyCar real-asset evidence, but production support is still not advertised.
+Other targets remain deferred/not run.
 
 ## Material override persistence
 

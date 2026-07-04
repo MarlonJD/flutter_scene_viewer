@@ -29,10 +29,12 @@ glass geometry to be authored on separate nodes from opaque geometry.
 
 `MaterialPatch.clearcoat` maps to a separate coating lobe layered over the
 base metallic-roughness material. The local clearcoat shader does not lower
-the base roughness to fake a glossy finish. Instead, it fills
-`MaterialInputs.base_color`, `metallic`, `roughness`, `normal`, and
-`occlusion` for the base lit material and adds a separate coating contribution
-through `MaterialInputs.emissive`.
+the base roughness to fake a glossy finish. Instead, the backend keeps the
+source primitive's base material in place and draws a translucent clearcoat
+overlay primitive that shares the source geometry. The overlay shader emits a
+bounded coating contribution through `MaterialInputs.emissive` and alpha
+blending, so real GLB base color, metallic-roughness, normal, occlusion, and
+emissive detail remain owned by the original material.
 
 `MaterialPatch.clearcoatRoughness` controls only the coating lobe width and
 peak. Higher coating roughness broadens/reduces the added lobe without changing
@@ -45,16 +47,19 @@ normal for the coating lobe instead of recomputing from the geometric normal.
 The clearcoat contribution is a bounded analytic lobe in the package-local
 shader. It samples the engine prefiltered radiance, BRDF LUT, directional
 light, and shadow state, then routes the coating contribution through
-`material.emissive`. That routing is a local approximation used so the engine
-lit material path still owns base PBR lighting, tone mapping, and alpha output.
-Task 011 visual evidence checks trends rather than pixel parity: factor
-increases highlight strength, rougher clearcoat does not exceed the smooth
-peak, a clearcoat texture changes the frame, and a clearcoat normal map moves
-the coating highlight.
+`material.emissive` in the overlay material. That routing is a local
+approximation used so the engine lit material path still owns lighting,
+tone mapping, and premultiplied alpha output. Task 011 visual evidence checks
+trends rather than pixel parity: factor increases highlight strength, rougher
+clearcoat does not exceed the smooth peak, a clearcoat texture changes the
+frame, and a clearcoat normal map moves the coating highlight.
 Real textured GLB evidence is stricter than the synthetic matrix. The
 DamagedHelmet manual-clearcoat iOS Simulator run remains candidate-only because
-the current bounded additive lobe can still look overly stylized/striped on
-complex source materials.
+the older replacement path looked overly stylized/striped on complex source
+materials. A follow-up ToyCar iOS Simulator run verifies that the overlay path
+preserves the authored source material while adding visible glass and
+clearcoat effects, but package-local production support is still not
+advertised.
 
 Production clearcoat uses `flutter_scene` `.fmat` metadata through
 `PreprocessedMaterial`. A lit `.fmat` must use that material wrapper so the

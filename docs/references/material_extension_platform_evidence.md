@@ -2,9 +2,9 @@
 
 ## 011 Target
 
-| Target | Flutter renderer | Glass shader load | Glass visual matrix | Clearcoat shader load | Clearcoat visual matrix | Clearcoat real GLB | Status | Notes |
+| Target | Flutter renderer | Glass shader load | Glass visual matrix | Clearcoat shader load | Clearcoat visual matrix | Real-asset status | Status | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| iOS Simulator | Impeller + Flutter GPU | verified locally | verified locally | verified locally | verified locally | candidate-only | verified locally for glass; candidate-only for clearcoat real GLB | Primary 011 target. Evidence ran on the `iPhone 17` iOS Simulator through a temporary `integration_test` app that depends on this package by path. |
+| iOS Simulator | Impeller + Flutter GPU | verified locally | verified locally | verified locally | verified locally | candidate-only | candidate-only, production support not advertised | Primary 011 target evidence ran on the `iPhone 17` iOS Simulator through a temporary `integration_test` app that depends on this package by path. Fixture evidence and ToyCar real-asset evidence exist, but package-local production support is still not advertised. |
 
 ## Deferred Targets
 
@@ -33,7 +33,10 @@ flutter drive -d 10C2CF77-CBA8-4948-ADD5-24C49D375059 --driver=test_driver/ios_m
 ```
 
 Result: passed on the `iPhone 17` iOS Simulator for the glass and synthetic
-clearcoat visual matrices.
+clearcoat visual matrices. Follow-up ToyCar evidence passed on the same
+simulator with authored glass and clearcoat in one real GLB. This is evidence
+for candidate behavior only; package-local production support is not
+advertised.
 
 Artifacts:
 
@@ -46,6 +49,10 @@ tools/out/fsviewer_ios_simulator_damaged_helmet_manual_clearcoat_enhanced.png
 tools/out/fsviewer_ios_simulator_damaged_helmet_manual_clearcoat_diff.png
 tools/out/fsviewer_ios_simulator_damaged_helmet_manual_clearcoat.json
 tools/out/fsviewer_ios_simulator_damaged_helmet_manual_clearcoat_side_by_side.png
+tools/out/fsviewer_ios_simulator_toycar_glass_clearcoat_baseline.png
+tools/out/fsviewer_ios_simulator_toycar_glass_clearcoat_enhanced.png
+tools/out/fsviewer_ios_simulator_toycar_glass_clearcoat_side_by_side.png
+tools/out/fsviewer_ios_simulator_toycar_glass_clearcoat.json
 ```
 
 Recorded metrics:
@@ -53,7 +60,7 @@ Recorded metrics:
 ```json
 {
   "target": "iOS Simulator",
-  "status": "verified locally",
+  "status": "candidate-only",
   "platform": "iOS",
   "glass": {
     "transmission0Spread": 14,
@@ -73,6 +80,16 @@ Recorded metrics:
     "colorRegionSpread": 220,
     "clearcoatRegionHighlight": 235,
     "note": "Manual-clearcoat iOS Simulator evidence passes the smoke thresholds but still shows overly stylized/striped behavior on a real textured GLB, so it is not production-ready."
+  },
+  "realModelGlassAndClearcoat": {
+    "fixture": "ToyCar",
+    "status": "candidate-only",
+    "sourceAuthoredClearcoatExtension": true,
+    "sourceAuthoredTransmissionExtension": true,
+    "fullFrameMeanAbsoluteDelta": 0.8378311471193416,
+    "colorRegionSpread": 249,
+    "highlight": 248,
+    "note": "The follow-up iOS Simulator run preserves the ToyCar source PBR body material, adds a clearcoat overlay primitive, and applies the glass shader to the authored Glass node. This improves real-asset visual quality but remains candidate-only."
   }
 }
 ```

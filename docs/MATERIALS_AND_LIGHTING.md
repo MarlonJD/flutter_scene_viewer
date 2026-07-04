@@ -21,23 +21,23 @@ where requested, not an alpha-blended approximation. The current installed
 so the default viewer policy keeps glass diagnostic-only. `MaterialPatch`
 glass fields return `unsupportedMaterialFeature` diagnostics and are not
 applied or persisted unless an opt-in material extension backend advertises
-real transmission, IOR, and volume support. Task 011 adds
-`ViewerMaterialExtensionPolicy.productionShaders()` as the hardened shader
-backend opt-in. Task 011 has verified local iOS Simulator shader-load and
-visual-matrix evidence for this backend; other targets remain deferred/not run.
+real transmission, IOR, and volume support. Task 011 added package-local
+shader fixture evidence, but the backend remains candidate-only and does not
+advertise production support because real-asset material-extension review still
+keeps the package-local path candidate-only. Other targets remain deferred/not
+run.
 
 Clearcoat is also required before v1.0 release. It covers two-layer coated
 materials such as automotive paint, varnished wood, carbon fiber under gloss
 coat, and other premium product surfaces. It must mean real clearcoat behavior
 such as `KHR_materials_clearcoat`, not a fake fallback that only lowers base
 roughness or boosts environment intensity. Clearcoat remains diagnostic-only
-by default. Task 011 adds `ViewerMaterialExtensionPolicy.productionShaders()`
-as the hardened shader backend opt-in for a lit clearcoat material that
-preserves base PBR lighting and adds a separate coating lobe from clearcoat
+by default. Task 011 added a lit package-local clearcoat candidate that
+preserves base PBR lighting and adds a bounded coating lobe from clearcoat
 factor, clearcoat roughness, clearcoat textures, and clearcoat normal inputs.
-Task 011 has verified local iOS Simulator shader-load and synthetic
-visual-matrix evidence for this backend, but follow-up real textured GLB
-evidence remains candidate-only and not production-ready. Other targets remain
+It has local iOS Simulator shader-load and synthetic visual-matrix evidence,
+but follow-up real textured GLB evidence remains candidate-only and not
+production-ready, so production support is not advertised. Other targets remain
 deferred/not run. This is not claimed as upstream `flutter_scene` clearcoat
 support.
 
@@ -98,13 +98,16 @@ output.
 Clearcoat is candidate-only for real textured GLBs on iOS Simulator. The
 repository contains `assets/materials/fsviewer_clearcoat.fmat` and a
 production-policy-gated backend path that loads `FSViewerClearcoat` through
-generated `.fmat` metadata as a lit `PreprocessedMaterial`. Local GPU-gated
-verification captures a visual matrix for clearcoat factor, clearcoat
-roughness, texture influence, and clearcoat normal highlight movement. The
-same fixture GLB is compared directionally against a three.js reference render.
-This verifies shader wiring and trend direction, but a DamagedHelmet
-manual-clearcoat iOS Simulator run still shows overly stylized/striped
-behavior, so clearcoat must remain candidate-only rather than production-ready.
+generated `.fmat` metadata as a lit, translucent `PreprocessedMaterial`
+overlay. The backend keeps the source primitive material in place and adds a
+shared-geometry clearcoat overlay instead of replacing textured PBR. Local
+GPU-gated verification captures a visual matrix for clearcoat factor,
+clearcoat roughness, texture influence, and clearcoat normal highlight
+movement. The same fixture GLB is compared directionally against a three.js
+reference render. Follow-up ToyCar iOS Simulator evidence shows authored
+glass and clearcoat in one real GLB while preserving the base material, but
+package-local clearcoat still remains candidate-only rather than
+production-ready.
 macOS, Android, Web, and physical iOS evidence remain deferred/not run.
 
 ## Texture UV requirement
