@@ -627,10 +627,12 @@ final class FlutterSceneRuntimeAdapter implements FlutterSceneAdapter {
         clearcoatNormalTexture: loadedClearcoatNormalTexture?.texture,
       );
     }
+    var refreshMountedMesh = false;
     if (material is flutter_scene.PhysicallyBasedMaterial &&
         _requiresPbrFamilyReplacement(family, patch)) {
       material = _copyPbrMaterial(material);
       target.primitive.material = material;
+      refreshMountedMesh = true;
     }
     if (material is flutter_scene.PhysicallyBasedMaterial) {
       if (patch.baseColorFactor != null) {
@@ -677,6 +679,9 @@ final class FlutterSceneRuntimeAdapter implements FlutterSceneAdapter {
       if (patch.alphaMode != null) {
         material.alphaMode = _alphaMode(patch.alphaMode!);
       }
+    }
+    if (refreshMountedMesh) {
+      _refreshMountedMesh(target.node);
     }
     return const <ViewerDiagnostic>[];
   }
@@ -855,12 +860,24 @@ final class FlutterSceneRuntimeAdapter implements FlutterSceneAdapter {
   ) {
     if (!visible) {
       target.primitive.geometry = _HiddenPrimitiveGeometry.instance;
+      _refreshMountedMesh(target.node);
       return;
     }
     final original = _originalMaterials[address];
     if (original != null) {
       target.primitive.geometry = original.geometry;
+      _refreshMountedMesh(target.node);
     }
+  }
+
+  void _refreshMountedMesh(flutter_scene.Node node) {
+    final mesh = node.mesh;
+    if (mesh == null) {
+      return;
+    }
+    node.mesh = flutter_scene.Mesh.primitives(
+      primitives: List<flutter_scene.MeshPrimitive>.of(mesh.primitives),
+    );
   }
 
   List<String>? _nodePathFor(flutter_scene.Node target) {
@@ -1484,6 +1501,12 @@ final class _OriginalMaterialState {
     node.layers = layers;
     primitive.geometry = geometry;
     primitive.material = material;
+    final mesh = node.mesh;
+    if (mesh != null) {
+      node.mesh = flutter_scene.Mesh.primitives(
+        primitives: List<flutter_scene.MeshPrimitive>.of(mesh.primitives),
+      );
+    }
     final restoredMaterial = primitive.material;
     if (restoredMaterial is flutter_scene.PhysicallyBasedMaterial) {
       final baseColorFactor = this.baseColorFactor;
@@ -1538,11 +1561,47 @@ final class _OriginalMaterialState {
   }
 }
 
-final class _HiddenPrimitiveGeometry extends flutter_scene.Geometry {
+final class _HiddenPrimitiveGeometry {
   _HiddenPrimitiveGeometry._();
 
-  static final instance = _HiddenPrimitiveGeometry._();
+  static final flutter_scene.Geometry instance = _create();
 
+  static flutter_scene.Geometry _create() {
+    try {
+      final geometry = flutter_scene.MeshGeometry.fromArrays(
+        positions: Float32List.fromList(<double>[
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+        ]),
+        normals: Float32List.fromList(<double>[
+          0,
+          0,
+          1,
+          0,
+          0,
+          1,
+          0,
+          0,
+          1,
+        ]),
+        texCoords: Float32List(6),
+      );
+      geometry.setLocalBounds(null, null);
+      return geometry;
+    } on Exception {
+      return _NoopHiddenPrimitiveGeometry();
+    }
+  }
+}
+
+final class _NoopHiddenPrimitiveGeometry extends flutter_scene.Geometry {
   @override
   void bind(
     flutter_scene_gpu.RenderPass pass,

@@ -898,3 +898,36 @@ diagnostic support around the `flutter_scene` runtime importer.
   and showed `Load: success`, `Hierarchy: root=root parts=20`, and
   `Diagnostics: 6` for spec/IOR, back base-color, and internal mannequin repair
   diagnostics.
+- 2026-07-05: investigated the user's Glorvia runtime texture repro for A1B32
+  using the live product page. The page applies
+  `media/fabrics/dress/albedo/C28.jpg`,
+  `media/fabrics/dress/albedo/C28-back.jpg`, and
+  `media/fabrics/dress/normal/crepe-normal.jpg` with Babylon `uScale/vScale`
+  `2.50`. A local Three.js + `DRACOLoader` comparison confirmed that the
+  garment UVs extend outside the 0..1 range and that repeat scale is visually
+  important. Runtime `setPartMaterial` probes found that PBR-family replacement
+  patches updated the primitive but did not refresh the mounted
+  `flutter_scene` render item, so texture/factor overrides could report success
+  while the scene kept drawing stale material state. The adapter now refreshes
+  the mounted mesh wrapper after PBR family replacement patches and after
+  primitive visibility swaps/restores. The previous no-op hidden geometry also
+  broke iOS render passes once visibility refresh made it active; hidden
+  primitives now use a valid degenerate `MeshGeometry` on GPU-capable targets,
+  with a no-op fallback for GPU-less unit tests. Verified locally with
+  `flutter test test/flutter_scene_adapter_material_test.dart`. iOS Simulator
+  evidence for the Glorvia runtime texture assignment is stored at
+  `/private/tmp/fsviewer_ios_evidence_app/a1b32_glorvia_runtime_repeat25_a1_f.jpg`,
+  `/private/tmp/fsviewer_ios_evidence_app/a1b32_glorvia_runtime_repeat25_a1_fl.jpg`,
+  `/private/tmp/fsviewer_ios_evidence_app/a1b32_glorvia_runtime_repeat25_a1_l.jpg`,
+  `/private/tmp/fsviewer_ios_evidence_app/a1b32_glorvia_runtime_repeat25_a1_fr.jpg`,
+  and
+  `/private/tmp/fsviewer_ios_evidence_app/a1b32_glorvia_runtime_repeat25_a1_b.jpg`.
+  The temporary evidence app generates 2.5x tiled runtime texture bytes to
+  match the Glorvia/Babylon repeat behavior because the public API does not yet
+  expose texture transforms. Final verification for this slice:
+  `flutter test test/flutter_scene_adapter_material_test.dart
+  test/glb_imported_texture_patch_reader_test.dart
+  test/viewer_controller_material_test.dart`, `python3 tools/repo_lint.py`,
+  `git diff --check`, and `bash tools/run_checks.sh` all passed locally; the
+  full check ended with 261 passing tests and 13 expected Flutter GPU-gated
+  skips.

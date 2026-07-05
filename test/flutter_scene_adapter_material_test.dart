@@ -269,6 +269,7 @@ void main() {
         ],
       ),
     );
+    final originalMesh = root.mesh;
 
     final diagnostics = await debugApplyMaterialPatchToRoot(
       root,
@@ -278,9 +279,43 @@ void main() {
 
     expect(diagnostics, isEmpty);
     expect(root.visible, isTrue);
+    expect(root.mesh, isNot(same(originalMesh)));
     expect(root.mesh!.primitives.first.geometry, same(firstGeometry));
     expect(root.mesh!.primitives.last.geometry, isNot(same(secondGeometry)));
     expect(root.mesh!.primitives, hasLength(2));
+  });
+
+  test('opaque material patch refreshes mounted mesh wrapper', () async {
+    final originalMaterial = flutter_scene.PhysicallyBasedMaterial();
+    final root = flutter_scene.Node(
+      name: 'A1B32',
+      mesh: flutter_scene.Mesh.primitives(
+        primitives: <flutter_scene.MeshPrimitive>[
+          flutter_scene.MeshPrimitive(_StubGeometry(), originalMaterial),
+        ],
+      ),
+    );
+    final originalMesh = root.mesh;
+
+    final diagnostics = await debugApplyMaterialPatchToRoot(
+      root,
+      PartAddress(nodePath: <String>['A1B32'], primitiveIndex: 0),
+      MaterialPatch(
+        baseColorFactor: const <double>[1, 0, 0, 1],
+        alphaMode: MaterialAlphaMode.opaque,
+      ),
+    );
+
+    expect(diagnostics, isEmpty);
+    expect(root.mesh, isNot(same(originalMesh)));
+    final material = root.mesh!.primitives.single.material;
+    expect(material, isA<flutter_scene.PhysicallyBasedMaterial>());
+    expect(material, isNot(same(originalMaterial)));
+    final pbr = material as flutter_scene.PhysicallyBasedMaterial;
+    expect(pbr.baseColorFactor.r, 1);
+    expect(pbr.baseColorFactor.g, 0);
+    expect(pbr.baseColorFactor.b, 0);
+    expect(pbr.alphaMode, flutter_scene.AlphaMode.opaque);
   });
 }
 
