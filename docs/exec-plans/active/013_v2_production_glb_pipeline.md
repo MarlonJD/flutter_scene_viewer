@@ -931,3 +931,25 @@ diagnostic support around the `flutter_scene` runtime importer.
   `git diff --check`, and `bash tools/run_checks.sh` all passed locally; the
   full check ended with 261 passing tests and 13 expected Flutter GPU-gated
   skips.
+- 2026-07-05: corrected the A1B32 internal mannequin repair after simulator
+  review showed the material-level auto-hide removed visible neck and leg/foot
+  skin. `MAT_Body*` and `MAT_Legs*` are too coarse to hide as whole
+  primitives. The importer now keeps those primitives visible and emits an
+  actionable `unsupportedModelFeature` diagnostic with
+  `issue: internalMannequinBodyIntersectsGarment`, `status: diagnosticOnly`,
+  and a next step that recommends runtime opaque garment textures or future
+  geometry-level clipping. Updated the regression test to assert that
+  A1B32-style body/leg primitives do not receive `visible: false` patches.
+  Verified the user's Glorvia runtime texture repro again in the iOS Simulator:
+  front evidence with neck and feet preserved is stored at
+  `/private/tmp/fsviewer_ios_evidence_app/a1b32_glorvia_runtime_skin_preserved_front.jpg`;
+  back evidence is stored at
+  `/private/tmp/fsviewer_ios_evidence_app/a1b32_glorvia_runtime_skin_preserved_back.jpg`.
+  Final verification for this correction: the new regression test failed first
+  against the previous `visible: false` behavior, then passed after the
+  diagnostic-only change; `flutter test
+  test/glb_imported_texture_patch_reader_test.dart
+  test/flutter_scene_adapter_material_test.dart`, `python3 tools/repo_lint.py`,
+  `git diff --check`, and `bash tools/run_checks.sh` all passed locally. The
+  full check ended with 261 passing tests and 13 expected Flutter GPU-gated
+  skips.

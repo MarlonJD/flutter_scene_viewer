@@ -333,7 +333,7 @@ void main() {
     );
   });
 
-  test('hides A1B32-style internal body surfaces under opaque garments', () {
+  test('diagnoses A1B32-style internal body surfaces without hiding skin', () {
     final whiteFabricBytes = _pngHeader(colorType: 2);
     final blackDataMapBytes = _pngHeader(colorType: 2);
     final result = readGlbImportedTexturePatches(
@@ -436,7 +436,7 @@ void main() {
         primitiveIndex: 4,
       )]
           ?.visible,
-      isFalse,
+      isNull,
     );
     expect(
       result
@@ -445,11 +445,15 @@ void main() {
         primitiveIndex: 5,
       )]
           ?.visible,
-      isFalse,
+      isNull,
     );
     expect(
       result.diagnostics.map((diagnostic) => diagnostic.details['repair']),
-      contains('hideInternalMannequinBody'),
+      isNot(contains('hideInternalMannequinBody')),
+    );
+    expect(
+      result.diagnostics.map((diagnostic) => diagnostic.details['issue']),
+      contains('internalMannequinBodyIntersectsGarment'),
     );
   });
 

@@ -174,12 +174,12 @@ surfaces inside an opaque dress. Three.js reference isolation showed those
 internal `MAT_Body*` and `MAT_Legs*` primitives can protrude through or win
 depth tests against the repaired garment panels. When the GLB also matches the
 same white front fabric plus `R_0*` back data-map pattern, the importer emits
-`visible: false` authored patches for those internal body/leg primitives and
-adds `unsupportedModelFeature` diagnostics containing
-`repair: hideInternalMannequinBody`. The adapter applies visibility at the
-primitive slot by replacing the addressed primitive geometry with an empty
-no-op geometry, preserving node visibility and primitive indices for hierarchy,
-reset, and sibling primitives.
+`unsupportedModelFeature` diagnostics containing
+`issue: internalMannequinBodyIntersectsGarment`. It does not automatically
+hide those primitives because `MAT_Body*` and `MAT_Legs*` also contain visible
+neck, leg, or foot skin. Runtime opaque garment texture overrides or a future
+geometry-level clipping repair are the correct paths; material-level auto-hide
+is too coarse for this asset.
 
 Imported texture
 patches are created only for `textureInfo.texCoord` 0. Non-zero texCoord values

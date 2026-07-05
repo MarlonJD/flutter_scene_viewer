@@ -118,7 +118,7 @@ final class _GlbImportedTexturePatchMapper {
         patches[index] = patch;
       }
     }
-    for (final materialIndex in _a1b32InternalBodyRepairMaterialIndices(
+    for (final materialIndex in _a1b32InternalBodyRiskMaterialIndices(
       materials,
     )) {
       final material = _map(materials[materialIndex]);
@@ -127,24 +127,25 @@ final class _GlbImportedTexturePatchMapper {
         ViewerDiagnostic(
           code: ViewerDiagnosticCode.unsupportedModelFeature,
           message:
-              'Repaired imported GLB internal mannequin surface that intersects an opaque textile garment.',
+              'Imported GLB internal mannequin surface may intersect an opaque textile garment.',
           details: <String, Object?>{
             'source': debugName,
             'materialIndex': materialIndex,
             if (materialName != null) 'materialName': materialName,
-            'repair': 'hideInternalMannequinBody',
+            'issue': 'internalMannequinBodyIntersectsGarment',
             'reason':
-                'The asset matches an A1B32-style textile export where internal body or leg geometry protrudes through opaque garment panels.',
+                'The asset matches an A1B32-style textile export where internal body or leg geometry can protrude through opaque garment panels.',
+            'status': 'diagnosticOnly',
+            'nextStep':
+                'Use an opaque runtime garment texture or geometry-level clipping; material-level auto-hide is not applied because MAT_Body/MAT_Legs also contain visible neck, leg, or foot skin.',
           },
         ),
       );
-      patches[materialIndex] = (patches[materialIndex] ?? const MaterialPatch())
-          .merge(const MaterialPatch(visible: false));
     }
     return patches;
   }
 
-  Set<int> _a1b32InternalBodyRepairMaterialIndices(List<Object?> materials) {
+  Set<int> _a1b32InternalBodyRiskMaterialIndices(List<Object?> materials) {
     var hasOpaqueGarmentFront = false;
     var hasBackDataBaseColorRepair = false;
     final internalBodyIndices = <int>{};
