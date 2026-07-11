@@ -1,9 +1,39 @@
+import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_scene_viewer/flutter_scene_viewer.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('acceptance reference state matches studio environment defaults', () {
+    final referenceState = jsonDecode(
+      File(
+        'tools/material_extension_acceptance/fixtures/reference_state.json',
+      ).readAsStringSync(),
+    ) as Map<String, Object?>;
+    const environment = ViewerEnvironment.studio();
+
+    expect(referenceState['schemaVersion'], 1);
+    expect(
+      referenceState['environment'],
+      <String, Object?>{
+        'kind': 'studio',
+        'intensity': environment.intensity,
+        'rotationRadians': environment.rotationRadians,
+        'showSkybox': environment.showSkybox,
+        'skyboxBlur': environment.skyboxBlur,
+      },
+    );
+    expect(
+      referenceState['camera'],
+      <String, Object?>{
+        'fit': 'assetBounds',
+        'views': <String>['front', 'left', 'right', 'back'],
+      },
+    );
+  });
+
   test('studio environment defaults are const-friendly viewer defaults', () {
     const environment = ViewerEnvironment.studio();
 

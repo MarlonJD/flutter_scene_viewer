@@ -194,7 +194,9 @@ final class FlutterSceneRuntimeAdapter implements FlutterSceneAdapter {
         nativeCapability,
         shaderPreflight,
       );
-      if (!_productionMaterialExtensionSupport.productionReady) {
+      if (!_hasAvailableMaterialExtensionBackendFeatures(
+        _productionMaterialExtensionSupport,
+      )) {
         _diagnostics
           ..addAll(nativeCapability.diagnostics)
           ..addAll(shaderPreflight.diagnostics);
@@ -1699,19 +1701,26 @@ bool _usesMaterialExtensionBackendFor(
     }
   }
   if (patch.hasClearcoatOverride) {
-    return resolvedSupport.clearcoat;
+    return resolvedSupport
+        .supportFor(MaterialExtensionFeature.clearcoat)
+        .available;
   }
   if (!patch.hasGlassOverride) {
     return false;
   }
   return ((patch.transmission == null && patch.transmissionTexture == null) ||
-          resolvedSupport.transmission) &&
-      (patch.ior == null || resolvedSupport.ior) &&
+          resolvedSupport
+              .supportFor(MaterialExtensionFeature.transmission)
+              .available) &&
+      (patch.ior == null ||
+          resolvedSupport.supportFor(MaterialExtensionFeature.ior).available) &&
       ((patch.thickness == null &&
               patch.thicknessTexture == null &&
               patch.attenuationColor == null &&
               patch.attenuationDistance == null) ||
-          resolvedSupport.volume);
+          resolvedSupport
+              .supportFor(MaterialExtensionFeature.volume)
+              .available);
 }
 
 bool _usesNativeMaterialExtensionApplierFor(
@@ -1727,7 +1736,7 @@ bool _usesNativeMaterialExtensionApplierFor(
           ViewerMaterialExtensionMode.productionFlutterSceneShaders &&
       resolvedSupport.backendKind ==
           MaterialExtensionBackendKind.rendererNative &&
-      resolvedSupport.productionReady;
+      _supportsMaterialExtensionPatch(resolvedSupport, patch);
 }
 
 MaterialExtensionSupport _resolveProductionMaterialExtensionSupport(
@@ -1738,13 +1747,52 @@ MaterialExtensionSupport _resolveProductionMaterialExtensionSupport(
   ),
 ]) {
   final support = nativeCapability.support;
-  if (support.productionReady) {
+  if (support.backendKind == MaterialExtensionBackendKind.rendererNative &&
+      _hasAvailableMaterialExtensionBackendFeatures(support)) {
     return support;
   }
   final shaderSupport = shaderPreflight.support;
-  return shaderSupport.productionReady
+  return shaderSupport.backendKind ==
+              MaterialExtensionBackendKind.flutterSceneCustomShader &&
+          _hasAvailableMaterialExtensionBackendFeatures(shaderSupport)
       ? shaderSupport
       : MaterialExtensionSupport.unsupported;
+}
+
+bool _hasAvailableMaterialExtensionBackendFeatures(
+  MaterialExtensionSupport support,
+) =>
+    const <MaterialExtensionFeature>{
+      MaterialExtensionFeature.transmission,
+      MaterialExtensionFeature.ior,
+      MaterialExtensionFeature.volume,
+      MaterialExtensionFeature.clearcoat,
+    }.every((feature) => support.supportFor(feature).available);
+
+bool _supportsMaterialExtensionPatch(
+  MaterialExtensionSupport support,
+  MaterialPatch patch,
+) {
+  if (patch.hasClearcoatOverride &&
+      !support.supportFor(MaterialExtensionFeature.clearcoat).available) {
+    return false;
+  }
+  if ((patch.transmission != null || patch.transmissionTexture != null) &&
+      !support.supportFor(MaterialExtensionFeature.transmission).available) {
+    return false;
+  }
+  if (patch.ior != null &&
+      !support.supportFor(MaterialExtensionFeature.ior).available) {
+    return false;
+  }
+  if ((patch.thickness != null ||
+          patch.thicknessTexture != null ||
+          patch.attenuationColor != null ||
+          patch.attenuationDistance != null) &&
+      !support.supportFor(MaterialExtensionFeature.volume).available) {
+    return false;
+  }
+  return true;
 }
 
 @visibleForTesting

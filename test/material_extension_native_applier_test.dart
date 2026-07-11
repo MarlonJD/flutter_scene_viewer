@@ -3,11 +3,7 @@ import 'package:flutter_scene_viewer/src/internal/material_extension_native_appl
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  const rendererNativeSupport = MaterialExtensionSupport(
-    transmission: true,
-    ior: true,
-    volume: true,
-    clearcoat: true,
+  final rendererNativeSupport = _materialExtensionSupport(
     backendKind: MaterialExtensionBackendKind.rendererNative,
   );
 
@@ -57,11 +53,7 @@ void main() {
     final diagnostics = applyNativeMaterialExtensionPatch(
       material: material,
       patch: const MaterialPatch(transmission: 1.0),
-      support: const MaterialExtensionSupport(
-        transmission: true,
-        ior: true,
-        volume: true,
-        clearcoat: true,
+      support: _materialExtensionSupport(
         backendKind: MaterialExtensionBackendKind.packageLocalCandidate,
       ),
     );
@@ -71,6 +63,23 @@ void main() {
     expect(diagnostics.single.details['backendKind'], 'packageLocalCandidate');
     expect(material.transmissionFactor, isNull);
   });
+}
+
+MaterialExtensionSupport _materialExtensionSupport({
+  required MaterialExtensionBackendKind backendKind,
+}) {
+  return MaterialExtensionSupport(
+    backendKind: backendKind,
+    features: <MaterialExtensionFeature, MaterialExtensionFeatureSupport>{
+      for (final feature in <MaterialExtensionFeature>[
+        MaterialExtensionFeature.transmission,
+        MaterialExtensionFeature.ior,
+        MaterialExtensionFeature.volume,
+        MaterialExtensionFeature.clearcoat,
+      ])
+        feature: MaterialExtensionFeatureSupport(available: true),
+    },
+  );
 }
 
 final class FakeNativeMaterialExtensionMaterial

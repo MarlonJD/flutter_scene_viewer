@@ -37,6 +37,13 @@ The `fixtures/` files are small tracked inputs for the comparator unit test.
 They mirror the reviewed iOS Simulator and reference-renderer metrics without
 depending on ignored `tools/out/` artifacts being present in every checkout.
 
+`fixtures/reference_state.json` is the required fixed camera, environment, and
+lighting configuration for later material captures. Its schema is checked
+against the `ViewerLighting.studio()` and `ViewerEnvironment.studio()` defaults
+so evidence cannot drift silently. The complete ownership and visual-trend
+contract is documented in
+[`docs/references/pbr_material_acceptance.md`](../../docs/references/pbr_material_acceptance.md).
+
 ## Evidence Rules
 
 Passing the manifest coverage test only proves the corpus roles are defined.
@@ -45,3 +52,9 @@ Production promotion for the current scope requires
 Khronos Sample Viewer directional reference comparison, and clear evidence
 labels for any target beyond iOS Simulator. Physical iOS remains not run until
 device evidence is collected.
+
+Every capture must record the reference-state schema version, camera view,
+pinned `flutter_scene` revision, target, renderer backend, tone-mapping mode,
+and source artifact. Comparisons with Khronos Sample Viewer or three.js are
+directional and are never pixel-parity claims. A GPU or visual target that was
+not executed remains `not run`.

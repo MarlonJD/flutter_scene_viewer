@@ -10,6 +10,7 @@ import 'internal/glb_imported_texture_patch_reader.dart';
 import 'internal/glb_material_extension_reader.dart';
 import 'internal/glb_meshopt_rewriter.dart';
 import 'internal/glb_native_decoder_probe.dart';
+import 'internal/material_extension_patch_group.dart';
 import 'material_extension_policy.dart';
 import 'material_patch.dart';
 import 'material_shading_mode.dart';
@@ -43,7 +44,9 @@ final class ModelLoadResult {
     this.meshCount,
     this.materialCount,
     this.primitiveCount,
-    this.authoredMaterialPatches = const <PartAddress, MaterialPatch>{},
+    this.authoredCoreMaterialPatches = const <PartAddress, MaterialPatch>{},
+    this.authoredExtensionMaterialPatches =
+        const <PartAddress, Map<MaterialExtensionPatchGroup, MaterialPatch>>{},
   }) : diagnostic = null;
 
   const ModelLoadResult.failure(
@@ -56,7 +59,9 @@ final class ModelLoadResult {
         meshCount = null,
         materialCount = null,
         primitiveCount = null,
-        authoredMaterialPatches = const <PartAddress, MaterialPatch>{};
+        authoredCoreMaterialPatches = const <PartAddress, MaterialPatch>{},
+        authoredExtensionMaterialPatches = const <PartAddress,
+            Map<MaterialExtensionPatchGroup, MaterialPatch>>{};
 
   final ViewerDiagnostic? diagnostic;
   final List<ViewerDiagnostic> diagnostics;
@@ -67,7 +72,9 @@ final class ModelLoadResult {
   final int? meshCount;
   final int? materialCount;
   final int? primitiveCount;
-  final Map<PartAddress, MaterialPatch> authoredMaterialPatches;
+  final Map<PartAddress, MaterialPatch> authoredCoreMaterialPatches;
+  final Map<PartAddress, Map<MaterialExtensionPatchGroup, MaterialPatch>>
+      authoredExtensionMaterialPatches;
 
   bool get isSuccess => diagnostic == null;
 }
@@ -237,10 +244,6 @@ final class ModelLoader {
             debugName: loaded.debugName,
           )
         : GlbImportedTexturePatchResult.empty;
-    final authoredMaterialPatches = _mergeMaterialPatchMaps(
-      importedTexturePatchResult.patches,
-      authoredExtensionResult.patches,
-    );
     final preImportDiagnostics = <ViewerDiagnostic>[
       ...meshoptRewriteDiagnostics,
       ...nativeDecoderDiagnostics,
@@ -248,6 +251,14 @@ final class ModelLoader {
       ...importedTexturePatchResult.diagnostics,
       ...authoredExtensionResult.diagnostics,
     ];
+    final blockingTextureBindingDiagnostic =
+        _blockingTextureBindingDiagnostic(preImportDiagnostics);
+    if (blockingTextureBindingDiagnostic != null) {
+      return ModelLoadResult.failure(
+        blockingTextureBindingDiagnostic,
+        diagnostics: preImportDiagnostics,
+      );
+    }
 
     try {
       await adapter
@@ -303,7 +314,8 @@ final class ModelLoader {
       materialCount: adapterStats?.materialCount,
       primitiveCount:
           adapterStats?.primitiveCount ?? fallbackStats?.primitiveCount,
-      authoredMaterialPatches: authoredMaterialPatches,
+      authoredCoreMaterialPatches: importedTexturePatchResult.patches,
+      authoredExtensionMaterialPatches: authoredExtensionResult.patches,
     );
   }
 
@@ -507,6 +519,21 @@ ViewerDiagnostic? _blockingCapabilityDiagnostic(
   return null;
 }
 
+ViewerDiagnostic? _blockingTextureBindingDiagnostic(
+  List<ViewerDiagnostic> diagnostics,
+) {
+  for (final diagnostic in diagnostics) {
+    if (diagnostic.details['blocking'] != true) {
+      continue;
+    }
+    if (diagnostic.details['required'] == true ||
+        diagnostic.details['status'] == 'malformedAsset') {
+      return diagnostic;
+    }
+  }
+  return null;
+}
+
 ViewerDiagnostic? _nativeDiagnosticFor(
   ViewerDiagnostic blockingDiagnostic,
   List<ViewerDiagnostic> nativeDiagnostics,
@@ -597,23 +624,4 @@ ViewerDiagnostic _meshoptRewriteDiagnostic(String? source) {
       'status': 'rewriteFailed',
     },
   );
-}
-
-Map<PartAddress, MaterialPatch> _mergeMaterialPatchMaps(
-  Map<PartAddress, MaterialPatch> first,
-  Map<PartAddress, MaterialPatch> second,
-) {
-  if (first.isEmpty) {
-    return second;
-  }
-  if (second.isEmpty) {
-    return first;
-  }
-  final result = <PartAddress, MaterialPatch>{...first};
-  for (final entry in second.entries) {
-    final existing = result[entry.key];
-    result[entry.key] =
-        existing == null ? entry.value : existing.merge(entry.value);
-  }
-  return Map<PartAddress, MaterialPatch>.unmodifiable(result);
 }

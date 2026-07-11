@@ -11,6 +11,59 @@ const int _maxJsonChunkBytes = 8 * 1024 * 1024;
 const String _dracoExtension = 'KHR_draco_mesh_compression';
 const String _meshoptExtension = 'EXT_meshopt_compression';
 const String _basisuExtension = 'KHR_texture_basisu';
+const String _textureTransformExtension = 'KHR_texture_transform';
+
+final class GlbPrimitiveTextureContext {
+  const GlbPrimitiveTextureContext({
+    required this.meshIndex,
+    required this.primitiveIndex,
+    required this.materialIndex,
+    required this.availableTexCoords,
+    required this.textureTransformRequired,
+  });
+
+  final int meshIndex;
+  final int primitiveIndex;
+  final int? materialIndex;
+  final Set<int> availableTexCoords;
+  final bool textureTransformRequired;
+}
+
+GlbPrimitiveTextureContext readGlbPrimitiveTextureContext({
+  required Map<String, Object?> primitive,
+  required Set<String> extensionsRequired,
+  int meshIndex = -1,
+  int primitiveIndex = -1,
+}) {
+  final availableTexCoords = <int>{};
+  void collect(Object? rawAttributes) {
+    final attributes = _map(rawAttributes);
+    if (attributes == null) {
+      return;
+    }
+    for (final name in attributes.keys) {
+      if (!name.startsWith('TEXCOORD_')) {
+        continue;
+      }
+      final texCoord = int.tryParse(name.substring('TEXCOORD_'.length));
+      if (texCoord != null && texCoord >= 0) {
+        availableTexCoords.add(texCoord);
+      }
+    }
+  }
+
+  collect(primitive['attributes']);
+  final extensions = _map(primitive['extensions']);
+  collect(_map(extensions?[_dracoExtension])?['attributes']);
+  return GlbPrimitiveTextureContext(
+    meshIndex: meshIndex,
+    primitiveIndex: primitiveIndex,
+    materialIndex: _intValue(primitive['material']),
+    availableTexCoords: Set<int>.unmodifiable(availableTexCoords),
+    textureTransformRequired:
+        extensionsRequired.contains(_textureTransformExtension),
+  );
+}
 
 final class GlbDecoderCapabilities {
   const GlbDecoderCapabilities({
@@ -82,6 +135,7 @@ final class GlbAssetCapabilityResult {
     this.basisuTextureCount = 0,
     this.materialExtensionCounts = const <String, int>{},
     this.textureSlots = const <GlbTextureSlot>[],
+    this.primitiveTextureContexts = const <GlbPrimitiveTextureContext>[],
     this.diagnostics = const <ViewerDiagnostic>[],
   });
 
@@ -93,6 +147,7 @@ final class GlbAssetCapabilityResult {
   final int basisuTextureCount;
   final Map<String, int> materialExtensionCounts;
   final List<GlbTextureSlot> textureSlots;
+  final List<GlbPrimitiveTextureContext> primitiveTextureContexts;
   final List<ViewerDiagnostic> diagnostics;
 }
 
@@ -124,15 +179,30 @@ GlbAssetCapabilityResult readGlbAssetCapabilities(
   final bin = jsonResult.bin;
 
   var primitiveCount = 0;
+  final primitiveTextureContexts = <GlbPrimitiveTextureContext>[];
   final compressedPrimitiveCounts = <String, int>{};
-  for (final rawMesh in meshes) {
+  for (var meshIndex = 0; meshIndex < meshes.length; meshIndex += 1) {
+    final rawMesh = meshes[meshIndex];
     final primitives = _list(_map(rawMesh)?['primitives']);
     if (primitives == null) {
       continue;
     }
     primitiveCount += primitives.length;
-    for (final rawPrimitive in primitives) {
-      final extensions = _map(_map(rawPrimitive)?['extensions']);
+    for (var primitiveIndex = 0;
+        primitiveIndex < primitives.length;
+        primitiveIndex += 1) {
+      final primitive = _map(primitives[primitiveIndex]);
+      if (primitive != null) {
+        primitiveTextureContexts.add(
+          readGlbPrimitiveTextureContext(
+            primitive: primitive,
+            extensionsRequired: extensionsRequired,
+            meshIndex: meshIndex,
+            primitiveIndex: primitiveIndex,
+          ),
+        );
+      }
+      final extensions = _map(primitive?['extensions']);
       if (extensions?.containsKey(_dracoExtension) ?? false) {
         compressedPrimitiveCounts[_dracoExtension] =
             (compressedPrimitiveCounts[_dracoExtension] ?? 0) + 1;
@@ -260,13 +330,7 @@ GlbAssetCapabilityResult readGlbAssetCapabilities(
     );
   }
 
-  final diagnostics = <ViewerDiagnostic>[
-    ..._missingUvDiagnostics(
-      meshes: meshes,
-      textureSlots: textureSlots,
-      debugName: debugName,
-    ),
-  ];
+  final diagnostics = <ViewerDiagnostic>[];
   final dracoPrimitiveCount = compressedPrimitiveCounts[_dracoExtension] ?? 0;
   _addUnsupportedDecoderDiagnostic(
     diagnostics,
@@ -331,6 +395,8 @@ GlbAssetCapabilityResult readGlbAssetCapabilities(
     materialExtensionCounts:
         Map<String, int>.unmodifiable(materialExtensionCounts),
     textureSlots: List<GlbTextureSlot>.unmodifiable(textureSlots),
+    primitiveTextureContexts:
+        List<GlbPrimitiveTextureContext>.unmodifiable(primitiveTextureContexts),
     diagnostics: List<ViewerDiagnostic>.unmodifiable(diagnostics),
   );
 }
@@ -375,80 +441,6 @@ void _addTextureSlot(
       texCoord: _intValue(textureInfo?['texCoord']) ?? 0,
     ),
   );
-}
-
-List<ViewerDiagnostic> _missingUvDiagnostics({
-  required List<Object?> meshes,
-  required List<GlbTextureSlot> textureSlots,
-  required String? debugName,
-}) {
-  if (textureSlots.isEmpty || meshes.isEmpty) {
-    return const <ViewerDiagnostic>[];
-  }
-  final slotsByMaterial = <int, List<GlbTextureSlot>>{};
-  for (final slot in textureSlots) {
-    slotsByMaterial.putIfAbsent(slot.materialIndex, () => <GlbTextureSlot>[]);
-    slotsByMaterial[slot.materialIndex]!.add(slot);
-  }
-
-  final diagnostics = <ViewerDiagnostic>[];
-  for (var meshIndex = 0; meshIndex < meshes.length; meshIndex += 1) {
-    final primitives = _list(_map(meshes[meshIndex])?['primitives']);
-    if (primitives == null) {
-      continue;
-    }
-    for (var primitiveIndex = 0;
-        primitiveIndex < primitives.length;
-        primitiveIndex += 1) {
-      final primitive = _map(primitives[primitiveIndex]);
-      final materialIndex = _intValue(primitive?['material']);
-      if (materialIndex == null) {
-        continue;
-      }
-      final materialSlots = slotsByMaterial[materialIndex];
-      if (materialSlots == null || materialSlots.isEmpty) {
-        continue;
-      }
-      final slotsByUvSet = <int, List<String>>{};
-      for (final slot in materialSlots) {
-        if (_primitiveHasTexCoord(primitive, slot.texCoord)) {
-          continue;
-        }
-        slotsByUvSet.putIfAbsent(slot.texCoord, () => <String>[]);
-        slotsByUvSet[slot.texCoord]!.add(slot.slot);
-      }
-      for (final entry in slotsByUvSet.entries) {
-        diagnostics.add(
-          ViewerDiagnostic(
-            code: ViewerDiagnosticCode.missingUvSet,
-            message: 'Imported GLB texture requires missing UV coordinates.',
-            details: <String, Object?>{
-              'source': debugName,
-              'meshIndex': meshIndex,
-              'primitiveIndex': primitiveIndex,
-              'materialIndex': materialIndex,
-              'uvSet': entry.key,
-              'textureSlots': List<String>.unmodifiable(entry.value),
-            },
-          ),
-        );
-      }
-    }
-  }
-  return diagnostics;
-}
-
-bool _primitiveHasTexCoord(Map<String, Object?>? primitive, int texCoord) {
-  final attributeName = 'TEXCOORD_$texCoord';
-  final attributes = _map(primitive?['attributes']);
-  if (attributes?.containsKey(attributeName) ?? false) {
-    return true;
-  }
-  final extensions = _map(primitive?['extensions']);
-  final dracoAttributes = _map(
-    _map(extensions?[_dracoExtension])?['attributes'],
-  );
-  return dracoAttributes?.containsKey(attributeName) ?? false;
 }
 
 Map<String, Object?> _basisuKtx2Details({

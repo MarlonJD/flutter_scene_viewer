@@ -81,6 +81,12 @@ decoded image payloads back to the root Dart GLB rewrite path before
 `flutter_scene` import. Full visual evidence for KTX2 samples still belongs to
 the V2 validation pass.
 
+The bounded ingestion/compression baseline is recorded in completed
+[Plan 013](exec-plans/completed/013_v2_production_glb_pipeline.md). The single
+canonical follow-up for selected glTF material, texture, sampler, and
+compression extension correctness is active
+[Plan 014](exec-plans/active/014_selected_gltf_extension_support.md).
+
 Already-built raw HDR/EXR and Poly Haven environment paths may remain if they
 work, and they may be completed as bounded advanced opt-in environment sources.
 They are still not the default product workflow: no implicit network downloads,

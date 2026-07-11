@@ -63,10 +63,15 @@ for `KHR_materials_transmission`, `KHR_materials_ior`,
 Current `flutter_scene_viewer` glass and clearcoat patch fields are therefore
 diagnostic-only by default, and the viewer does not pretend upstream
 `flutter_scene` exposes native extension fields. Task 012 accepts the
-repo-owned custom shader backend as the current production route for verified
-targets: production policy can route opted-in glass and clearcoat intent
-through package-local custom shader paths after shader preflight, while
-upstream renderer/importer support remains a future PR path.
+repo-owned custom shader backend as a package-local candidate: the
+source-compatible `productionShaders()` policy can route opted-in glass and
+clearcoat intent through package-local custom shader paths after shader
+preflight. Preflight proves availability and routing only; it does not establish
+Khronos correctness, target evidence, or physical-device release readiness.
+The candidate maturity and target evidence fields are separate. Historical iOS
+Simulator evidence is `verified locally`, while the static policy records
+evidence as `not run` and claims no release target. Upstream renderer/importer
+support remains a future PR path.
 
 ## 2026-07-03 `.fmat` packaging smoke
 
@@ -117,9 +122,9 @@ flutter test test/flutter_scene_material_extension_backend_test.dart --dart-defi
 ```
 
 Result: passed 1 test. This proves minimal `.fmat` shader build/load evidence.
-At the time it was not production glass support. Task 012 supersedes that
-status for the verified iOS Simulator scope by accepting the repo-owned custom
-shader backend after shader preflight and real-asset/reference evidence.
+It is shader availability/routing evidence, not production glass support.
+Later iOS Simulator real-asset/reference runs are durable evidence `verified
+locally`, but the repo-owned custom shader backend remains `candidate-only`.
 
 ## 2026-07-03 experimental transmission backend smoke
 
@@ -227,7 +232,7 @@ Result: passed 1 focused visual-smoke test and wrote
 `tools/out/fsviewer_glass_matrix.png`. This is local host visual evidence for
 the package-local shader behavior. iOS Simulator evidence is recorded
 separately; Task 012 uses that evidence plus acceptance metrics for the
-`flutterSceneCustomShader` production scope.
+`flutterSceneCustomShader` candidate scope.
 
 ## 2026-07-03 production clearcoat visual matrix candidate
 
@@ -258,8 +263,8 @@ Result: passed 1 focused visual-smoke test and wrote
 `tools/out/fsviewer_clearcoat_matrix.png`. The matrix verifies clearcoat
 factor, clearcoat roughness, clearcoat texture influence, and clearcoat normal
 trends on the local host GPU path. This is still local host candidate evidence;
-iOS Simulator evidence is recorded separately and is the scoped production
-evidence used by Task 012 for `backendKind: flutterSceneCustomShader`.
+iOS Simulator evidence is recorded separately as `verified locally` for the
+`candidate-only` `backendKind: flutterSceneCustomShader` path.
 
 ## 2026-07-04 ToyCar iOS Simulator real-asset evidence
 
@@ -284,7 +289,9 @@ Result: passed on the `iPhone 17` iOS Simulator and wrote
 and `tools/out/fsviewer_ios_simulator_toycar_glass_clearcoat.json`. Metrics:
 frame delta `0.8378311471193416`, color spread `249`, highlight `248`.
 Task 011 recorded this as candidate evidence; Task 012 supersedes that status
-for the verified iOS Simulator scope.
+with additional acceptance metrics but not with physical-device or release
+evidence. The maturity remains `candidate-only` and the simulator evidence is
+`verified locally`.
 
 ## 2026-07-03 shared GLB and three.js reference fixture candidate
 
@@ -348,12 +355,12 @@ from `242` to `254`, and rough clearcoat peak `250` stayed below smooth peak
 `254`.
 
 Follow-up real-asset review initially kept the package-local glass and
-clearcoat paths as candidate visuals. Task 012 supersedes that decision by
-accepting the repo-owned custom shader backend as the production path for the
-verified iOS Simulator scope.
+clearcoat paths as candidate visuals. Task 012 added acceptance evidence, but
+the repo-owned custom shader backend remains `candidate-only`; the iOS
+Simulator record is `verified locally`.
 
-macOS, Android, Web, and physical iOS device evidence are deferred/not run for
-Task 011.
+Physical iOS, Android material rendering, and Web material rendering remain
+`not run`.
 
 ## 2026-07-04 transmission shader source hardening
 

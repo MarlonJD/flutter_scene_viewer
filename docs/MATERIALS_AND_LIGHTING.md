@@ -21,13 +21,16 @@ where requested, not an alpha-blended approximation. The current installed
 so the default viewer policy keeps glass diagnostic-only. `MaterialPatch`
 glass fields return `unsupportedMaterialFeature` diagnostics and are not
 applied or persisted unless an opt-in material extension backend advertises
-real transmission, IOR, and volume support. Production support is provided by
-the repository-owned `flutterSceneCustomShader` backend after shader preflight
-and target evidence checks pass. The current implementation is bounded
+real transmission, IOR, and volume support. The repository-owned
+`flutterSceneCustomShader` backend is a `candidate-only` implementation with
+iOS Simulator evidence `verified locally`. Shader preflight proves package
+shader availability and routing, not Khronos correctness or physical-device
+release readiness. The current implementation is bounded
 screen-space refraction with IOR-derived Fresnel energy splitting,
 Beer-Lambert-style attenuation color/distance, thickness, and roughness
 trends; it is not nested glass, order-independent transparency, or full
-path-traced volume transport. Other targets remain deferred/not run.
+path-traced volume transport. Physical iOS, Android material rendering, and
+Web material rendering remain `not run`.
 
 Clearcoat is also required before v1.0 release. It covers two-layer coated
 materials such as automotive paint, varnished wood, carbon fiber under gloss
@@ -38,13 +41,14 @@ by default. Task 011 added a lit package-local clearcoat candidate that
 preserves base PBR lighting and adds a bounded coating lobe from clearcoat
 factor, clearcoat roughness, clearcoat textures, and clearcoat normal inputs.
 It has local iOS Simulator shader-load and synthetic visual-matrix evidence,
-follow-up ToyCar evidence, and production acceptance metrics for the
+follow-up ToyCar evidence, and candidate acceptance metrics for the
 `flutterSceneCustomShader` backend. The overlay keeps the source material in
 place, adds the coating response on top, and attenuates the visible base layer
 with a clearcoat Fresnel energy-loss term so the result behaves more like a
 thin coat over the base material rather than an unrelated highlight pass.
 Upstream renderer-native `flutter_scene` clearcoat remains a future integration
-path, not the current production gate. Other targets remain deferred/not run.
+path. Physical iOS, Android material rendering, and Web material rendering
+remain `not run`.
 
 PBR and lit/unlit are separate concepts. PBR describes the material parameter
 model and available inputs such as base color, metallic, roughness, normal,
@@ -75,12 +79,16 @@ Material extension policy is capability-aware. The default policy is
 diagnostics-only, so unsupported glass and clearcoat requests are rejected
 before persistence. Experimental policy may let transmission/glass intent reach
 an attached candidate backend, and may let clearcoat intent reach the candidate
-clearcoat shader when `enableClearcoat: true` is set. Production policy is an
-explicit opt-in for the repository-owned custom shader backend. Package-local
+clearcoat shader when `enableClearcoat: true` is set. The source-compatible
+`productionShaders()` policy name is an explicit opt-in for the repository-owned
+custom shader candidate. Package-local
 shader preflight reports `backendKind: flutterSceneCustomShader` when the
-required shader bundle entries are available, and that backend kind can report
-`productionReady` for the verified target scope. Experimental policy still uses
-`backendKind: packageLocalCandidate` and cannot report production readiness.
+required shader bundle entries are available. Preflight does not change feature
+maturity or target evidence: package-local features remain `candidate-only`,
+the static policy records target evidence as `not run`, and no release target
+is claimed. Historical iOS Simulator runs remain durable evidence records
+labeled `verified locally`; they are not invented by the policy constructor.
+Experimental policy still uses `backendKind: packageLocalCandidate`.
 The backend must still report diagnostics rather than fall back to alpha blend
 or roughness changes when it cannot render the requested feature.
 
@@ -94,9 +102,10 @@ fixture. The shader keeps surface reflection separate from transmitted
 background energy with an IOR-based Fresnel term, applies attenuation as
 `attenuationColor^(thickness / attenuationDistance)`, and outputs
 premultiplied RGB for the alpha-blended pass. The same fixture GLB is compared
-directionally against a three.js reference render. Task 012 keeps production
-scope to verified local iOS Simulator evidence for the bounded glass backend;
-macOS, Android, Web, and physical iOS evidence remain deferred/not run.
+directionally against a three.js reference render. The package-local backend
+remains `candidate-only` while its iOS Simulator evidence is `verified locally`;
+physical iOS, Android material rendering, and Web material rendering remain
+`not run`.
 
 The current background-capture path isolates glass at node layer granularity.
 For production glass evidence, authored GLB assets should place glass geometry
@@ -106,8 +115,8 @@ diagnostic with `limitation: nodeLayerIsolation` rather than hiding the
 node's other primitives from the background pass and producing misleading
 output.
 
-Clearcoat production support for the current verified scope uses the
-repository-owned custom shader backend. The repository contains
+The repository-owned custom shader clearcoat path remains `candidate-only`.
+The repository contains
 `assets/materials/fsviewer_clearcoat.fmat` and a production-policy-gated path
 that loads `FSViewerClearcoat` through generated `.fmat` metadata as a lit,
 translucent `PreprocessedMaterial` overlay. The backend keeps the source
@@ -120,8 +129,9 @@ directionally against a three.js reference render. Follow-up ToyCar iOS
 Simulator evidence shows authored glass and clearcoat in one real GLB while
 preserving the base material. GlassVaseFlowers and ClearCoatCarPaint are now
 required corpus references for visual acceptance against Khronos/three.js
-rendering direction.
-macOS, Android, Web, and physical iOS evidence remain deferred/not run.
+rendering direction. Its iOS Simulator evidence is `verified locally`;
+physical iOS, Android material rendering, and Web material rendering remain
+`not run`.
 
 ## Texture UV requirement
 

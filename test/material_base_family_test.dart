@@ -57,7 +57,7 @@ void main() {
     );
   });
 
-  test('glass fields win over alpha mask and blend', () {
+  test('transmission and volume fields win over alpha mask and blend', () {
     expect(
       resolveMaterialBaseFamily(
         const MaterialPatch(
@@ -71,7 +71,7 @@ void main() {
       resolveMaterialBaseFamily(
         const MaterialPatch(
           alphaMode: MaterialAlphaMode.blend,
-          ior: 1.45,
+          thickness: 0.02,
         ),
       ),
       MaterialBaseFamily.realisticGlass,
@@ -87,6 +87,22 @@ void main() {
       expect(
           resolveMaterialBaseFamily(patch), MaterialBaseFamily.realisticGlass);
     }
+  });
+
+  test('opaque IOR does not resolve to the realistic glass family', () {
+    expect(
+      resolveMaterialBaseFamily(const MaterialPatch(ior: 1.45)),
+      MaterialBaseFamily.opaque,
+    );
+    expect(
+      resolveMaterialBaseFamily(
+        const MaterialPatch(
+          alphaMode: MaterialAlphaMode.blend,
+          ior: 1.45,
+        ),
+      ),
+      MaterialBaseFamily.translucentBlend,
+    );
   });
 
   test('clearcoat-only patch remains opaque until clearcoat shader support',

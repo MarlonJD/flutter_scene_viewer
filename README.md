@@ -70,20 +70,23 @@ MVP core material support:
 Transmission/glass support is a v1.0 release blocker. It requires real
 `KHR_materials_transmission`, `KHR_materials_ior`, and `KHR_materials_volume`
 behavior; the viewer must not present alpha blending as glass. The
-repository-owned `flutterSceneCustomShader` backend is the production path for
-the verified iOS Simulator scope after shader preflight and evidence checks.
+repository-owned `flutterSceneCustomShader` backend is a `candidate-only` path
+with iOS Simulator evidence `verified locally`. Shader preflight proves that
+the package shader entries load and can be routed; it does not prove Khronos
+correctness or physical-device release readiness.
 It remains bounded screen-space glass, not nested glass, order-independent
-transparency, caustics, or path-traced volume transport. macOS, Android, Web,
-and physical iOS evidence remain deferred/not run.
+transparency, caustics, or path-traced volume transport. Physical iOS,
+Android material rendering, and Web material rendering remain `not run`.
 
 Clearcoat support is also a v1.0 release blocker for automotive paint,
 varnished wood, carbon fiber, and premium coated surfaces. It requires real
 `KHR_materials_clearcoat`-style behavior; the viewer must not present lower
 roughness as clearcoat. The repository-owned lit clearcoat `.fmat` overlay is
-the production path for the verified iOS Simulator scope after shader preflight
-and evidence checks. Renderer-native upstream clearcoat remains a future
-integration path. macOS, Android, Web, and physical iOS evidence remain
-deferred/not run.
+a `candidate-only` path with iOS Simulator evidence `verified locally`.
+Preflight establishes shader availability and routing only; release maturity
+and target evidence are tracked separately. Renderer-native upstream clearcoat
+remains a future integration path. Physical iOS, Android material rendering,
+and Web material rendering remain `not run`.
 
 Explicit non-goals for v1:
 
@@ -111,9 +114,10 @@ documentation, tooling, and validation checks are in place; the
 pre-release until runtime adapter checks pass and the transmission/glass and
 clearcoat release blockers are resolved with production-ready evidence on each
 documented target scope or real upstream renderer support. As of Task 012,
-glass and clearcoat have verified local iOS Simulator evidence for the
-repo-owned `flutterSceneCustomShader` backend; physical iOS, macOS, Android,
-and Web remain deferred/not run.
+package-local glass and clearcoat remain `candidate-only` and have iOS
+Simulator evidence `verified locally` for the repo-owned
+`flutterSceneCustomShader` backend. Physical iOS, Android material rendering,
+and Web material rendering remain `not run`.
 
 ## Development
 

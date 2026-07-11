@@ -60,6 +60,8 @@ Out of scope for v1:
 
 - Keep `README.md` lean. Put detailed explanations in focused `.md` files and
   link to them from the README instead of expanding the README.
+- For PBR, BRDF/BTDF, material, lighting, IBL, glass, clearcoat, Filament,
+  Karis, or Frostbite questions, use the repo-local `pbr-materials` skill.
 
 ## Verification commands
 

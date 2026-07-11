@@ -4,7 +4,10 @@ import 'dart:typed_data';
 import '../diagnostics.dart';
 import '../material_patch.dart';
 import '../part_address.dart';
+import '../texture_binding.dart';
 import '../texture_source.dart';
+import 'glb_capability_reader.dart';
+import 'glb_texture_binding_reader.dart';
 import 'ktx2_header_reader.dart';
 
 const int _glbMagic = 0x46546C67;
@@ -147,7 +150,7 @@ final class _GlbImportedTexturePatchMapper {
 
   Set<int> _a1b32InternalBodyRiskMaterialIndices(List<Object?> materials) {
     var hasOpaqueGarmentFront = false;
-    var hasBackDataBaseColorRepair = false;
+    var hasBackDataBaseColorRisk = false;
     final internalBodyIndices = <int>{};
     for (var index = 0; index < materials.length; index += 1) {
       final material = _map(materials[index]);
@@ -166,14 +169,14 @@ final class _GlbImportedTexturePatchMapper {
               normalizedName.endsWith('back')) &&
           (_baseColorImageName(material)?.toLowerCase().startsWith('r_0') ??
               false)) {
-        hasBackDataBaseColorRepair = true;
+        hasBackDataBaseColorRisk = true;
       }
       if (normalizedName.startsWith('mat_body') ||
           normalizedName.startsWith('mat_legs')) {
         internalBodyIndices.add(index);
       }
     }
-    if (!hasOpaqueGarmentFront || !hasBackDataBaseColorRepair) {
+    if (!hasOpaqueGarmentFront || !hasBackDataBaseColorRisk) {
       return const <int>{};
     }
     return internalBodyIndices;
@@ -191,8 +194,7 @@ final class _GlbImportedTexturePatchMapper {
       slot: 'baseColorTexture',
       materialName: materialName,
     );
-    final alphaMode = _alphaMode(material['alphaMode']) ??
-        _inferredBaseColorAlphaMode(baseColorTexture);
+    final alphaMode = _alphaMode(material['alphaMode']);
     final metallicRoughnessTexture = _textureSource(
       _map(pbr?['metallicRoughnessTexture']),
       materialIndex: materialIndex,
@@ -233,51 +235,33 @@ final class _GlbImportedTexturePatchMapper {
     );
   }
 
-  MaterialAlphaMode? _inferredBaseColorAlphaMode(TextureSource? texture) {
-    if (texture is! BytesTextureSource) {
-      return null;
-    }
-    return _pngDeclaresAlphaChannel(texture.encodedBytes)
-        ? MaterialAlphaMode.blend
-        : null;
-  }
-
   TextureSource? _textureSource(
     Map<String, Object?>? textureInfo, {
     required int materialIndex,
     required String slot,
     String? materialName,
   }) {
-    final textureIndex = _intValue(textureInfo?['index']);
-    if (textureIndex == null) {
+    if (textureInfo == null) {
       return null;
     }
-    final texCoord = _intValue(textureInfo?['texCoord']) ?? 0;
-    if (texCoord != 0) {
-      diagnostics.add(
-        _textureDiagnostic(
-          materialIndex: materialIndex,
-          textureIndex: textureIndex,
-          slot: slot,
-          reason:
-              'Role-aware imported texture patches currently support only TEXCOORD_0.',
-          uvSet: texCoord,
-        ),
-      );
-      return null;
-    }
-    final textures = _list(json['textures']);
-    if (textures == null ||
+    final textureIndex = _intValue(textureInfo['index']);
+    final textures = _list(json['textures']) ?? const <Object?>[];
+    if (textureIndex == null ||
         textureIndex < 0 ||
         textureIndex >= textures.length) {
-      diagnostics.add(
-        _textureDiagnostic(
-          materialIndex: materialIndex,
-          textureIndex: textureIndex,
-          slot: slot,
-          reason: 'Texture index is outside the glTF textures array.',
-        ),
+      final malformed = readGlbTextureBinding(
+        textureInfo: textureInfo,
+        textures: textures,
+        samplers: _list(json['samplers']) ?? const <Object?>[],
+        source: const AssetTextureSource('__unresolved_glb_texture__'),
+        availableTexCoords: const <int>{0},
+        textureTransformRequired:
+            (_list(json['extensionsRequired']) ?? const <Object?>[])
+                .contains('KHR_texture_transform'),
+        slot: slot,
+        debugName: debugName ?? 'GLB',
       );
+      diagnostics.addAll(malformed.diagnostics);
       return null;
     }
     final texture = _map(textures[textureIndex]);
@@ -319,7 +303,7 @@ final class _GlbImportedTexturePatchMapper {
     if (imageBytes == null) {
       return null;
     }
-    if (_shouldRepairTextileDataBaseColor(
+    if (_shouldDiagnoseTextileDataBaseColor(
       slot: slot,
       materialName: materialName,
       imageIndex: imageIndex,
@@ -329,7 +313,7 @@ final class _GlbImportedTexturePatchMapper {
         ViewerDiagnostic(
           code: ViewerDiagnosticCode.unsupportedModelFeature,
           message:
-              'Repaired imported GLB base-color texture that appears to be a textile data map.',
+              'Imported GLB base-color texture appears to be a textile data map.',
           details: <String, Object?>{
             'source': debugName,
             'materialIndex': materialIndex,
@@ -338,15 +322,14 @@ final class _GlbImportedTexturePatchMapper {
             'imageIndex': imageIndex,
             if (imageName != null) 'imageName': imageName,
             'textureSlot': slot,
-            'repair': 'neutralWhiteBaseColor',
+            'issue': 'textileDataMapAuthoredAsBaseColor',
+            'status': 'diagnosticOnly',
             'reason':
                 'The texture is named like an R_0 data/mask map but is authored in baseColorTexture on a back-side textile material.',
+            'nextStep':
+                'Correct the authored baseColorTexture assignment in the source asset; the viewer preserves the authored texture bytes.',
           },
         ),
-      );
-      return TextureSource.bytes(
-        _neutralWhitePngBytes(),
-        debugName: 'glb-texture:$textureIndex:$slot:neutral-white',
       );
     }
     return TextureSource.bytes(
@@ -355,7 +338,7 @@ final class _GlbImportedTexturePatchMapper {
     );
   }
 
-  bool _shouldRepairTextileDataBaseColor({
+  bool _shouldDiagnoseTextileDataBaseColor({
     required String slot,
     required String? materialName,
     required int imageIndex,
@@ -679,6 +662,14 @@ final class _GlbImportedTexturePatchMapper {
       if (patch == null) {
         continue;
       }
+      final boundPatch = _bindPatchForPrimitive(
+        materialIndex: materialIndex,
+        primitive: primitive ?? const <String, Object?>{},
+        patch: patch,
+      );
+      if (boundPatch.isEmpty) {
+        continue;
+      }
       _candidates.add(
         _PatchCandidate(
           address: PartAddress(
@@ -686,10 +677,91 @@ final class _GlbImportedTexturePatchMapper {
             primitiveIndex: primitiveIndex,
           ),
           nodePathKey: nodePathKey,
-          patch: patch,
+          patch: boundPatch,
         ),
       );
     }
+  }
+
+  MaterialPatch _bindPatchForPrimitive({
+    required int materialIndex,
+    required Map<String, Object?> primitive,
+    required MaterialPatch patch,
+  }) {
+    final materials = _list(json['materials']) ?? const <Object?>[];
+    final material = materialIndex >= 0 && materialIndex < materials.length
+        ? _map(materials[materialIndex])
+        : null;
+    final pbr = _map(material?['pbrMetallicRoughness']);
+    final context = readGlbPrimitiveTextureContext(
+      primitive: primitive,
+      extensionsRequired: Set<String>.from(
+        (_list(json['extensionsRequired']) ?? const <Object?>[])
+            .whereType<String>(),
+      ),
+    );
+    final textures = _list(json['textures']) ?? const <Object?>[];
+    final samplers = _list(json['samplers']) ?? const <Object?>[];
+
+    MaterialTextureBinding? bind(
+      Map<String, Object?>? textureInfo,
+      TextureSource? source,
+      String slot,
+    ) {
+      if (textureInfo == null || source == null) {
+        return null;
+      }
+      final result = readGlbTextureBinding(
+        textureInfo: textureInfo,
+        textures: textures,
+        samplers: samplers,
+        source: source,
+        availableTexCoords: context.availableTexCoords,
+        textureTransformRequired: context.textureTransformRequired,
+        slot: slot,
+        debugName: debugName ?? 'GLB',
+      );
+      diagnostics.addAll(result.diagnostics);
+      return result.binding;
+    }
+
+    final baseColorBinding = bind(
+      _map(pbr?['baseColorTexture']),
+      patch.baseColorTexture,
+      'baseColorTexture',
+    );
+    final metallicRoughnessBinding = bind(
+      _map(pbr?['metallicRoughnessTexture']),
+      patch.metallicRoughnessTexture,
+      'metallicRoughnessTexture',
+    );
+    final normalBinding = bind(
+      _map(material?['normalTexture']),
+      patch.normalTexture,
+      'normalTexture',
+    );
+    final occlusionBinding = bind(
+      _map(material?['occlusionTexture']),
+      patch.occlusionTexture,
+      'occlusionTexture',
+    );
+    final emissiveBinding = bind(
+      _map(material?['emissiveTexture']),
+      patch.emissiveTexture,
+      'emissiveTexture',
+    );
+    return MaterialPatch(
+      baseColorTextureBinding: baseColorBinding,
+      metallicRoughnessTextureBinding: metallicRoughnessBinding,
+      normalTextureBinding: normalBinding,
+      normalScale: normalBinding == null ? null : patch.normalScale,
+      occlusionTextureBinding: occlusionBinding,
+      occlusionStrength:
+          occlusionBinding == null ? null : patch.occlusionStrength,
+      emissiveTextureBinding: emissiveBinding,
+      alphaMode: patch.alphaMode,
+      alphaCutoff: patch.alphaCutoff,
+    );
   }
 
   ViewerDiagnostic _textureDiagnostic({
@@ -880,44 +952,6 @@ MaterialAlphaMode? _alphaMode(Object? value) {
     'BLEND' => MaterialAlphaMode.blend,
     _ => null,
   };
-}
-
-bool _pngDeclaresAlphaChannel(Uint8List bytes) {
-  const signature = <int>[
-    0x89,
-    0x50,
-    0x4E,
-    0x47,
-    0x0D,
-    0x0A,
-    0x1A,
-    0x0A,
-  ];
-  if (bytes.lengthInBytes < 33) {
-    return false;
-  }
-  for (var index = 0; index < signature.length; index += 1) {
-    if (bytes[index] != signature[index]) {
-      return false;
-    }
-  }
-  final data = ByteData.sublistView(bytes);
-  final ihdrLength = data.getUint32(8, Endian.big);
-  if (ihdrLength < 13 ||
-      bytes[12] != 0x49 ||
-      bytes[13] != 0x48 ||
-      bytes[14] != 0x44 ||
-      bytes[15] != 0x52) {
-    return false;
-  }
-  final colorType = bytes[25];
-  return colorType == 4 || colorType == 6;
-}
-
-Uint8List _neutralWhitePngBytes() {
-  return base64Decode(
-    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4//8/AAX+Av4N70a4AAAAAElFTkSuQmCC',
-  );
 }
 
 List<int>? _intList(Object? value) {

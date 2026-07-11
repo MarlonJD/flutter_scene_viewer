@@ -65,6 +65,29 @@ void main() {
     expect(const MaterialPatch().isEmpty, isTrue);
   });
 
+  test('MaterialPatch distinguishes opaque IOR from transmission and volume',
+      () {
+    expect(const MaterialPatch(ior: 1.5).hasGlassOverride, isFalse);
+    expect(const MaterialPatch(ior: 1.5).hasOpaqueIorOverride, isTrue);
+    expect(
+      const MaterialPatch(ior: 1.5).hasTransmissionOrVolumeOverride,
+      isFalse,
+    );
+    expect(
+      const MaterialPatch(transmission: 1, ior: 1.5).hasGlassOverride,
+      isTrue,
+    );
+    expect(
+      const MaterialPatch(transmission: 1, ior: 1.5)
+          .hasTransmissionOrVolumeOverride,
+      isTrue,
+    );
+    expect(
+      const MaterialPatch(transmission: 1, ior: 1.5).hasOpaqueIorOverride,
+      isFalse,
+    );
+  });
+
   test('MaterialPatch reports invalid metallic and roughness values', () {
     const patch = MaterialPatch(
       metallic: 1.2,
@@ -300,6 +323,124 @@ void main() {
     expect(roundTripped.specularColorFactor, <double>[0.2, 0.3, 0.4]);
     expect(roundTripped.specularColorTexture, isA<AssetTextureSource>());
     expect(roundTripped.visible, isFalse);
+  });
+
+  test('MaterialPatch serializes binding fields to JSON and back', () {
+    final binding = MaterialTextureBinding(
+      source: const TextureSource.asset('assets/fabric.png'),
+      transform: TextureTransform(scale: <double>[2.5, 2.5]),
+    );
+    final patch = MaterialPatch(
+      baseColorTextureBinding: binding,
+      metallicRoughnessTextureBinding: binding,
+      normalTextureBinding: binding,
+      occlusionTextureBinding: binding,
+      emissiveTextureBinding: binding,
+      transmissionTextureBinding: binding,
+      thicknessTextureBinding: binding,
+      clearcoatTextureBinding: binding,
+      clearcoatRoughnessTextureBinding: binding,
+      clearcoatNormalTextureBinding: binding,
+      specularTextureBinding: binding,
+      specularColorTextureBinding: binding,
+    );
+
+    final json = patch.toJson();
+    final roundTripped = MaterialPatch.fromJson(json);
+
+    expect(json.keys.where((key) => key.endsWith('TextureBinding')),
+        hasLength(12));
+    expect(roundTripped.baseColorTextureBinding, isNotNull);
+    expect(roundTripped.metallicRoughnessTextureBinding, isNotNull);
+    expect(roundTripped.normalTextureBinding, isNotNull);
+    expect(roundTripped.occlusionTextureBinding, isNotNull);
+    expect(roundTripped.emissiveTextureBinding, isNotNull);
+    expect(roundTripped.transmissionTextureBinding, isNotNull);
+    expect(roundTripped.thicknessTextureBinding, isNotNull);
+    expect(roundTripped.clearcoatTextureBinding, isNotNull);
+    expect(roundTripped.clearcoatRoughnessTextureBinding, isNotNull);
+    expect(roundTripped.clearcoatNormalTextureBinding, isNotNull);
+    expect(roundTripped.specularTextureBinding, isNotNull);
+    expect(roundTripped.specularColorTextureBinding, isNotNull);
+  });
+
+  test('MaterialPatch keeps source-only JSON structurally unchanged', () {
+    const patch = MaterialPatch(
+      baseColorTexture: TextureSource.asset('assets/albedo.png'),
+      normalTexture: TextureSource.asset('assets/normal.png'),
+    );
+
+    expect(patch.toJson(), <String, Object?>{
+      'baseColorTexture': <String, Object?>{
+        'type': 'asset',
+        'assetPath': 'assets/albedo.png',
+      },
+      'normalTexture': <String, Object?>{
+        'type': 'asset',
+        'assetPath': 'assets/normal.png',
+      },
+    });
+  });
+
+  test('MaterialPatch normalizes source-only slots to default bindings', () {
+    const patch = MaterialPatch(
+      normalTexture: TextureSource.asset('assets/normal.png'),
+    );
+
+    final binding = patch.textureBindingFor(MaterialTextureSlot.normal);
+
+    expect(binding, isNotNull);
+    expect(binding!.source, same(patch.normalTexture));
+    expect(binding.texCoord, 0);
+    expect(binding.sampler.wrapS, TextureWrapMode.repeat);
+    expect(binding.sampler.wrapT, TextureWrapMode.repeat);
+    expect(binding.sampler.magFilter, isNull);
+    expect(binding.sampler.minFilter, isNull);
+    expect(binding.transform, same(TextureTransform.identity));
+  });
+
+  test('MaterialPatch reports source and binding slot conflicts', () {
+    final patch = MaterialPatch(
+      baseColorTexture: const TextureSource.asset('assets/source_albedo.png'),
+      baseColorTextureBinding: MaterialTextureBinding(
+        source: const TextureSource.asset('assets/binding_albedo.png'),
+      ),
+    );
+
+    final diagnostics = patch.validate(
+      PartAddress(
+        nodePath: const <String>['Root', 'Fabric'],
+        primitiveIndex: 0,
+      ),
+    );
+
+    expect(diagnostics, hasLength(1));
+    expect(
+      diagnostics.single.code,
+      ViewerDiagnosticCode.invalidMaterialOverride,
+    );
+    expect(diagnostics.single.details['slot'], 'baseColor');
+    expect(diagnostics.single.details['sourceField'], 'baseColorTexture');
+    expect(
+      diagnostics.single.details['bindingField'],
+      'baseColorTextureBinding',
+    );
+  });
+
+  test('MaterialPatch JSON rejects source and binding slot conflicts', () {
+    final binding = MaterialTextureBinding(
+      source: const TextureSource.asset('assets/binding_albedo.png'),
+    );
+
+    expect(
+      () => MaterialPatch.fromJson(<String, Object?>{
+        'baseColorTexture': const TextureSource.asset(
+          'assets/source_albedo.png',
+        ).toJson(),
+        'baseColorTextureBinding': binding.toJson(),
+      }),
+      throwsFormatException,
+    );
   });
 
   test('MaterialPatch serializes explicit alpha modes to JSON and back', () {

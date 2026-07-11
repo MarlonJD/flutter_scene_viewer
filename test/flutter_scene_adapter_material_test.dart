@@ -98,13 +98,9 @@ void main() {
 
   test('adapter resolves production support from custom shader preflight', () {
     final candidate = debugResolveProductionMaterialExtensionSupport(
-      const NativeMaterialExtensionCapability(
-        support: MaterialExtensionSupport(
-          transmission: true,
-          ior: true,
-          volume: true,
-          clearcoat: true,
-          backendKind: MaterialExtensionBackendKind.packageLocalCandidate,
+      NativeMaterialExtensionCapability(
+        support: _materialExtensionSupport(
+          MaterialExtensionBackendKind.packageLocalCandidate,
         ),
       ),
     );
@@ -112,35 +108,27 @@ void main() {
       const NativeMaterialExtensionCapability(
         support: MaterialExtensionSupport.unsupported,
       ),
-      const MaterialExtensionPreflightResult(
-        support: MaterialExtensionSupport(
-          transmission: true,
-          ior: true,
-          volume: true,
-          clearcoat: true,
-          backendKind: MaterialExtensionBackendKind.flutterSceneCustomShader,
+      MaterialExtensionPreflightResult(
+        support: _materialExtensionSupport(
+          MaterialExtensionBackendKind.flutterSceneCustomShader,
         ),
       ),
     );
     final native = debugResolveProductionMaterialExtensionSupport(
-      const NativeMaterialExtensionCapability(
-        support: MaterialExtensionSupport(
-          transmission: true,
-          ior: true,
-          volume: true,
-          clearcoat: true,
-          backendKind: MaterialExtensionBackendKind.rendererNative,
+      NativeMaterialExtensionCapability(
+        support: _materialExtensionSupport(
+          MaterialExtensionBackendKind.rendererNative,
         ),
       ),
     );
 
     expect(candidate, MaterialExtensionSupport.unsupported);
-    expect(customShader.productionReady, isTrue);
+    expect(customShader.productionReady, isFalse);
     expect(
       customShader.backendKind,
       MaterialExtensionBackendKind.flutterSceneCustomShader,
     );
-    expect(native.productionReady, isTrue);
+    expect(native.productionReady, isFalse);
     expect(
       native.backendKind,
       MaterialExtensionBackendKind.rendererNative,
@@ -150,12 +138,8 @@ void main() {
   test('production custom shader support uses package local backend', () {
     const policy = ViewerMaterialExtensionPolicy.productionShaders();
     const patch = MaterialPatch(transmission: 1.0, ior: 1.45);
-    const support = MaterialExtensionSupport(
-      transmission: true,
-      ior: true,
-      volume: true,
-      clearcoat: true,
-      backendKind: MaterialExtensionBackendKind.flutterSceneCustomShader,
+    final support = _materialExtensionSupport(
+      MaterialExtensionBackendKind.flutterSceneCustomShader,
     );
 
     expect(
@@ -175,12 +159,8 @@ void main() {
   test('production renderer native support bypasses package local backend', () {
     const policy = ViewerMaterialExtensionPolicy.productionShaders();
     const patch = MaterialPatch(transmission: 1.0, ior: 1.45);
-    const support = MaterialExtensionSupport(
-      transmission: true,
-      ior: true,
-      volume: true,
-      clearcoat: true,
-      backendKind: MaterialExtensionBackendKind.rendererNative,
+    final support = _materialExtensionSupport(
+      MaterialExtensionBackendKind.rendererNative,
     );
 
     expect(
@@ -317,6 +297,23 @@ void main() {
     expect(pbr.baseColorFactor.b, 0);
     expect(pbr.alphaMode, flutter_scene.AlphaMode.opaque);
   });
+}
+
+MaterialExtensionSupport _materialExtensionSupport(
+  MaterialExtensionBackendKind backendKind,
+) {
+  return MaterialExtensionSupport(
+    backendKind: backendKind,
+    features: <MaterialExtensionFeature, MaterialExtensionFeatureSupport>{
+      for (final feature in <MaterialExtensionFeature>[
+        MaterialExtensionFeature.transmission,
+        MaterialExtensionFeature.ior,
+        MaterialExtensionFeature.volume,
+        MaterialExtensionFeature.clearcoat,
+      ])
+        feature: MaterialExtensionFeatureSupport(available: true),
+    },
+  );
 }
 
 final class _StubGeometry extends flutter_scene.Geometry {

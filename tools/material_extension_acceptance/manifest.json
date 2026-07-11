@@ -7,6 +7,17 @@
     "Khronos Sample Viewer or three.js reference renders define the intended visual direction for staged assets.",
     "UV0/TEXCOORD_0 is required for every texture-bearing extension input."
   ],
+  "referenceState": {
+    "path": "tools/material_extension_acceptance/fixtures/reference_state.json",
+    "schemaVersion": 1,
+    "requiredViews": [
+      "front",
+      "left",
+      "right",
+      "back"
+    ],
+    "comparison": "directional-not-pixel-parity"
+  },
   "assets": [
     {
       "id": "glass_vase_flowers",

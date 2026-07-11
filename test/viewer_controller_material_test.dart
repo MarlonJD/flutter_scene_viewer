@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:flutter_scene_viewer/flutter_scene_viewer.dart';
+import 'package:flutter_scene_viewer/src/internal/material_extension_patch_group.dart';
 import 'package:flutter_scene_viewer/src/model_loader.dart';
 import 'package:flutter_scene_viewer/src/viewer_controller.dart'
     show ViewerCommandSink;
@@ -106,6 +107,28 @@ void main() {
     expect(controller.materialOverrides.patchFor(address), isNull);
     expect(controller.diagnostics.single.code,
         ViewerDiagnosticCode.invalidMaterialOverride);
+  });
+
+  test('setPartMaterial keeps mixed public patches atomic', () async {
+    final controller = FlutterSceneViewerController();
+    final sink = MaterialSink(partTree: _treeFor(address));
+    controller.attach(sink);
+    await controller.load(ModelSource.bytes(Uint8List.fromList(<int>[1])));
+
+    await controller.setPartMaterial(
+      address,
+      const MaterialPatch(
+        baseColorTexture: TextureSource.asset('assets/albedo.png'),
+        specular: 0.6,
+      ),
+    );
+
+    expect(sink.materialCalls, isEmpty);
+    expect(controller.materialOverrides.patchFor(address), isNull);
+    expect(
+      controller.diagnostics.single.code,
+      ViewerDiagnosticCode.unsupportedMaterialFeature,
+    );
   });
 
   test('setPartMaterial records diagnostics for invalid alpha cutoff',
@@ -261,10 +284,12 @@ void main() {
     final controller = FlutterSceneViewerController();
     final sink = MaterialSink(
       partTree: _treeFor(address),
-      materialExtensionSupport: const MaterialExtensionSupport(
-        transmission: true,
-        ior: true,
-        volume: true,
+      materialExtensionSupport: _materialExtensionSupport(
+        const <MaterialExtensionFeature>{
+          MaterialExtensionFeature.transmission,
+          MaterialExtensionFeature.ior,
+          MaterialExtensionFeature.volume,
+        },
       ),
     );
     controller.attach(sink);
@@ -284,10 +309,12 @@ void main() {
     final controller = FlutterSceneViewerController();
     final sink = MaterialSink(
       partTree: _treeFor(address),
-      materialExtensionSupport: const MaterialExtensionSupport(
-        transmission: true,
-        ior: true,
-        volume: true,
+      materialExtensionSupport: _materialExtensionSupport(
+        const <MaterialExtensionFeature>{
+          MaterialExtensionFeature.transmission,
+          MaterialExtensionFeature.ior,
+          MaterialExtensionFeature.volume,
+        },
       ),
     );
     controller.attach(sink);
@@ -311,8 +338,8 @@ void main() {
     final controller = FlutterSceneViewerController();
     final sink = MaterialSink(
       partTree: _treeFor(address),
-      materialExtensionSupport: const MaterialExtensionSupport(
-        clearcoat: true,
+      materialExtensionSupport: _materialExtensionSupport(
+        const <MaterialExtensionFeature>{MaterialExtensionFeature.clearcoat},
       ),
     );
     controller.attach(sink);
@@ -394,11 +421,13 @@ void main() {
     final controller = FlutterSceneViewerController();
     final sink = MaterialSink(
       partTree: _treeFor(address, hasTexCoords: false),
-      materialExtensionSupport: const MaterialExtensionSupport(
-        transmission: true,
-        ior: true,
-        volume: true,
-        clearcoat: true,
+      materialExtensionSupport: _materialExtensionSupport(
+        const <MaterialExtensionFeature>{
+          MaterialExtensionFeature.transmission,
+          MaterialExtensionFeature.ior,
+          MaterialExtensionFeature.volume,
+          MaterialExtensionFeature.clearcoat,
+        },
         backendKind: MaterialExtensionBackendKind.rendererNative,
       ),
     );
@@ -435,6 +464,38 @@ void main() {
         isA<AssetTextureSource>());
     expect(controller.materialOverrides.patchFor(address)?.baseColorTexture,
         isA<AssetTextureSource>());
+  });
+
+  test('setPartTextureBinding routes every explicit material slot', () async {
+    for (final slot in MaterialTextureSlot.values) {
+      final controller = FlutterSceneViewerController();
+      final sink = MaterialSink(
+        partTree: _treeFor(address),
+        materialExtensionSupport: _materialExtensionSupport(
+          MaterialExtensionFeature.values.toSet(),
+        ),
+      );
+      controller.attach(sink);
+      await controller.load(ModelSource.bytes(Uint8List.fromList(<int>[1])));
+      final binding = MaterialTextureBinding(
+        source: TextureSource.asset('assets/${slot.name}.png'),
+      );
+
+      await controller.setPartTextureBinding(address, slot, binding);
+
+      expect(sink.materialCalls, hasLength(1), reason: slot.name);
+      final patch = sink.materialCalls.single.patch;
+      expect(
+        _bindingFields(patch)[slot],
+        same(binding),
+        reason: slot.name,
+      );
+      expect(
+        _bindingFields(patch).values.whereType<MaterialTextureBinding>(),
+        hasLength(1),
+        reason: slot.name,
+      );
+    }
   });
 
   test('setPartMaterial records sink diagnostics without storing patch',
@@ -502,8 +563,12 @@ void main() {
     final controller = FlutterSceneViewerController();
     final sink = MaterialSink(
       partTree: _treeFor(address),
-      authoredMaterialPatches: <PartAddress, MaterialPatch>{
-        address: const MaterialPatch(transmission: 1.0, ior: 1.45),
+      authoredExtensionMaterialPatches: <PartAddress,
+          Map<MaterialExtensionPatchGroup, MaterialPatch>>{
+        address: <MaterialExtensionPatchGroup, MaterialPatch>{
+          MaterialExtensionPatchGroup.transmissionVolume:
+              const MaterialPatch(transmission: 1.0, ior: 1.45),
+        },
       },
     );
     controller.attach(sink);
@@ -522,17 +587,22 @@ void main() {
     final controller = FlutterSceneViewerController();
     final sink = MaterialSink(
       partTree: _treeFor(address),
-      materialExtensionSupport: const MaterialExtensionSupport(
-        transmission: true,
-        ior: true,
-        volume: true,
+      materialExtensionSupport: _materialExtensionSupport(
+        const <MaterialExtensionFeature>{
+          MaterialExtensionFeature.transmission,
+          MaterialExtensionFeature.ior,
+          MaterialExtensionFeature.volume,
+        },
       ),
-      authoredMaterialPatches: <PartAddress, MaterialPatch>{
-        address: const MaterialPatch(
-          transmission: 1.0,
-          ior: 1.45,
-          thickness: 0.02,
-        ),
+      authoredExtensionMaterialPatches: <PartAddress,
+          Map<MaterialExtensionPatchGroup, MaterialPatch>>{
+        address: <MaterialExtensionPatchGroup, MaterialPatch>{
+          MaterialExtensionPatchGroup.transmissionVolume: const MaterialPatch(
+            transmission: 1.0,
+            ior: 1.45,
+            thickness: 0.02,
+          ),
+        },
       },
     );
     controller.attach(sink);
@@ -542,6 +612,77 @@ void main() {
     expect(sink.materialCalls.single.patch.transmission, 1.0);
     expect(controller.materialOverrides.patchFor(address), isNull);
     expect(controller.diagnostics, isEmpty);
+  });
+
+  test('unsupported authored specular and IOR do not block imported core',
+      () async {
+    final controller = FlutterSceneViewerController();
+    final sink = MaterialSink(
+      partTree: _treeFor(address),
+      authoredCoreMaterialPatches: <PartAddress, MaterialPatch>{
+        address: const MaterialPatch(
+          baseColorTexture: TextureSource.asset('assets/albedo.png'),
+          normalTexture: TextureSource.asset('assets/normal.png'),
+        ),
+      },
+      authoredExtensionMaterialPatches: <PartAddress,
+          Map<MaterialExtensionPatchGroup, MaterialPatch>>{
+        address: <MaterialExtensionPatchGroup, MaterialPatch>{
+          MaterialExtensionPatchGroup.opaqueIor: const MaterialPatch(ior: 1.45),
+          MaterialExtensionPatchGroup.specular:
+              const MaterialPatch(specular: 0.6),
+        },
+      },
+    );
+    controller.attach(sink);
+
+    await controller.load(ModelSource.bytes(Uint8List.fromList(<int>[1])));
+
+    expect(sink.materialCalls, hasLength(1));
+    expect(sink.materialCalls.single.patch.baseColorTexture, isNotNull);
+    expect(sink.materialCalls.single.patch.normalTexture, isNotNull);
+    final extensionDetails = controller.diagnostics
+        .map((diagnostic) => diagnostic.details['extensions']);
+    expect(extensionDetails, anyElement(contains('KHR_materials_ior')));
+    expect(extensionDetails, anyElement(contains('KHR_materials_specular')));
+  });
+
+  test('unsupported authored specular does not block clearcoat or opaque IOR',
+      () async {
+    final controller = FlutterSceneViewerController();
+    final sink = MaterialSink(
+      partTree: _treeFor(address),
+      materialExtensionSupport: _materialExtensionSupport(
+        const <MaterialExtensionFeature>{
+          MaterialExtensionFeature.ior,
+          MaterialExtensionFeature.clearcoat,
+        },
+      ),
+      authoredExtensionMaterialPatches: <PartAddress,
+          Map<MaterialExtensionPatchGroup, MaterialPatch>>{
+        address: <MaterialExtensionPatchGroup, MaterialPatch>{
+          MaterialExtensionPatchGroup.opaqueIor: const MaterialPatch(ior: 1.45),
+          MaterialExtensionPatchGroup.specular:
+              const MaterialPatch(specular: 0.6),
+          MaterialExtensionPatchGroup.clearcoat:
+              const MaterialPatch(clearcoat: 0.9),
+        },
+      },
+    );
+    controller.attach(sink);
+
+    await controller.load(ModelSource.bytes(Uint8List.fromList(<int>[1])));
+
+    expect(sink.materialCalls, hasLength(2));
+    expect(sink.materialCalls.first.patch.ior, 1.45);
+    expect(sink.materialCalls.last.patch.ior, 1.45);
+    expect(sink.materialCalls.last.patch.clearcoat, 0.9);
+    expect(sink.materialCalls.last.patch.specular, isNull);
+    expect(controller.diagnostics, hasLength(1));
+    expect(
+      controller.diagnostics.single.details['extensions'],
+      contains('KHR_materials_specular'),
+    );
   });
 
   test('load records authored missing UV diagnostics', () async {
@@ -564,6 +705,41 @@ void main() {
         controller.diagnostics.single.code, ViewerDiagnosticCode.missingUvSet);
     expect(controller.materialOverrides.patchFor(address), isNull);
   });
+}
+
+Map<MaterialTextureSlot, MaterialTextureBinding?> _bindingFields(
+  MaterialPatch patch,
+) {
+  return <MaterialTextureSlot, MaterialTextureBinding?>{
+    MaterialTextureSlot.baseColor: patch.baseColorTextureBinding,
+    MaterialTextureSlot.metallicRoughness:
+        patch.metallicRoughnessTextureBinding,
+    MaterialTextureSlot.normal: patch.normalTextureBinding,
+    MaterialTextureSlot.occlusion: patch.occlusionTextureBinding,
+    MaterialTextureSlot.emissive: patch.emissiveTextureBinding,
+    MaterialTextureSlot.transmission: patch.transmissionTextureBinding,
+    MaterialTextureSlot.thickness: patch.thicknessTextureBinding,
+    MaterialTextureSlot.clearcoat: patch.clearcoatTextureBinding,
+    MaterialTextureSlot.clearcoatRoughness:
+        patch.clearcoatRoughnessTextureBinding,
+    MaterialTextureSlot.clearcoatNormal: patch.clearcoatNormalTextureBinding,
+    MaterialTextureSlot.specular: patch.specularTextureBinding,
+    MaterialTextureSlot.specularColor: patch.specularColorTextureBinding,
+  };
+}
+
+MaterialExtensionSupport _materialExtensionSupport(
+  Set<MaterialExtensionFeature> availableFeatures, {
+  MaterialExtensionBackendKind backendKind =
+      MaterialExtensionBackendKind.packageLocalCandidate,
+}) {
+  return MaterialExtensionSupport(
+    backendKind: backendKind,
+    features: <MaterialExtensionFeature, MaterialExtensionFeatureSupport>{
+      for (final feature in availableFeatures)
+        feature: MaterialExtensionFeatureSupport(available: true),
+    },
+  );
 }
 
 PartTree _treeFor(
@@ -599,7 +775,9 @@ final class MaterialSink implements ViewerCommandSink {
     this.loadDiagnostics = const <ViewerDiagnostic>[],
     this.materialDiagnostics = const <ViewerDiagnostic>[],
     this.materialExtensionSupport = MaterialExtensionSupport.unsupported,
-    this.authoredMaterialPatches = const <PartAddress, MaterialPatch>{},
+    this.authoredCoreMaterialPatches = const <PartAddress, MaterialPatch>{},
+    this.authoredExtensionMaterialPatches =
+        const <PartAddress, Map<MaterialExtensionPatchGroup, MaterialPatch>>{},
   });
 
   final PartTree partTree;
@@ -607,7 +785,9 @@ final class MaterialSink implements ViewerCommandSink {
   final List<ViewerDiagnostic> materialDiagnostics;
   @override
   final MaterialExtensionSupport materialExtensionSupport;
-  final Map<PartAddress, MaterialPatch> authoredMaterialPatches;
+  final Map<PartAddress, MaterialPatch> authoredCoreMaterialPatches;
+  final Map<PartAddress, Map<MaterialExtensionPatchGroup, MaterialPatch>>
+      authoredExtensionMaterialPatches;
   final List<MaterialCall> materialCalls = <MaterialCall>[];
   final List<PartAddress> resetCalls = <PartAddress>[];
   int renderRequests = 0;
@@ -617,7 +797,8 @@ final class MaterialSink implements ViewerCommandSink {
     return ModelLoadResult.success(
       diagnostics: loadDiagnostics,
       partTree: partTree,
-      authoredMaterialPatches: authoredMaterialPatches,
+      authoredCoreMaterialPatches: authoredCoreMaterialPatches,
+      authoredExtensionMaterialPatches: authoredExtensionMaterialPatches,
     );
   }
 

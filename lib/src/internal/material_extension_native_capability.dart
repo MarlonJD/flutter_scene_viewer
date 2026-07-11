@@ -30,13 +30,18 @@ NativeMaterialExtensionCapability detectNativeMaterialExtensionCapability({
       rendererProbe.hasIor &&
       rendererProbe.hasVolume &&
       rendererProbe.hasClearcoat) {
-    return const NativeMaterialExtensionCapability(
+    return NativeMaterialExtensionCapability(
       support: MaterialExtensionSupport(
-        transmission: true,
-        ior: true,
-        volume: true,
-        clearcoat: true,
         backendKind: MaterialExtensionBackendKind.rendererNative,
+        features: <MaterialExtensionFeature, MaterialExtensionFeatureSupport>{
+          for (final feature in <MaterialExtensionFeature>[
+            MaterialExtensionFeature.transmission,
+            MaterialExtensionFeature.ior,
+            MaterialExtensionFeature.volume,
+            MaterialExtensionFeature.clearcoat,
+          ])
+            feature: MaterialExtensionFeatureSupport(available: true),
+        },
       ),
     );
   }

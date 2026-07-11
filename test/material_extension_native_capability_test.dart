@@ -30,7 +30,22 @@ void main() {
       ),
     );
 
-    expect(capability.support.productionReady, isTrue);
+    expect(capability.support.productionReady, isFalse);
+    expect(capability.support.claimedReleaseTargets, isEmpty);
+    for (final feature in <MaterialExtensionFeature>[
+      MaterialExtensionFeature.transmission,
+      MaterialExtensionFeature.ior,
+      MaterialExtensionFeature.volume,
+      MaterialExtensionFeature.clearcoat,
+    ]) {
+      expect(capability.support.supportFor(feature).available, isTrue);
+      expect(
+        capability.support
+            .supportFor(feature)
+            .evidenceFor(MaterialExtensionTarget.iosPhysical),
+        MaterialExtensionEvidenceStatus.notRun,
+      );
+    }
     expect(
       capability.support.backendKind,
       MaterialExtensionBackendKind.rendererNative,

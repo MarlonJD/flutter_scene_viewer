@@ -212,7 +212,7 @@ implements a second clearcoat specular lobe.
 - Test `test/material_extension_policy_test.dart`
 - Test `test/viewer_controller_material_test.dart`
 
-- [ ] Add the internal enum:
+- [x] Add the internal enum:
 
 ```dart
 enum MaterialBaseFamily {
@@ -223,7 +223,7 @@ enum MaterialBaseFamily {
 }
 ```
 
-- [ ] Add a resolver function with this behavior:
+- [x] Add a resolver function with this behavior:
   - any transmission, IOR, thickness, attenuation, or volume request resolves
     to `MaterialBaseFamily.realisticGlass`;
   - `MaterialAlphaMode.mask` resolves to `MaterialBaseFamily.maskedCutout`
@@ -235,13 +235,13 @@ enum MaterialBaseFamily {
     `MaterialBaseFamily.opaque`;
   - clearcoat without glass stays in the opaque family until the clearcoat
     shader task provides an explicit coated family path.
-- [ ] Add tests proving one patch resolves to one family and that glass wins
+- [x] Add tests proving one patch resolves to one family and that glass wins
   over alpha mask or alpha blend when both are present.
-- [ ] Add adapter tests proving a patch that changes family replaces/restores a
+- [x] Add adapter tests proving a patch that changes family replaces/restores a
   material through a family transition path instead of mutating one existing
   material instance across opaque, masked cutout, and translucent blend
   behavior.
-- [ ] Run:
+- [x] Run:
 
 ```sh
 flutter test test/material_extension_policy_test.dart test/viewer_controller_material_test.dart

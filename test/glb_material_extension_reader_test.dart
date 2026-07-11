@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_scene_viewer/src/diagnostics.dart';
 import 'package:flutter_scene_viewer/src/internal/glb_material_extension_reader.dart';
+import 'package:flutter_scene_viewer/src/internal/material_extension_patch_group.dart';
 import 'package:flutter_scene_viewer/src/part_address.dart';
 import 'package:flutter_scene_viewer/src/texture_source.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -92,18 +93,21 @@ void main() {
       nodePath: <String>['GlassPanel'],
       primitiveIndex: 0,
     );
-    final patch = result.patches[address]!;
+    final patch = result
+        .patches[address]![MaterialExtensionPatchGroup.transmissionVolume]!;
 
     expect(result.diagnostics, isEmpty);
     expect(patch.transmission, 0.75);
     expect(
-      (patch.transmissionTexture! as BytesTextureSource).encodedBytes,
+      (patch.transmissionTextureBinding!.source as BytesTextureSource)
+          .encodedBytes,
       textureBytes[0],
     );
     expect(patch.ior, 1.45);
     expect(patch.thickness, 0.02);
     expect(
-      (patch.thicknessTexture! as BytesTextureSource).encodedBytes,
+      (patch.thicknessTextureBinding!.source as BytesTextureSource)
+          .encodedBytes,
       textureBytes[1],
     );
     expect(patch.attenuationColor, <double>[0.8, 0.95, 1.0]);
@@ -156,12 +160,16 @@ void main() {
       nodePath: <String>['A1B32'],
       primitiveIndex: 0,
     );
-    final patch = result.patches[address]!;
+    final patchGroups = result.patches[address]!;
+    final opaqueIor = patchGroups[MaterialExtensionPatchGroup.opaqueIor]!;
+    final specular = patchGroups[MaterialExtensionPatchGroup.specular]!;
 
     expect(result.diagnostics, isEmpty);
-    expect(patch.specular, 0.6);
-    expect(patch.specularColorFactor, <double>[0.18, 0.19, 0.2]);
-    expect(patch.ior, 1.45);
+    expect(specular.specular, 0.6);
+    expect(specular.specularColorFactor, <double>[0.18, 0.19, 0.2]);
+    expect(specular.ior, isNull);
+    expect(opaqueIor.ior, 1.45);
+    expect(opaqueIor.hasGlassOverride, isFalse);
   });
 
   test('reads authored extension texture bytes from GLB image bufferViews', () {
@@ -218,15 +226,37 @@ void main() {
                   },
                 },
                 'KHR_materials_specular': <String, Object?>{
-                  'specularTexture': <String, Object?>{'index': 5},
-                  'specularColorTexture': <String, Object?>{'index': 6},
+                  'specularTexture': <String, Object?>{
+                    'index': 5,
+                    'extensions': <String, Object?>{
+                      'KHR_texture_transform': <String, Object?>{
+                        'scale': <Object?>[2.5, 2.5],
+                      },
+                    },
+                  },
+                  'specularColorTexture': <String, Object?>{
+                    'index': 6,
+                    'extensions': <String, Object?>{
+                      'KHR_texture_transform': <String, Object?>{
+                        'offset': <Object?>[0.1, 0.2],
+                      },
+                    },
+                  },
                 },
               },
             },
           ],
           'textures': <Object?>[
             for (var index = 0; index < textureBytes.length; index += 1)
-              <String, Object?>{'source': index},
+              <String, Object?>{
+                'source': index == 6 ? 5 : index,
+                if (index == 5) 'sampler': 0,
+                if (index == 6) 'sampler': 1,
+              },
+          ],
+          'samplers': <Object?>[
+            <String, Object?>{'wrapS': 33071, 'wrapT': 10497},
+            <String, Object?>{'wrapS': 10497, 'wrapT': 33648},
           ],
           'images': <Object?>[
             for (var index = 0; index < textureBytes.length; index += 1)
@@ -259,40 +289,68 @@ void main() {
       debugName: 'extension-textures.glb',
     );
 
-    final patch = result.patches[PartAddress(
+    final patchGroups = result.patches[PartAddress(
       nodePath: <String>['CoatedGlass'],
       primitiveIndex: 0,
     )]!;
+    final transmissionVolume =
+        patchGroups[MaterialExtensionPatchGroup.transmissionVolume]!;
+    final clearcoat = patchGroups[MaterialExtensionPatchGroup.clearcoat]!;
+    final specular = patchGroups[MaterialExtensionPatchGroup.specular]!;
 
     expect(result.diagnostics, isEmpty);
     expect(
-      (patch.transmissionTexture! as BytesTextureSource).encodedBytes,
+      (transmissionVolume.transmissionTextureBinding!.source
+              as BytesTextureSource)
+          .encodedBytes,
       textureBytes[0],
     );
     expect(
-      (patch.thicknessTexture! as BytesTextureSource).encodedBytes,
+      (transmissionVolume.thicknessTextureBinding!.source as BytesTextureSource)
+          .encodedBytes,
       textureBytes[1],
     );
     expect(
-      (patch.clearcoatTexture! as BytesTextureSource).encodedBytes,
+      (clearcoat.clearcoatTextureBinding!.source as BytesTextureSource)
+          .encodedBytes,
       textureBytes[2],
     );
     expect(
-      (patch.clearcoatRoughnessTexture! as BytesTextureSource).encodedBytes,
+      (clearcoat.clearcoatRoughnessTextureBinding!.source as BytesTextureSource)
+          .encodedBytes,
       textureBytes[3],
     );
     expect(
-      (patch.clearcoatNormalTexture! as BytesTextureSource).encodedBytes,
+      (clearcoat.clearcoatNormalTextureBinding!.source as BytesTextureSource)
+          .encodedBytes,
       textureBytes[4],
     );
-    expect(patch.clearcoatNormalScale, 0.25);
+    expect(clearcoat.clearcoatNormalScale, 0.25);
     expect(
-      (patch.specularTexture! as BytesTextureSource).encodedBytes,
+      (specular.specularTextureBinding!.source as BytesTextureSource)
+          .encodedBytes,
       textureBytes[5],
     );
     expect(
-      (patch.specularColorTexture! as BytesTextureSource).encodedBytes,
-      textureBytes[6],
+      (specular.specularColorTextureBinding!.source as BytesTextureSource)
+          .encodedBytes,
+      textureBytes[5],
+    );
+    expect(
+      specular.specularTextureBinding!.transform.scale,
+      <double>[2.5, 2.5],
+    );
+    expect(
+      specular.specularColorTextureBinding!.transform.offset,
+      <double>[0.1, 0.2],
+    );
+    expect(
+      specular.specularTextureBinding!.sampler.wrapS.name,
+      'clampToEdge',
+    );
+    expect(
+      specular.specularColorTextureBinding!.sampler.wrapT.name,
+      'mirroredRepeat',
     );
   });
 
@@ -392,7 +450,7 @@ void main() {
     );
   });
 
-  test('reports authored extension textures that require non-zero texCoord',
+  test('preserves authored extension textures that use an available UV set',
       () {
     final result = readGlbMaterialExtensionIntent(
       _glbWithBin(
@@ -453,14 +511,12 @@ void main() {
       debugName: 'extension-texcoord1.glb',
     );
 
-    expect(result.patches, isEmpty);
-    expect(result.diagnostics, hasLength(1));
-    expect(
-      result.diagnostics.single.code,
-      ViewerDiagnosticCode.unsupportedModelFeature,
-    );
-    expect(result.diagnostics.single.details['field'], 'transmissionTexture');
-    expect(result.diagnostics.single.details['uvSet'], 1);
+    expect(result.diagnostics, isEmpty);
+    final patch = result.patches[PartAddress(
+      nodePath: <String>['CoatedGlass'],
+      primitiveIndex: 0,
+    )]![MaterialExtensionPatchGroup.transmissionVolume]!;
+    expect(patch.transmissionTextureBinding!.texCoord, 1);
   });
 
   test('reports malformed extension values as diagnostics', () {
@@ -506,6 +562,122 @@ void main() {
     );
     expect(result.diagnostics.single.details['extension'],
         'KHR_materials_transmission');
+  });
+
+  test('malformed extension group does not discard a valid sibling group', () {
+    final result = readGlbMaterialExtensionIntent(
+      _glb(<String, Object?>{
+        'asset': <String, Object?>{'version': '2.0'},
+        'scene': 0,
+        'scenes': <Object?>[
+          <String, Object?>{
+            'nodes': <Object?>[0],
+          },
+        ],
+        'nodes': <Object?>[
+          <String, Object?>{'name': 'CoatedPanel', 'mesh': 0},
+        ],
+        'meshes': <Object?>[
+          <String, Object?>{
+            'primitives': <Object?>[
+              <String, Object?>{
+                'attributes': <String, Object?>{'POSITION': 0},
+                'material': 0,
+              },
+            ],
+          },
+        ],
+        'materials': <Object?>[
+          <String, Object?>{
+            'extensions': <String, Object?>{
+              'KHR_materials_specular': <String, Object?>{
+                'specularFactor': 'invalid',
+              },
+              'KHR_materials_clearcoat': <String, Object?>{
+                'clearcoatFactor': 0.8,
+              },
+            },
+          },
+        ],
+      }),
+    );
+
+    final groups = result.patches[PartAddress(
+      nodePath: const <String>['CoatedPanel'],
+      primitiveIndex: 0,
+    )]!;
+    expect(groups, isNot(contains(MaterialExtensionPatchGroup.specular)));
+    expect(
+      groups[MaterialExtensionPatchGroup.clearcoat]!.clearcoat,
+      0.8,
+    );
+    expect(result.diagnostics, hasLength(1));
+    expect(
+      result.diagnostics.single.details['extension'],
+      'KHR_materials_specular',
+    );
+  });
+
+  test('unsupported extension texture discards only its own group', () {
+    final result = readGlbMaterialExtensionIntent(
+      _glb(<String, Object?>{
+        'asset': <String, Object?>{'version': '2.0'},
+        'scene': 0,
+        'scenes': <Object?>[
+          <String, Object?>{
+            'nodes': <Object?>[0],
+          },
+        ],
+        'nodes': <Object?>[
+          <String, Object?>{'name': 'CoatedPanel', 'mesh': 0},
+        ],
+        'meshes': <Object?>[
+          <String, Object?>{
+            'primitives': <Object?>[
+              <String, Object?>{
+                'attributes': <String, Object?>{
+                  'POSITION': 0,
+                  'TEXCOORD_0': 1,
+                },
+                'material': 0,
+              },
+            ],
+          },
+        ],
+        'materials': <Object?>[
+          <String, Object?>{
+            'extensions': <String, Object?>{
+              'KHR_materials_specular': <String, Object?>{
+                'specularFactor': 0.6,
+                'specularTexture': <String, Object?>{'index': 0},
+              },
+              'KHR_materials_clearcoat': <String, Object?>{
+                'clearcoatFactor': 0.8,
+              },
+            },
+          },
+        ],
+      }),
+    );
+
+    final groups = result.patches[PartAddress(
+      nodePath: const <String>['CoatedPanel'],
+      primitiveIndex: 0,
+    )]!;
+    expect(groups, isNot(contains(MaterialExtensionPatchGroup.specular)));
+    expect(
+      groups[MaterialExtensionPatchGroup.clearcoat]!.clearcoat,
+      0.8,
+    );
+    expect(result.diagnostics, hasLength(1));
+    expect(
+      result.diagnostics.single.details['extension'],
+      'KHR_materials_specular',
+    );
+    expect(
+      result.diagnostics.single.details['reason'],
+      contains('outside the glTF textures array'),
+    );
   });
 
   test('reports duplicate node paths as ambiguous and skips auto-apply', () {
@@ -684,16 +856,25 @@ void main() {
     );
 
     expect(result.patches, isEmpty);
-    expect(result.diagnostics, hasLength(1));
-    expect(result.diagnostics.single.code, ViewerDiagnosticCode.missingUvSet);
-    expect(result.diagnostics.single.details['uvSet'], 0);
-    expect(result.diagnostics.single.details['textureSlots'], <String>[
-      'transmissionTexture',
-      'thicknessTexture',
-      'clearcoatTexture',
-      'clearcoatRoughnessTexture',
-      'clearcoatNormalTexture',
-    ]);
+    expect(result.diagnostics, hasLength(5));
+    expect(
+      result.diagnostics.map((diagnostic) => diagnostic.code),
+      everyElement(ViewerDiagnosticCode.missingUvSet),
+    );
+    expect(
+      result.diagnostics.map((diagnostic) => diagnostic.details['uvSet']),
+      everyElement(0),
+    );
+    expect(
+      result.diagnostics.map((diagnostic) => diagnostic.details['textureSlot']),
+      containsAll(<Object?>[
+        'KHR_materials_transmission.transmissionTexture',
+        'KHR_materials_volume.thicknessTexture',
+        'KHR_materials_clearcoat.clearcoatTexture',
+        'KHR_materials_clearcoat.clearcoatRoughnessTexture',
+        'KHR_materials_clearcoat.clearcoatNormalTexture',
+      ]),
+    );
   });
 
   test('reports invalid GLB headers without throwing', () {

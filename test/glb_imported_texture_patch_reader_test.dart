@@ -104,25 +104,28 @@ void main() {
       primitiveIndex: 0,
     )]!;
     expect(
-      (patch.baseColorTexture! as BytesTextureSource).encodedBytes,
+      (patch.baseColorTextureBinding!.source as BytesTextureSource)
+          .encodedBytes,
       baseColorBytes,
     );
     expect(
-      (patch.metallicRoughnessTexture! as BytesTextureSource).encodedBytes,
+      (patch.metallicRoughnessTextureBinding!.source as BytesTextureSource)
+          .encodedBytes,
       dataBytes,
     );
     expect(
-      (patch.normalTexture! as BytesTextureSource).encodedBytes,
+      (patch.normalTextureBinding!.source as BytesTextureSource).encodedBytes,
       normalBytes,
     );
     expect(patch.normalScale, 0.75);
     expect(
-      (patch.occlusionTexture! as BytesTextureSource).encodedBytes,
+      (patch.occlusionTextureBinding!.source as BytesTextureSource)
+          .encodedBytes,
       occlusionBytes,
     );
     expect(patch.occlusionStrength, 0.5);
     expect(
-      (patch.emissiveTexture! as BytesTextureSource).encodedBytes,
+      (patch.emissiveTextureBinding!.source as BytesTextureSource).encodedBytes,
       emissiveBytes,
     );
     expect(patch.alphaMode, isNull);
@@ -192,7 +195,7 @@ void main() {
     expect(patch.alphaCutoff, 0.42);
   });
 
-  test('infers blend alphaMode for imported RGBA base color PNGs', () {
+  test('preserves default opaque intent for RGBA PNG without alphaMode', () {
     final baseColorBytes = _pngHeader(colorType: 6);
     final result = readGlbImportedTexturePatches(
       _glbWithBin(
@@ -250,11 +253,12 @@ void main() {
       nodePath: <String>['FashionOverlay'],
       primitiveIndex: 0,
     )]!;
-    expect(patch.alphaMode, MaterialAlphaMode.blend);
+    expect(patch.alphaMode, isNull);
     expect(patch.alphaCutoff, isNull);
   });
 
-  test('repairs textile back-side R_0 data maps used as base color', () {
+  test('diagnoses textile data-map risk without mutating authored base color',
+      () {
     final blackDataMapBytes = _pngHeader(colorType: 2);
     final result = readGlbImportedTexturePatches(
       _glbWithBin(
@@ -319,9 +323,9 @@ void main() {
       nodePath: <String>['Dress'],
       primitiveIndex: 0,
     )]!;
-    final texture = patch.baseColorTexture! as BytesTextureSource;
-    expect(texture.encodedBytes, isNot(blackDataMapBytes));
-    expect(texture.debugName, contains('neutral-white'));
+    final texture = patch.baseColorTextureBinding!.source as BytesTextureSource;
+    expect(texture.encodedBytes, blackDataMapBytes);
+    expect(texture.debugName, isNot(contains('neutral-white')));
     expect(result.diagnostics, hasLength(1));
     expect(
       result.diagnostics.single.code,
@@ -329,8 +333,9 @@ void main() {
     );
     expect(
       result.diagnostics.single.details,
-      containsPair('repair', 'neutralWhiteBaseColor'),
+      containsPair('status', 'diagnosticOnly'),
     );
+    expect(result.diagnostics.single.details, isNot(contains('repair')));
   });
 
   test('diagnoses A1B32-style internal body surfaces without hiding skin', () {
@@ -457,7 +462,7 @@ void main() {
     );
   });
 
-  test('reports imported core texture slots that require non-zero texCoord',
+  test('preserves imported core texture slots that use an available UV set',
       () {
     final imageBytes = <Uint8List>[
       Uint8List.fromList(<int>[1, 2, 3])
@@ -517,15 +522,108 @@ void main() {
       debugName: 'texcoord1.glb',
     );
 
-    expect(result.patches, isEmpty);
-    expect(result.diagnostics, hasLength(1));
-    expect(
-      result.diagnostics.single.code,
-      ViewerDiagnosticCode.unsupportedModelFeature,
+    expect(result.diagnostics, isEmpty);
+    final patch = result.patches[PartAddress(
+      nodePath: <String>['TexCoordPanel'],
+      primitiveIndex: 0,
+    )]!;
+    expect(patch.baseColorTextureBinding!.texCoord, 1);
+  });
+
+  test('optional malformed transform falls back while required form blocks',
+      () {
+    final imageBytes = Uint8List.fromList(<int>[21, 22, 23]);
+
+    Uint8List fixture({required bool required}) => _glbWithBin(
+          <String, Object?>{
+            'asset': <String, Object?>{'version': '2.0'},
+            'extensionsUsed': <Object?>['KHR_texture_transform'],
+            if (required)
+              'extensionsRequired': <Object?>['KHR_texture_transform'],
+            'scene': 0,
+            'scenes': <Object?>[
+              <String, Object?>{
+                'nodes': <Object?>[0],
+              },
+            ],
+            'nodes': <Object?>[
+              <String, Object?>{'name': 'TransformPanel', 'mesh': 0},
+            ],
+            'meshes': <Object?>[
+              <String, Object?>{
+                'primitives': <Object?>[
+                  <String, Object?>{
+                    'attributes': <String, Object?>{
+                      'POSITION': 0,
+                      'TEXCOORD_0': 1,
+                    },
+                    'material': 0,
+                  },
+                ],
+              },
+            ],
+            'materials': <Object?>[
+              <String, Object?>{
+                'pbrMetallicRoughness': <String, Object?>{
+                  'baseColorTexture': <String, Object?>{
+                    'index': 0,
+                    'extensions': <String, Object?>{
+                      'KHR_texture_transform': <String, Object?>{
+                        'scale': <Object?>['invalid', 1],
+                        'texCoord': 1,
+                      },
+                    },
+                  },
+                },
+              },
+            ],
+            'textures': <Object?>[
+              <String, Object?>{'source': 0},
+            ],
+            'images': <Object?>[
+              <String, Object?>{'mimeType': 'image/png', 'bufferView': 0},
+            ],
+            'bufferViews': <Object?>[
+              <String, Object?>{
+                'buffer': 0,
+                'byteLength': imageBytes.length,
+              },
+            ],
+            'buffers': <Object?>[
+              <String, Object?>{'byteLength': imageBytes.length},
+            ],
+          },
+          <Uint8List>[imageBytes],
+        );
+
+    final optional = readGlbImportedTexturePatches(
+      fixture(required: false),
+      debugName: 'optional-transform.glb',
     );
+    final optionalPatch = optional.patches[PartAddress(
+      nodePath: <String>['TransformPanel'],
+      primitiveIndex: 0,
+    )]!;
+    expect(optional.diagnostics, hasLength(1));
+    expect(optional.diagnostics.single.details['blocking'], isFalse);
+    expect(optionalPatch.baseColorTextureBinding!.effectiveTexCoord, 0);
     expect(
-        result.diagnostics.single.details['textureSlot'], 'baseColorTexture');
-    expect(result.diagnostics.single.details['uvSet'], 1);
+      (optionalPatch.baseColorTextureBinding!.source as BytesTextureSource)
+          .encodedBytes,
+      imageBytes,
+    );
+
+    final required = readGlbImportedTexturePatches(
+      fixture(required: true),
+      debugName: 'required-transform.glb',
+    );
+    expect(required.patches, isEmpty);
+    expect(required.diagnostics, hasLength(1));
+    expect(required.diagnostics.single.details['blocking'], isTrue);
+    expect(
+      required.diagnostics.single.code,
+      ViewerDiagnosticCode.adapterFailure,
+    );
   });
 
   test('reports imported core BasisU texture sources as unsupported', () {

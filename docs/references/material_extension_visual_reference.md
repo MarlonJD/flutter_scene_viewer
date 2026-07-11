@@ -67,14 +67,16 @@ ToyCar iOS Simulator run verifies authored clearcoat and transmission in one
 real GLB after the clearcoat backend changed to a translucent shared-geometry
 overlay that preserves the source PBR material. Task 012 adds
 GlassVaseFlowers and ClearCoatCarPaint as Khronos/three.js visual references
-for the production acceptance direction.
+for candidate acceptance direction.
 
-## 012 Custom Shader Acceptance Status
+## Custom Shader Candidate Status
 
-Task 012 accepts the repo-owned custom shader backend as the current production
-path for verified targets. Real-asset acceptance now requires
+The repo-owned custom shader backend remains `candidate-only`. Its iOS
+Simulator visual evidence is separately labeled `verified locally`.
+Real-asset candidate acceptance requires
 `backendKind: flutterSceneCustomShader` metrics, Khronos/three.js reference
 direction, and evidence labels scoped to the platform actually run.
 GlassVaseFlowers is the required glass reference for alpha-blend versus
 transmission/volume behavior, and ClearCoatCarPaint is the required clearcoat
-reference for a smooth coat over a rougher car-paint base.
+reference for a smooth coat over a rougher car-paint base. These visual trends
+do not establish Khronos correctness or physical-device release readiness.

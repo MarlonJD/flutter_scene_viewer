@@ -123,15 +123,20 @@ final class FlutterSceneMaterialExtensionBackend {
             if (library[shaderName] == null) shaderName,
         ];
         if (missingShaders.isEmpty) {
-          return _productionPreflightResult =
-              const MaterialExtensionPreflightResult(
+          return _productionPreflightResult = MaterialExtensionPreflightResult(
             support: MaterialExtensionSupport(
-              transmission: true,
-              ior: true,
-              volume: true,
-              clearcoat: true,
               backendKind:
                   MaterialExtensionBackendKind.flutterSceneCustomShader,
+              features: <MaterialExtensionFeature,
+                  MaterialExtensionFeatureSupport>{
+                for (final feature in <MaterialExtensionFeature>[
+                  MaterialExtensionFeature.transmission,
+                  MaterialExtensionFeature.ior,
+                  MaterialExtensionFeature.volume,
+                  MaterialExtensionFeature.clearcoat,
+                ])
+                  feature: _candidatePreflightFeatureSupport(),
+              },
             ),
           );
         }
@@ -890,6 +895,15 @@ final class FlutterSceneMaterialExtensionBackend {
     );
   }
 }
+
+MaterialExtensionFeatureSupport _candidatePreflightFeatureSupport() =>
+    MaterialExtensionFeatureSupport(
+      available: true,
+      maturityByTarget: <MaterialExtensionTarget, MaterialExtensionMaturity>{
+        for (final target in MaterialExtensionTarget.values)
+          target: MaterialExtensionMaturity.candidateOnly,
+      },
+    );
 
 const List<String> _shaderBundleAssetCandidates = <String>[
   FlutterSceneMaterialExtensionBackend.shaderBundleAsset,

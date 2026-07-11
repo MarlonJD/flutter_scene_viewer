@@ -8,6 +8,7 @@ import 'package:flutter_scene_viewer/src/diagnostics.dart';
 import 'package:flutter_scene_viewer/src/internal/flutter_scene_adapter.dart';
 import 'package:flutter_scene_viewer/src/internal/glb_capability_reader.dart';
 import 'package:flutter_scene_viewer/src/internal/glb_native_decoder_probe.dart';
+import 'package:flutter_scene_viewer/src/internal/material_extension_patch_group.dart';
 import 'package:flutter_scene_viewer/src/internal/render_surface.dart';
 import 'package:flutter_scene_viewer/src/material_shading_mode.dart';
 import 'package:flutter_scene_viewer/src/model_loader.dart';
@@ -147,8 +148,7 @@ void main() {
     );
   });
 
-  test('merges imported core texture patches into authored material patches',
-      () async {
+  test('delivers imported core and extension patches independently', () async {
     final adapter = FakeFlutterSceneAdapter();
     final loader = ModelLoader(adapter: adapter);
     final imageBytes = Uint8List.fromList(<int>[1, 2, 3, 4]);
@@ -185,6 +185,12 @@ void main() {
                 'pbrMetallicRoughness': <String, Object?>{
                   'baseColorTexture': <String, Object?>{'index': 0},
                 },
+                'extensions': <String, Object?>{
+                  'KHR_materials_ior': <String, Object?>{'ior': 1.45},
+                  'KHR_materials_specular': <String, Object?>{
+                    'specularFactor': 0.6,
+                  },
+                },
               },
             ],
             'textures': <Object?>[
@@ -211,14 +217,194 @@ void main() {
     );
 
     expect(result.isSuccess, isTrue);
-    final patch = result.authoredMaterialPatches[PartAddress(
+    final address = PartAddress(
       nodePath: const <String>['TextilePanel'],
       primitiveIndex: 0,
-    )]!;
+    );
+    final patch = result.authoredCoreMaterialPatches[address]!;
     expect(
-      (patch.baseColorTexture! as BytesTextureSource).encodedBytes,
+      (patch.baseColorTextureBinding!.source as BytesTextureSource)
+          .encodedBytes,
       imageBytes,
     );
+    final extensionPatches = result.authoredExtensionMaterialPatches[address]!;
+    expect(
+      extensionPatches[MaterialExtensionPatchGroup.opaqueIor]!.ior,
+      1.45,
+    );
+    expect(
+      extensionPatches[MaterialExtensionPatchGroup.specular]!.specular,
+      0.6,
+    );
+  });
+
+  test('required malformed texture transform fails before adapter import',
+      () async {
+    final imageBytes = Uint8List.fromList(<int>[7, 8, 9]);
+
+    Uint8List fixture({required bool required}) => _glbWithBin(
+          <String, Object?>{
+            'asset': <String, Object?>{'version': '2.0'},
+            'extensionsUsed': <Object?>['KHR_texture_transform'],
+            if (required)
+              'extensionsRequired': <Object?>['KHR_texture_transform'],
+            'scene': 0,
+            'scenes': <Object?>[
+              <String, Object?>{
+                'nodes': <Object?>[0],
+              },
+            ],
+            'nodes': <Object?>[
+              <String, Object?>{'name': 'TransformPanel', 'mesh': 0},
+            ],
+            'meshes': <Object?>[
+              <String, Object?>{
+                'primitives': <Object?>[
+                  <String, Object?>{
+                    'attributes': <String, Object?>{
+                      'POSITION': 0,
+                      'TEXCOORD_0': 1,
+                    },
+                    'material': 0,
+                  },
+                ],
+              },
+            ],
+            'materials': <Object?>[
+              <String, Object?>{
+                'pbrMetallicRoughness': <String, Object?>{
+                  'baseColorTexture': <String, Object?>{
+                    'index': 0,
+                    'extensions': <String, Object?>{
+                      'KHR_texture_transform': <String, Object?>{
+                        'scale': <Object?>['invalid', 1],
+                      },
+                    },
+                  },
+                },
+              },
+            ],
+            'textures': <Object?>[
+              <String, Object?>{'source': 0},
+            ],
+            'images': <Object?>[
+              <String, Object?>{'mimeType': 'image/png', 'bufferView': 0},
+            ],
+            'bufferViews': <Object?>[
+              <String, Object?>{
+                'buffer': 0,
+                'byteLength': imageBytes.length,
+              },
+            ],
+            'buffers': <Object?>[
+              <String, Object?>{'byteLength': imageBytes.length},
+            ],
+          },
+          imageBytes,
+        );
+
+    final optionalAdapter = FakeFlutterSceneAdapter();
+    final optional = await ModelLoader(adapter: optionalAdapter).load(
+      ModelSource.bytes(
+        fixture(required: false),
+        debugName: 'optional-transform.glb',
+      ),
+    );
+    expect(optional.isSuccess, isTrue);
+    expect(optionalAdapter.loadedBytes, hasLength(1));
+    expect(
+      optional.diagnostics
+          .where((diagnostic) => diagnostic.details['blocking'] == false),
+      hasLength(1),
+    );
+
+    final requiredAdapter = FakeFlutterSceneAdapter();
+    final required = await ModelLoader(adapter: requiredAdapter).load(
+      ModelSource.bytes(
+        fixture(required: true),
+        debugName: 'required-transform.glb',
+      ),
+    );
+    expect(required.isSuccess, isFalse);
+    expect(requiredAdapter.loadedBytes, isEmpty);
+    expect(required.diagnostic!.details['blocking'], isTrue);
+    expect(required.diagnostic!.details['required'], isTrue);
+  });
+
+  test('missing effective UV diagnoses once without blocking adapter import',
+      () async {
+    final adapter = FakeFlutterSceneAdapter();
+    final imageBytes = Uint8List.fromList(<int>[11, 12, 13]);
+    final result = await ModelLoader(adapter: adapter).load(
+      ModelSource.bytes(
+        _glbWithBin(
+          <String, Object?>{
+            'asset': <String, Object?>{'version': '2.0'},
+            'scene': 0,
+            'scenes': <Object?>[
+              <String, Object?>{
+                'nodes': <Object?>[0],
+              },
+            ],
+            'nodes': <Object?>[
+              <String, Object?>{'name': 'MissingUvPanel', 'mesh': 0},
+            ],
+            'meshes': <Object?>[
+              <String, Object?>{
+                'primitives': <Object?>[
+                  <String, Object?>{
+                    'attributes': <String, Object?>{
+                      'POSITION': 0,
+                      'TEXCOORD_0': 1,
+                    },
+                    'material': 0,
+                  },
+                ],
+              },
+            ],
+            'materials': <Object?>[
+              <String, Object?>{
+                'pbrMetallicRoughness': <String, Object?>{
+                  'baseColorTexture': <String, Object?>{
+                    'index': 0,
+                    'texCoord': 1,
+                  },
+                },
+              },
+            ],
+            'textures': <Object?>[
+              <String, Object?>{'source': 0},
+            ],
+            'images': <Object?>[
+              <String, Object?>{'mimeType': 'image/png', 'bufferView': 0},
+            ],
+            'bufferViews': <Object?>[
+              <String, Object?>{
+                'buffer': 0,
+                'byteLength': imageBytes.length,
+              },
+            ],
+            'buffers': <Object?>[
+              <String, Object?>{'byteLength': imageBytes.length},
+            ],
+          },
+          imageBytes,
+        ),
+        debugName: 'missing-effective-uv.glb',
+      ),
+    );
+
+    expect(result.isSuccess, isTrue);
+    expect(adapter.loadedBytes, hasLength(1));
+    expect(result.authoredCoreMaterialPatches, isEmpty);
+    final missingUvDiagnostics = result.diagnostics
+        .where(
+          (diagnostic) => diagnostic.code == ViewerDiagnosticCode.missingUvSet,
+        )
+        .toList();
+    expect(missingUvDiagnostics, hasLength(1));
+    expect(missingUvDiagnostics.single.details['uvSet'], 1);
+    expect(missingUvDiagnostics.single.details['blocking'], isFalse);
   });
 
   test('fails before adapter import when required Draco decoder is missing',

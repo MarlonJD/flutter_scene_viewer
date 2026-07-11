@@ -1,5 +1,11 @@
 # Exec plan: V2 production GLB pipeline
 
+> **Status (2026-07-10): completed for the original bounded GLB ingestion and
+> compression baseline.** The checked acceptance criteria below do not mean
+> that selected material, texture-transform, sampler, or cross-platform
+> extension support is complete. Follow-up work is owned by
+> [`014_selected_gltf_extension_support.md`](../active/014_selected_gltf_extension_support.md).
+
 ## Goal
 
 Make the viewer production-load real V2 GLB configurator assets without manual
@@ -953,3 +959,20 @@ diagnostic support around the `flutter_scene` runtime importer.
   `git diff --check`, and `bash tools/run_checks.sh` all passed locally. The
   full check ended with 261 passing tests and 13 expected Flutter GPU-gated
   skips.
+- 2026-07-05: launched the temporary iOS Simulator evidence app for the user's
+  live A1B32 trial with `FSV_INITIAL_MODEL_INDEX=8`. The simulator opened A1B32
+  with `Load: success`, `Hierarchy: root=root parts=20`, `Diagnostics: 6`, and
+  `Patch: Glorvia C28 texture applied (4, runtime repeat 2.5)`, which applies
+  the runtime albedo/front-back texture pair plus the Glorvia crepe normal map.
+  Live screenshots are stored at
+  `/private/tmp/fsviewer_ios_evidence_app/a1b32_texture_normal_demo_live.png`
+  and
+  `/private/tmp/fsviewer_ios_evidence_app/a1b32_texture_normal_demo_after_detach.png`.
+- 2026-07-05: captured the user's expanded no-bake requirement before starting
+  implementation. The requested scope now includes real runtime support for
+  `KHR_materials_clearcoat`, `KHR_materials_transmission`, `KHR_materials_volume`,
+  `KHR_materials_ior`, `KHR_materials_specular`, `KHR_texture_basisu` / KTX2,
+  `EXT_meshopt_compression`, and `KHR_texture_transform`, plus runtime
+  texture repeat/offset/rotation controls instead of generated tiled textures.
+  This follow-up is now the canonical active plan at
+  `docs/exec-plans/active/014_selected_gltf_extension_support.md`.

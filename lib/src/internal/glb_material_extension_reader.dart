@@ -4,8 +4,12 @@ import 'dart:typed_data';
 import '../diagnostics.dart';
 import '../material_patch.dart';
 import '../part_address.dart';
+import '../texture_binding.dart';
 import '../texture_source.dart';
+import 'glb_capability_reader.dart';
+import 'glb_texture_binding_reader.dart';
 import 'ktx2_header_reader.dart';
+import 'material_extension_patch_group.dart';
 
 const int _glbMagic = 0x46546C67;
 const int _jsonChunkType = 0x4E4F534A;
@@ -14,13 +18,15 @@ const int _maxJsonChunkBytes = 8 * 1024 * 1024;
 
 final class GlbMaterialExtensionReaderResult {
   const GlbMaterialExtensionReaderResult({
-    this.patches = const <PartAddress, MaterialPatch>{},
+    this.patches =
+        const <PartAddress, Map<MaterialExtensionPatchGroup, MaterialPatch>>{},
     this.diagnostics = const <ViewerDiagnostic>[],
   });
 
   static const empty = GlbMaterialExtensionReaderResult();
 
-  final Map<PartAddress, MaterialPatch> patches;
+  final Map<PartAddress, Map<MaterialExtensionPatchGroup, MaterialPatch>>
+      patches;
   final List<ViewerDiagnostic> diagnostics;
 }
 
@@ -151,7 +157,8 @@ final class _GlbMaterialExtensionMapper {
   GlbMaterialExtensionReaderResult map() {
     final materialPatches = _materialPatches();
     if (materialPatches.isEmpty) {
-      return _result(const <PartAddress, MaterialPatch>{});
+      return _result(const <PartAddress,
+          Map<MaterialExtensionPatchGroup, MaterialPatch>>{});
     }
     final sceneNodeIndices = _sceneNodeIndices();
     for (final nodeIndex in sceneNodeIndices) {
@@ -163,7 +170,8 @@ final class _GlbMaterialExtensionMapper {
       );
     }
 
-    final patches = <PartAddress, MaterialPatch>{};
+    final patches =
+        <PartAddress, Map<MaterialExtensionPatchGroup, MaterialPatch>>{};
     final reportedAmbiguousPaths = <String>{};
     for (final candidate in _candidates) {
       final count = _nodePathCounts[candidate.nodePathKey] ?? 0;
@@ -185,17 +193,19 @@ final class _GlbMaterialExtensionMapper {
         }
         continue;
       }
-      patches[candidate.address] = candidate.patch;
+      (patches[candidate.address] ??=
+              <MaterialExtensionPatchGroup, MaterialPatch>{})[candidate.group] =
+          candidate.patch;
     }
     return _result(patches);
   }
 
-  Map<int, _MaterialPatchIntent> _materialPatches() {
+  Map<int, _MaterialPatchGroupsIntent> _materialPatches() {
     final materials = _list(json['materials']);
     if (materials == null) {
-      return const <int, _MaterialPatchIntent>{};
+      return const <int, _MaterialPatchGroupsIntent>{};
     }
-    final result = <int, _MaterialPatchIntent>{};
+    final result = <int, _MaterialPatchGroupsIntent>{};
     for (var index = 0; index < materials.length; index += 1) {
       final material = _map(materials[index]);
       if (material == null) {
@@ -209,7 +219,7 @@ final class _GlbMaterialExtensionMapper {
     return result;
   }
 
-  _MaterialPatchIntent? _patchForMaterial(
+  _MaterialPatchGroupsIntent? _patchForMaterial(
     int materialIndex,
     Map<String, Object?> material,
   ) {
@@ -217,8 +227,13 @@ final class _GlbMaterialExtensionMapper {
     if (extensions == null) {
       return null;
     }
-    var invalid = false;
-    final textureSlots = <String>[];
+    var transmissionVolumeInvalid = false;
+    var iorInvalid = false;
+    var clearcoatInvalid = false;
+    var specularInvalid = false;
+    final transmissionVolumeTextureSlots = <String>[];
+    final clearcoatTextureSlots = <String>[];
+    final specularTextureSlots = <String>[];
     double? transmission;
     TextureSource? transmissionTexture;
     double? ior;
@@ -243,7 +258,7 @@ final class _GlbMaterialExtensionMapper {
       materialIndex,
     );
     if (transmissionExtension.invalid) {
-      invalid = true;
+      transmissionVolumeInvalid = true;
     } else {
       final extension = transmissionExtension.value;
       if (extension != null) {
@@ -253,7 +268,7 @@ final class _GlbMaterialExtensionMapper {
           'KHR_materials_transmission',
           materialIndex,
         );
-        invalid = invalid || factor.invalid;
+        transmissionVolumeInvalid = transmissionVolumeInvalid || factor.invalid;
         transmission = factor.value;
         final texture = _textureField(
           extension,
@@ -261,10 +276,11 @@ final class _GlbMaterialExtensionMapper {
           'KHR_materials_transmission',
           materialIndex,
         );
-        invalid = invalid || texture.invalid;
+        transmissionVolumeInvalid =
+            transmissionVolumeInvalid || texture.invalid;
         transmissionTexture = texture.value;
         if (texture.requiresUv) {
-          textureSlots.add('transmissionTexture');
+          transmissionVolumeTextureSlots.add('transmissionTexture');
         }
       }
     }
@@ -272,7 +288,7 @@ final class _GlbMaterialExtensionMapper {
     final iorExtension =
         _extension(extensions, 'KHR_materials_ior', materialIndex);
     if (iorExtension.invalid) {
-      invalid = true;
+      iorInvalid = true;
     } else {
       final extension = iorExtension.value;
       if (extension != null) {
@@ -282,7 +298,7 @@ final class _GlbMaterialExtensionMapper {
           'KHR_materials_ior',
           materialIndex,
         );
-        invalid = invalid || value.invalid;
+        iorInvalid = iorInvalid || value.invalid;
         ior = value.value;
       }
     }
@@ -290,7 +306,7 @@ final class _GlbMaterialExtensionMapper {
     final volumeExtension =
         _extension(extensions, 'KHR_materials_volume', materialIndex);
     if (volumeExtension.invalid) {
-      invalid = true;
+      transmissionVolumeInvalid = true;
     } else {
       final extension = volumeExtension.value;
       if (extension != null) {
@@ -300,7 +316,8 @@ final class _GlbMaterialExtensionMapper {
           'KHR_materials_volume',
           materialIndex,
         );
-        invalid = invalid || thicknessValue.invalid;
+        transmissionVolumeInvalid =
+            transmissionVolumeInvalid || thicknessValue.invalid;
         thickness = thicknessValue.value;
         final texture = _textureField(
           extension,
@@ -308,10 +325,11 @@ final class _GlbMaterialExtensionMapper {
           'KHR_materials_volume',
           materialIndex,
         );
-        invalid = invalid || texture.invalid;
+        transmissionVolumeInvalid =
+            transmissionVolumeInvalid || texture.invalid;
         thicknessTexture = texture.value;
         if (texture.requiresUv) {
-          textureSlots.add('thicknessTexture');
+          transmissionVolumeTextureSlots.add('thicknessTexture');
         }
         final color = _doubleListField(
           extension,
@@ -320,7 +338,7 @@ final class _GlbMaterialExtensionMapper {
           materialIndex,
           length: 3,
         );
-        invalid = invalid || color.invalid;
+        transmissionVolumeInvalid = transmissionVolumeInvalid || color.invalid;
         attenuationColor = color.value;
         final distance = _doubleField(
           extension,
@@ -328,7 +346,8 @@ final class _GlbMaterialExtensionMapper {
           'KHR_materials_volume',
           materialIndex,
         );
-        invalid = invalid || distance.invalid;
+        transmissionVolumeInvalid =
+            transmissionVolumeInvalid || distance.invalid;
         attenuationDistance = distance.value;
       }
     }
@@ -336,7 +355,7 @@ final class _GlbMaterialExtensionMapper {
     final clearcoatExtension =
         _extension(extensions, 'KHR_materials_clearcoat', materialIndex);
     if (clearcoatExtension.invalid) {
-      invalid = true;
+      clearcoatInvalid = true;
     } else {
       final extension = clearcoatExtension.value;
       if (extension != null) {
@@ -346,7 +365,7 @@ final class _GlbMaterialExtensionMapper {
           'KHR_materials_clearcoat',
           materialIndex,
         );
-        invalid = invalid || factor.invalid;
+        clearcoatInvalid = clearcoatInvalid || factor.invalid;
         clearcoat = factor.value;
         final texture = _textureField(
           extension,
@@ -354,10 +373,10 @@ final class _GlbMaterialExtensionMapper {
           'KHR_materials_clearcoat',
           materialIndex,
         );
-        invalid = invalid || texture.invalid;
+        clearcoatInvalid = clearcoatInvalid || texture.invalid;
         clearcoatTexture = texture.value;
         if (texture.requiresUv) {
-          textureSlots.add('clearcoatTexture');
+          clearcoatTextureSlots.add('clearcoatTexture');
         }
         final roughness = _doubleField(
           extension,
@@ -365,7 +384,7 @@ final class _GlbMaterialExtensionMapper {
           'KHR_materials_clearcoat',
           materialIndex,
         );
-        invalid = invalid || roughness.invalid;
+        clearcoatInvalid = clearcoatInvalid || roughness.invalid;
         clearcoatRoughness = roughness.value;
         final roughnessTexture = _textureField(
           extension,
@@ -373,10 +392,10 @@ final class _GlbMaterialExtensionMapper {
           'KHR_materials_clearcoat',
           materialIndex,
         );
-        invalid = invalid || roughnessTexture.invalid;
+        clearcoatInvalid = clearcoatInvalid || roughnessTexture.invalid;
         clearcoatRoughnessTexture = roughnessTexture.value;
         if (roughnessTexture.requiresUv) {
-          textureSlots.add('clearcoatRoughnessTexture');
+          clearcoatTextureSlots.add('clearcoatRoughnessTexture');
         }
         final normalTexture = _textureField(
           extension,
@@ -384,10 +403,10 @@ final class _GlbMaterialExtensionMapper {
           'KHR_materials_clearcoat',
           materialIndex,
         );
-        invalid = invalid || normalTexture.invalid;
+        clearcoatInvalid = clearcoatInvalid || normalTexture.invalid;
         clearcoatNormalTexture = normalTexture.value;
         if (normalTexture.requiresUv) {
-          textureSlots.add('clearcoatNormalTexture');
+          clearcoatTextureSlots.add('clearcoatNormalTexture');
         }
         final normalScale = _textureInfoDoubleField(
           extension,
@@ -396,7 +415,7 @@ final class _GlbMaterialExtensionMapper {
           'KHR_materials_clearcoat',
           materialIndex,
         );
-        invalid = invalid || normalScale.invalid;
+        clearcoatInvalid = clearcoatInvalid || normalScale.invalid;
         clearcoatNormalScale = normalScale.value;
       }
     }
@@ -404,7 +423,7 @@ final class _GlbMaterialExtensionMapper {
     final specularExtension =
         _extension(extensions, 'KHR_materials_specular', materialIndex);
     if (specularExtension.invalid) {
-      invalid = true;
+      specularInvalid = true;
     } else {
       final extension = specularExtension.value;
       if (extension != null) {
@@ -414,7 +433,7 @@ final class _GlbMaterialExtensionMapper {
           'KHR_materials_specular',
           materialIndex,
         );
-        invalid = invalid || factor.invalid;
+        specularInvalid = specularInvalid || factor.invalid;
         specular = factor.value;
         final texture = _textureField(
           extension,
@@ -422,10 +441,10 @@ final class _GlbMaterialExtensionMapper {
           'KHR_materials_specular',
           materialIndex,
         );
-        invalid = invalid || texture.invalid;
+        specularInvalid = specularInvalid || texture.invalid;
         specularTexture = texture.value;
         if (texture.requiresUv) {
-          textureSlots.add('specularTexture');
+          specularTextureSlots.add('specularTexture');
         }
         final colorFactor = _doubleListField(
           extension,
@@ -434,7 +453,7 @@ final class _GlbMaterialExtensionMapper {
           materialIndex,
           length: 3,
         );
-        invalid = invalid || colorFactor.invalid;
+        specularInvalid = specularInvalid || colorFactor.invalid;
         specularColorFactor = colorFactor.value;
         final colorTexture = _textureField(
           extension,
@@ -442,42 +461,84 @@ final class _GlbMaterialExtensionMapper {
           'KHR_materials_specular',
           materialIndex,
         );
-        invalid = invalid || colorTexture.invalid;
+        specularInvalid = specularInvalid || colorTexture.invalid;
         specularColorTexture = colorTexture.value;
         if (colorTexture.requiresUv) {
-          textureSlots.add('specularColorTexture');
+          specularTextureSlots.add('specularColorTexture');
         }
       }
     }
 
-    if (invalid) {
-      return null;
+    final hasTransmissionOrVolumeIntent =
+        extensions.containsKey('KHR_materials_transmission') ||
+            extensions.containsKey('KHR_materials_volume');
+    if (iorInvalid) {
+      if (hasTransmissionOrVolumeIntent) {
+        transmissionVolumeInvalid = true;
+      }
     }
-    final patch = MaterialPatch(
+    final groups =
+        <MaterialExtensionPatchGroup, _MaterialExtensionGroupIntent>{};
+    final transmissionVolumePatch = MaterialPatch(
       transmission: transmission,
       transmissionTexture: transmissionTexture,
-      ior: ior,
+      ior: hasTransmissionOrVolumeIntent && !iorInvalid ? ior : null,
       thickness: thickness,
       thicknessTexture: thicknessTexture,
       attenuationColor: attenuationColor,
       attenuationDistance: attenuationDistance,
+    );
+    if (!transmissionVolumeInvalid && !transmissionVolumePatch.isEmpty) {
+      groups[MaterialExtensionPatchGroup.transmissionVolume] =
+          _MaterialExtensionGroupIntent(
+        patch: transmissionVolumePatch,
+        textureSlots: List<String>.unmodifiable(transmissionVolumeTextureSlots),
+      );
+    }
+    final opaqueIorPatch = MaterialPatch(
+      ior: !hasTransmissionOrVolumeIntent && !iorInvalid ? ior : null,
+    );
+    if (!iorInvalid && !opaqueIorPatch.isEmpty) {
+      groups[MaterialExtensionPatchGroup.opaqueIor] =
+          _MaterialExtensionGroupIntent(
+        patch: opaqueIorPatch,
+        textureSlots: const <String>[],
+      );
+    }
+    final clearcoatPatch = MaterialPatch(
       clearcoat: clearcoat,
       clearcoatTexture: clearcoatTexture,
       clearcoatRoughness: clearcoatRoughness,
       clearcoatRoughnessTexture: clearcoatRoughnessTexture,
       clearcoatNormalTexture: clearcoatNormalTexture,
       clearcoatNormalScale: clearcoatNormalScale,
+    );
+    if (!clearcoatInvalid && !clearcoatPatch.isEmpty) {
+      groups[MaterialExtensionPatchGroup.clearcoat] =
+          _MaterialExtensionGroupIntent(
+        patch: clearcoatPatch,
+        textureSlots: List<String>.unmodifiable(clearcoatTextureSlots),
+      );
+    }
+    final specularPatch = MaterialPatch(
       specular: specular,
       specularTexture: specularTexture,
       specularColorFactor: specularColorFactor,
       specularColorTexture: specularColorTexture,
     );
-    if (patch.isEmpty) {
+    if (!specularInvalid && !specularPatch.isEmpty) {
+      groups[MaterialExtensionPatchGroup.specular] =
+          _MaterialExtensionGroupIntent(
+        patch: specularPatch,
+        textureSlots: List<String>.unmodifiable(specularTextureSlots),
+      );
+    }
+    if (groups.isEmpty) {
       return null;
     }
-    return _MaterialPatchIntent(
-      patch: patch,
-      textureSlots: List<String>.unmodifiable(textureSlots),
+    return _MaterialPatchGroupsIntent(
+      Map<MaterialExtensionPatchGroup,
+          _MaterialExtensionGroupIntent>.unmodifiable(groups),
     );
   }
 
@@ -515,7 +576,7 @@ final class _GlbMaterialExtensionMapper {
   void _visitNode(
     int nodeIndex,
     List<String> parentPath, {
-    required Map<int, _MaterialPatchIntent> materialPatches,
+    required Map<int, _MaterialPatchGroupsIntent> materialPatches,
     required Set<int> stack,
   }) {
     if (stack.contains(nodeIndex)) {
@@ -564,7 +625,7 @@ final class _GlbMaterialExtensionMapper {
     int meshIndex,
     List<String> nodePath,
     String nodePathKey, {
-    required Map<int, _MaterialPatchIntent> materialPatches,
+    required Map<int, _MaterialPatchGroupsIntent> materialPatches,
   }) {
     final meshes = _list(json['meshes']);
     if (meshes == null || meshIndex < 0 || meshIndex >= meshes.length) {
@@ -591,34 +652,155 @@ final class _GlbMaterialExtensionMapper {
         nodePath: nodePath,
         primitiveIndex: primitiveIndex,
       );
-      if (intent.textureSlots.isNotEmpty && !_hasTexCoord0(primitive)) {
-        diagnostics.add(
-          ViewerDiagnostic(
-            code: ViewerDiagnosticCode.missingUvSet,
-            message: 'Authored material extension texture requires TEXCOORD_0.',
-            details: <String, Object?>{
-              'source': debugName,
-              'part': address.debugPath,
-              'uvSet': 0,
-              'textureSlots': intent.textureSlots,
-            },
+      for (final entry in intent.groups.entries) {
+        final boundPatch = _bindGroupPatchForPrimitive(
+          materialIndex: materialIndex,
+          primitive: primitive ?? const <String, Object?>{},
+          group: entry.key,
+          patch: entry.value.patch,
+        );
+        if (boundPatch == null || boundPatch.isEmpty) {
+          continue;
+        }
+        _candidates.add(
+          _AuthoredPatchCandidate(
+            address: address,
+            nodePathKey: nodePathKey,
+            group: entry.key,
+            patch: boundPatch,
           ),
         );
-        continue;
       }
-      _candidates.add(
-        _AuthoredPatchCandidate(
-          address: address,
-          nodePathKey: nodePathKey,
-          patch: intent.patch,
-        ),
-      );
     }
   }
 
-  bool _hasTexCoord0(Map<String, Object?>? primitive) {
-    final attributes = _map(primitive?['attributes']);
-    return attributes != null && attributes.containsKey('TEXCOORD_0');
+  MaterialPatch? _bindGroupPatchForPrimitive({
+    required int materialIndex,
+    required Map<String, Object?> primitive,
+    required MaterialExtensionPatchGroup group,
+    required MaterialPatch patch,
+  }) {
+    if (group == MaterialExtensionPatchGroup.opaqueIor) {
+      return patch;
+    }
+    final materials = _list(json['materials']) ?? const <Object?>[];
+    final material = materialIndex >= 0 && materialIndex < materials.length
+        ? _map(materials[materialIndex])
+        : null;
+    final extensions = _map(material?['extensions']);
+    final context = readGlbPrimitiveTextureContext(
+      primitive: primitive,
+      extensionsRequired: Set<String>.from(
+        (_list(json['extensionsRequired']) ?? const <Object?>[])
+            .whereType<String>(),
+      ),
+    );
+    final textures = _list(json['textures']) ?? const <Object?>[];
+    final samplers = _list(json['samplers']) ?? const <Object?>[];
+    var failed = false;
+
+    MaterialTextureBinding? bind(
+      String extensionName,
+      String field,
+      TextureSource? source,
+    ) {
+      if (source == null) {
+        return null;
+      }
+      final textureInfo = _map(_map(extensions?[extensionName])?[field]);
+      if (textureInfo == null) {
+        failed = true;
+        return null;
+      }
+      final result = readGlbTextureBinding(
+        textureInfo: textureInfo,
+        textures: textures,
+        samplers: samplers,
+        source: source,
+        availableTexCoords: context.availableTexCoords,
+        textureTransformRequired: context.textureTransformRequired,
+        slot: '$extensionName.$field',
+        debugName: debugName ?? 'GLB',
+      );
+      diagnostics.addAll(result.diagnostics);
+      if (result.binding == null) {
+        failed = true;
+      }
+      return result.binding;
+    }
+
+    if (group == MaterialExtensionPatchGroup.transmissionVolume) {
+      final transmissionBinding = bind(
+        'KHR_materials_transmission',
+        'transmissionTexture',
+        patch.transmissionTexture,
+      );
+      final thicknessBinding = bind(
+        'KHR_materials_volume',
+        'thicknessTexture',
+        patch.thicknessTexture,
+      );
+      if (failed) {
+        return null;
+      }
+      return MaterialPatch(
+        transmission: patch.transmission,
+        transmissionTextureBinding: transmissionBinding,
+        ior: patch.ior,
+        thickness: patch.thickness,
+        thicknessTextureBinding: thicknessBinding,
+        attenuationColor: patch.attenuationColor,
+        attenuationDistance: patch.attenuationDistance,
+      );
+    }
+    if (group == MaterialExtensionPatchGroup.clearcoat) {
+      final clearcoatBinding = bind(
+        'KHR_materials_clearcoat',
+        'clearcoatTexture',
+        patch.clearcoatTexture,
+      );
+      final roughnessBinding = bind(
+        'KHR_materials_clearcoat',
+        'clearcoatRoughnessTexture',
+        patch.clearcoatRoughnessTexture,
+      );
+      final normalBinding = bind(
+        'KHR_materials_clearcoat',
+        'clearcoatNormalTexture',
+        patch.clearcoatNormalTexture,
+      );
+      if (failed) {
+        return null;
+      }
+      return MaterialPatch(
+        clearcoat: patch.clearcoat,
+        clearcoatTextureBinding: clearcoatBinding,
+        clearcoatRoughness: patch.clearcoatRoughness,
+        clearcoatRoughnessTextureBinding: roughnessBinding,
+        clearcoatNormalTextureBinding: normalBinding,
+        clearcoatNormalScale:
+            normalBinding == null ? null : patch.clearcoatNormalScale,
+      );
+    }
+    final specularBinding = bind(
+      'KHR_materials_specular',
+      'specularTexture',
+      patch.specularTexture,
+    );
+    final colorBinding = bind(
+      'KHR_materials_specular',
+      'specularColorTexture',
+      patch.specularColorTexture,
+    );
+    if (failed) {
+      return null;
+    }
+    return MaterialPatch(
+      specular: patch.specular,
+      specularTextureBinding: specularBinding,
+      specularColorFactor: patch.specularColorFactor,
+      specularColorTextureBinding: colorBinding,
+    );
   }
 
   _ExtensionRead _extension(
@@ -747,7 +929,7 @@ final class _GlbMaterialExtensionMapper {
     }
     final textureInfo = _map(value);
     final index = _intValue(textureInfo?['index']);
-    if (textureInfo == null || index == null) {
+    if (textureInfo == null) {
       diagnostics.add(
         _invalidExtensionDiagnostic(
           extensionName: extensionName,
@@ -758,20 +940,35 @@ final class _GlbMaterialExtensionMapper {
       );
       return const _TextureRead.invalid();
     }
-    final texCoord = _intValue(textureInfo['texCoord']) ?? 0;
-    if (texCoord != 0) {
-      diagnostics.add(
-        _textureDiagnostic(
-          extensionName: extensionName,
-          field: field,
-          materialIndex: materialIndex,
-          textureIndex: index,
-          reason:
-              'Authored material extension texture patches currently support only TEXCOORD_0.',
-          uvSet: texCoord,
+    final textures = _list(json['textures']) ?? const <Object?>[];
+    if (index == null || index < 0 || index >= textures.length) {
+      final malformed = readGlbTextureBinding(
+        textureInfo: textureInfo,
+        textures: textures,
+        samplers: _list(json['samplers']) ?? const <Object?>[],
+        source: const AssetTextureSource('__unresolved_glb_texture__'),
+        availableTexCoords: const <int>{0},
+        textureTransformRequired:
+            (_list(json['extensionsRequired']) ?? const <Object?>[])
+                .contains('KHR_texture_transform'),
+        slot: '$extensionName.$field',
+        debugName: debugName ?? 'GLB',
+      );
+      diagnostics.addAll(
+        malformed.diagnostics.map(
+          (diagnostic) => ViewerDiagnostic(
+            code: diagnostic.code,
+            message: diagnostic.message,
+            details: <String, Object?>{
+              ...diagnostic.details,
+              'extension': extensionName,
+              'field': field,
+              'materialIndex': materialIndex,
+            },
+          ),
         ),
       );
-      return const _TextureRead();
+      return const _TextureRead.invalid();
     }
     final bytes = _textureBytes(
       index,
@@ -780,7 +977,7 @@ final class _GlbMaterialExtensionMapper {
       materialIndex: materialIndex,
     );
     if (bytes == null) {
-      return const _TextureRead(requiresUv: true);
+      return const _TextureRead.invalid(requiresUv: true);
     }
     return _TextureRead(
       requiresUv: true,
@@ -1075,9 +1272,20 @@ final class _GlbMaterialExtensionMapper {
   }
 
   GlbMaterialExtensionReaderResult _result(
-      Map<PartAddress, MaterialPatch> patches) {
+    Map<PartAddress, Map<MaterialExtensionPatchGroup, MaterialPatch>> patches,
+  ) {
+    final immutablePatches =
+        <PartAddress, Map<MaterialExtensionPatchGroup, MaterialPatch>>{
+      for (final entry in patches.entries)
+        entry.key: Map<MaterialExtensionPatchGroup, MaterialPatch>.unmodifiable(
+          entry.value,
+        ),
+    };
     return GlbMaterialExtensionReaderResult(
-      patches: Map<PartAddress, MaterialPatch>.unmodifiable(patches),
+      patches: Map<PartAddress,
+          Map<MaterialExtensionPatchGroup, MaterialPatch>>.unmodifiable(
+        immutablePatches,
+      ),
       diagnostics: List<ViewerDiagnostic>.unmodifiable(diagnostics),
     );
   }
@@ -1094,8 +1302,14 @@ final class _JsonChunkReadResult {
   final ViewerDiagnostic? diagnostic;
 }
 
-final class _MaterialPatchIntent {
-  const _MaterialPatchIntent({
+final class _MaterialPatchGroupsIntent {
+  const _MaterialPatchGroupsIntent(this.groups);
+
+  final Map<MaterialExtensionPatchGroup, _MaterialExtensionGroupIntent> groups;
+}
+
+final class _MaterialExtensionGroupIntent {
+  const _MaterialExtensionGroupIntent({
     required this.patch,
     required this.textureSlots,
   });
@@ -1108,11 +1322,13 @@ final class _AuthoredPatchCandidate {
   const _AuthoredPatchCandidate({
     required this.address,
     required this.nodePathKey,
+    required this.group,
     required this.patch,
   });
 
   final PartAddress address;
   final String nodePathKey;
+  final MaterialExtensionPatchGroup group;
   final MaterialPatch patch;
 }
 
@@ -1148,9 +1364,8 @@ final class _DoubleListRead {
 
 final class _TextureRead {
   const _TextureRead({this.value, this.requiresUv = false}) : invalid = false;
-  const _TextureRead.invalid()
+  const _TextureRead.invalid({this.requiresUv = false})
       : value = null,
-        requiresUv = false,
         invalid = true;
 
   final TextureSource? value;

@@ -35,33 +35,65 @@ void main() {
     expect(policy.support.clearcoat, isTrue);
   });
 
-  test('production shader policy requests glass and clearcoat by default', () {
-    const policy = ViewerMaterialExtensionPolicy.productionShaders();
+  test(
+      'package-local shader policy is candidate-only without target release evidence',
+      () {
+    final support =
+        const ViewerMaterialExtensionPolicy.productionShaders().support;
 
     expect(
-        policy.mode, ViewerMaterialExtensionMode.productionFlutterSceneShaders);
-    expect(policy.enableTransmission, isTrue);
-    expect(policy.enableClearcoat, isTrue);
-    expect(policy.support.transmission, isTrue);
-    expect(policy.support.ior, isTrue);
-    expect(policy.support.volume, isTrue);
-    expect(policy.support.clearcoat, isTrue);
-    expect(policy.support.specular, isFalse);
-    expect(policy.support.productionReady, isTrue);
-    expect(
-      policy.support.backendKind,
+      support.backendKind,
       MaterialExtensionBackendKind.flutterSceneCustomShader,
+    );
+    expect(
+      support
+          .supportFor(MaterialExtensionFeature.clearcoat)
+          .maturityFor(MaterialExtensionTarget.iosSimulator),
+      MaterialExtensionMaturity.candidateOnly,
+    );
+    expect(
+      support
+          .supportFor(MaterialExtensionFeature.clearcoat)
+          .evidenceFor(MaterialExtensionTarget.iosSimulator),
+      MaterialExtensionEvidenceStatus.notRun,
+    );
+    expect(support.productionReady, isFalse);
+  });
+
+  test('candidate maturity can coexist with verified local target evidence',
+      () {
+    final feature = MaterialExtensionFeatureSupport(
+      available: true,
+      maturityByTarget: const <MaterialExtensionTarget,
+          MaterialExtensionMaturity>{
+        MaterialExtensionTarget.iosSimulator:
+            MaterialExtensionMaturity.candidateOnly,
+      },
+      evidenceByTarget: const <MaterialExtensionTarget,
+          MaterialExtensionEvidenceStatus>{
+        MaterialExtensionTarget.iosSimulator:
+            MaterialExtensionEvidenceStatus.verifiedLocally,
+      },
+    );
+
+    expect(
+      feature.maturityFor(MaterialExtensionTarget.iosSimulator),
+      MaterialExtensionMaturity.candidateOnly,
+    );
+    expect(
+      feature.evidenceFor(MaterialExtensionTarget.iosSimulator),
+      MaterialExtensionEvidenceStatus.verifiedLocally,
+    );
+    expect(
+      feature.productionReadyFor(MaterialExtensionTarget.iosSimulator),
+      isFalse,
     );
   });
 
   test('candidate shader backend cannot report production ready', () {
-    const support = MaterialExtensionSupport(
-      transmission: true,
-      ior: true,
-      volume: true,
-      clearcoat: true,
-      specular: true,
+    final support = MaterialExtensionSupport(
       backendKind: MaterialExtensionBackendKind.packageLocalCandidate,
+      features: _availableFeatures(MaterialExtensionFeature.values),
     );
 
     expect(support.productionReady, isFalse);
@@ -71,13 +103,21 @@ void main() {
     );
   });
 
+  test('non-release backends reject claimed release targets', () {
+    for (final backendKind in <MaterialExtensionBackendKind>[
+      MaterialExtensionBackendKind.none,
+      MaterialExtensionBackendKind.packageLocalCandidate,
+    ]) {
+      expect(
+        () => _productionReadySupport(backendKind: backendKind),
+        throwsArgumentError,
+        reason: backendKind.name,
+      );
+    }
+  });
+
   test('renderer native backend can report production ready', () {
-    const support = MaterialExtensionSupport(
-      transmission: true,
-      ior: true,
-      volume: true,
-      clearcoat: true,
-      specular: true,
+    final support = _productionReadySupport(
       backendKind: MaterialExtensionBackendKind.rendererNative,
     );
 
@@ -85,12 +125,7 @@ void main() {
   });
 
   test('flutter_scene custom shader backend can report production ready', () {
-    const support = MaterialExtensionSupport(
-      transmission: true,
-      ior: true,
-      volume: true,
-      clearcoat: true,
-      specular: true,
+    final support = _productionReadySupport(
       backendKind: MaterialExtensionBackendKind.flutterSceneCustomShader,
     );
 
@@ -99,22 +134,50 @@ void main() {
 
   test('material extension support equality includes backend kind', () {
     expect(
-      const MaterialExtensionSupport(
-        transmission: true,
-        ior: true,
-        volume: true,
-        clearcoat: true,
-        specular: true,
+      MaterialExtensionSupport(
         backendKind: MaterialExtensionBackendKind.packageLocalCandidate,
+        features: _availableFeatures(MaterialExtensionFeature.values),
       ),
       isNot(
-        const MaterialExtensionSupport(
-          transmission: true,
-          ior: true,
-          volume: true,
-          clearcoat: true,
-          specular: false,
+        MaterialExtensionSupport(
           backendKind: MaterialExtensionBackendKind.rendererNative,
+          features: _availableFeatures(
+            MaterialExtensionFeature.values.where(
+                (feature) => feature != MaterialExtensionFeature.specular),
+          ),
+        ),
+      ),
+    );
+  });
+
+  test('material extension support equality includes target evidence', () {
+    MaterialExtensionSupport supportWithEvidence(
+      MaterialExtensionEvidenceStatus evidence,
+    ) {
+      return MaterialExtensionSupport(
+        backendKind: MaterialExtensionBackendKind.rendererNative,
+        features: <MaterialExtensionFeature, MaterialExtensionFeatureSupport>{
+          MaterialExtensionFeature.clearcoat: MaterialExtensionFeatureSupport(
+            available: true,
+            maturityByTarget: const <MaterialExtensionTarget,
+                MaterialExtensionMaturity>{
+              MaterialExtensionTarget.iosPhysical:
+                  MaterialExtensionMaturity.releasePending,
+            },
+            evidenceByTarget: <MaterialExtensionTarget,
+                MaterialExtensionEvidenceStatus>{
+              MaterialExtensionTarget.iosPhysical: evidence,
+            },
+          ),
+        },
+      );
+    }
+
+    expect(
+      supportWithEvidence(MaterialExtensionEvidenceStatus.notRun),
+      isNot(
+        supportWithEvidence(
+          MaterialExtensionEvidenceStatus.verifiedLocally,
         ),
       ),
     );
@@ -129,10 +192,13 @@ void main() {
 
     final diagnostics = patch.validate(
       PartAddress(nodePath: <String>['Root', 'Glass'], primitiveIndex: 0),
-      support: const MaterialExtensionSupport(
-        transmission: true,
-        ior: true,
-        volume: true,
+      support: MaterialExtensionSupport(
+        backendKind: MaterialExtensionBackendKind.packageLocalCandidate,
+        features: _availableFeatures(<MaterialExtensionFeature>[
+          MaterialExtensionFeature.transmission,
+          MaterialExtensionFeature.ior,
+          MaterialExtensionFeature.volume,
+        ]),
       ),
     );
 
@@ -144,10 +210,13 @@ void main() {
 
     final diagnostics = patch.validate(
       PartAddress(nodePath: <String>['Root', 'Paint'], primitiveIndex: 0),
-      support: const MaterialExtensionSupport(
-        transmission: true,
-        ior: true,
-        volume: true,
+      support: MaterialExtensionSupport(
+        backendKind: MaterialExtensionBackendKind.packageLocalCandidate,
+        features: _availableFeatures(<MaterialExtensionFeature>[
+          MaterialExtensionFeature.transmission,
+          MaterialExtensionFeature.ior,
+          MaterialExtensionFeature.volume,
+        ]),
       ),
     );
 
@@ -163,7 +232,14 @@ void main() {
 
     final diagnostics = patch.validate(
       PartAddress(nodePath: <String>['Root', 'Paint'], primitiveIndex: 0),
-      support: const MaterialExtensionSupport(clearcoat: true),
+      support: MaterialExtensionSupport(
+        backendKind: MaterialExtensionBackendKind.packageLocalCandidate,
+        features: _availableFeatures(
+          const <MaterialExtensionFeature>[
+            MaterialExtensionFeature.clearcoat,
+          ],
+        ),
+      ),
     );
 
     expect(diagnostics, isEmpty);
@@ -177,9 +253,48 @@ void main() {
 
     final diagnostics = patch.validate(
       PartAddress(nodePath: <String>['Root', 'Fabric'], primitiveIndex: 0),
-      support: const MaterialExtensionSupport(specular: true),
+      support: MaterialExtensionSupport(
+        backendKind: MaterialExtensionBackendKind.packageLocalCandidate,
+        features: _availableFeatures(
+          const <MaterialExtensionFeature>[
+            MaterialExtensionFeature.specular,
+          ],
+        ),
+      ),
     );
 
     expect(diagnostics, isEmpty);
   });
+}
+
+Map<MaterialExtensionFeature, MaterialExtensionFeatureSupport>
+    _availableFeatures(Iterable<MaterialExtensionFeature> features) {
+  return <MaterialExtensionFeature, MaterialExtensionFeatureSupport>{
+    for (final feature in features)
+      feature: MaterialExtensionFeatureSupport(available: true),
+  };
+}
+
+MaterialExtensionSupport _productionReadySupport({
+  required MaterialExtensionBackendKind backendKind,
+}) {
+  const target = MaterialExtensionTarget.iosPhysical;
+  return MaterialExtensionSupport(
+    backendKind: backendKind,
+    features: <MaterialExtensionFeature, MaterialExtensionFeatureSupport>{
+      for (final feature in MaterialExtensionFeature.values)
+        feature: MaterialExtensionFeatureSupport(
+          available: true,
+          maturityByTarget: const <MaterialExtensionTarget,
+              MaterialExtensionMaturity>{
+            target: MaterialExtensionMaturity.productionReady,
+          },
+          evidenceByTarget: const <MaterialExtensionTarget,
+              MaterialExtensionEvidenceStatus>{
+            target: MaterialExtensionEvidenceStatus.verifiedLocally,
+          },
+        ),
+    },
+    claimedReleaseTargets: const <MaterialExtensionTarget>{target},
+  );
 }

@@ -39,7 +39,7 @@ void main() {
       expect(result.diagnostics.single.details['status'], 'unavailable');
     });
 
-    test('production preflight accepts repo-owned shaders for production',
+    test('shader preflight preserves candidate maturity without evidence',
         () async {
       final backend = FlutterSceneMaterialExtensionBackend(
         loadShaderLibrary: (_) async => const _FakeShaderLibrary(
@@ -52,11 +52,29 @@ void main() {
 
       final result = await backend.preflightProductionSupport();
 
-      expect(result.support.productionReady, isTrue);
+      expect(result.support.productionReady, isFalse);
       expect(result.support.transmission, isTrue);
       expect(result.support.ior, isTrue);
       expect(result.support.volume, isTrue);
       expect(result.support.clearcoat, isTrue);
+      expect(result.support.claimedReleaseTargets, isEmpty);
+      for (final feature in <MaterialExtensionFeature>[
+        MaterialExtensionFeature.transmission,
+        MaterialExtensionFeature.ior,
+        MaterialExtensionFeature.volume,
+        MaterialExtensionFeature.clearcoat,
+      ]) {
+        for (final target in MaterialExtensionTarget.values) {
+          expect(
+            result.support.supportFor(feature).maturityFor(target),
+            MaterialExtensionMaturity.candidateOnly,
+          );
+          expect(
+            result.support.supportFor(feature).evidenceFor(target),
+            MaterialExtensionEvidenceStatus.notRun,
+          );
+        }
+      }
       expect(
         result.support.backendKind,
         MaterialExtensionBackendKind.flutterSceneCustomShader,

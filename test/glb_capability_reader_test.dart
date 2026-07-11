@@ -179,7 +179,7 @@ void main() {
     expect(_slotByName(result, 'normalTexture').texCoord, 0);
   });
 
-  test('reports missing imported texture UV set per primitive material', () {
+  test('leaves effective texture UV validation to the binding reader', () {
     final result = readGlbAssetCapabilities(
       _glb(<String, Object?>{
         'asset': <String, Object?>{'version': '2.0'},
@@ -212,16 +212,11 @@ void main() {
       debugName: 'missing-uv1.glb',
     );
 
-    expect(result.diagnostics, hasLength(1));
-    expect(result.diagnostics.single.code, ViewerDiagnosticCode.missingUvSet);
-    expect(result.diagnostics.single.details['source'], 'missing-uv1.glb');
-    expect(result.diagnostics.single.details['meshIndex'], 0);
-    expect(result.diagnostics.single.details['primitiveIndex'], 0);
-    expect(result.diagnostics.single.details['materialIndex'], 0);
-    expect(result.diagnostics.single.details['uvSet'], 1);
-    expect(result.diagnostics.single.details['textureSlots'], <String>[
-      'baseColorTexture',
-    ]);
+    expect(result.diagnostics, isEmpty);
+    expect(_slotByName(result, 'baseColorTexture').texCoord, 1);
+    final context = result.primitiveTextureContexts.single;
+    expect(context.availableTexCoords, <int>{0});
+    expect(context.textureTransformRequired, isFalse);
   });
 
   test('accepts Draco extension attributes as imported texture UV evidence',
@@ -263,6 +258,47 @@ void main() {
     );
 
     expect(result.diagnostics, isEmpty);
+    expect(
+      result.primitiveTextureContexts.single.availableTexCoords,
+      <int>{0},
+    );
+  });
+
+  test('supplies primitive UV availability and transform requiredness', () {
+    final result = readGlbAssetCapabilities(
+      _glb(<String, Object?>{
+        'asset': <String, Object?>{'version': '2.0'},
+        'extensionsRequired': <Object?>['KHR_texture_transform'],
+        'meshes': <Object?>[
+          <String, Object?>{
+            'primitives': <Object?>[
+              <String, Object?>{
+                'attributes': <String, Object?>{
+                  'POSITION': 0,
+                  'TEXCOORD_0': 1,
+                },
+                'material': 3,
+                'extensions': <String, Object?>{
+                  'KHR_draco_mesh_compression': <String, Object?>{
+                    'attributes': <String, Object?>{'TEXCOORD_2': 4},
+                  },
+                },
+              },
+            ],
+          },
+        ],
+      }),
+      decoderCapabilities: const GlbDecoderCapabilities(
+        dracoMeshCompression: true,
+      ),
+    );
+
+    final context = result.primitiveTextureContexts.single;
+    expect(context.meshIndex, 0);
+    expect(context.primitiveIndex, 0);
+    expect(context.materialIndex, 3);
+    expect(context.availableTexCoords, <int>{0, 2});
+    expect(context.textureTransformRequired, isTrue);
   });
 
   test('reports required meshopt and BasisU decoder gaps', () {

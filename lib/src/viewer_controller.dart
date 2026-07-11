@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import 'diagnostics.dart';
 import 'internal/material_effect_mask_resolver.dart';
+import 'internal/material_extension_patch_group.dart';
 import 'material_extension_policy.dart';
 import 'material_override_store.dart';
 import 'material_patch.dart';
@@ -10,6 +11,7 @@ import 'model_loader.dart';
 import 'model_source.dart';
 import 'part_address.dart';
 import 'part_registry.dart';
+import 'texture_binding.dart';
 import 'texture_source.dart';
 
 /// Lifecycle states for the controller's current model load.
@@ -88,7 +90,8 @@ class FlutterSceneViewerController extends ChangeNotifier {
       if (diagnostic == null) {
         _partTree = result.partTree;
         await _applyAuthoredMaterialPatches(
-          result.authoredMaterialPatches,
+          result.authoredCoreMaterialPatches,
+          result.authoredExtensionMaterialPatches,
           sink,
         );
         _setLoadState(ViewerLoadState.success(source));
@@ -137,6 +140,40 @@ class FlutterSceneViewerController extends ChangeNotifier {
   Future<void> setPartTexture(PartAddress address, TextureSource source) =>
       setPartMaterial(address, MaterialPatch(baseColorTexture: source));
 
+  Future<void> setPartTextureBinding(
+    PartAddress address,
+    MaterialTextureSlot slot,
+    MaterialTextureBinding binding,
+  ) {
+    final patch = switch (slot) {
+      MaterialTextureSlot.baseColor =>
+        MaterialPatch(baseColorTextureBinding: binding),
+      MaterialTextureSlot.metallicRoughness =>
+        MaterialPatch(metallicRoughnessTextureBinding: binding),
+      MaterialTextureSlot.normal =>
+        MaterialPatch(normalTextureBinding: binding),
+      MaterialTextureSlot.occlusion =>
+        MaterialPatch(occlusionTextureBinding: binding),
+      MaterialTextureSlot.emissive =>
+        MaterialPatch(emissiveTextureBinding: binding),
+      MaterialTextureSlot.transmission =>
+        MaterialPatch(transmissionTextureBinding: binding),
+      MaterialTextureSlot.thickness =>
+        MaterialPatch(thicknessTextureBinding: binding),
+      MaterialTextureSlot.clearcoat =>
+        MaterialPatch(clearcoatTextureBinding: binding),
+      MaterialTextureSlot.clearcoatRoughness =>
+        MaterialPatch(clearcoatRoughnessTextureBinding: binding),
+      MaterialTextureSlot.clearcoatNormal =>
+        MaterialPatch(clearcoatNormalTextureBinding: binding),
+      MaterialTextureSlot.specular =>
+        MaterialPatch(specularTextureBinding: binding),
+      MaterialTextureSlot.specularColor =>
+        MaterialPatch(specularColorTextureBinding: binding),
+    };
+    return setPartMaterial(address, patch);
+  }
+
   Future<void> resetPart(PartAddress address) async {
     final sink = _requireSink();
     final diagnostics = await sink.resetPart(address);
@@ -160,36 +197,80 @@ class FlutterSceneViewerController extends ChangeNotifier {
   }
 
   Future<void> _applyAuthoredMaterialPatches(
-    Map<PartAddress, MaterialPatch> patches,
+    Map<PartAddress, MaterialPatch> corePatches,
+    Map<PartAddress, Map<MaterialExtensionPatchGroup, MaterialPatch>>
+        extensionPatches,
     ViewerCommandSink sink,
   ) async {
     var appliedAny = false;
-    for (final entry in patches.entries) {
-      final address = entry.key;
-      final patch = entry.value;
-      final diagnostics = _validateMaterialPatch(
-        address,
-        patch,
-        support: sink.materialExtensionSupport,
-      );
-      if (diagnostics.isNotEmpty) {
-        for (final diagnostic in diagnostics) {
-          recordDiagnostic(diagnostic);
-        }
+    final addresses = <PartAddress>{
+      ...corePatches.keys,
+      ...extensionPatches.keys,
+    };
+    for (final address in addresses) {
+      var appliedPatch = const MaterialPatch();
+      final corePatch = corePatches[address];
+      if (corePatch != null &&
+          await _applyAuthoredMaterialPatch(
+            address,
+            validationPatch: corePatch,
+            appliedPatch: corePatch,
+            sink: sink,
+          )) {
+        appliedPatch = corePatch;
+        appliedAny = true;
+      }
+      final groups = extensionPatches[address];
+      if (groups == null) {
         continue;
       }
-      final sinkDiagnostics = await sink.setPartMaterial(address, patch);
-      if (sinkDiagnostics.isNotEmpty) {
-        for (final diagnostic in sinkDiagnostics) {
-          recordDiagnostic(diagnostic);
+      for (final group in MaterialExtensionPatchGroup.values) {
+        final groupPatch = groups[group];
+        if (groupPatch == null) {
+          continue;
         }
-        continue;
+        final candidate = appliedPatch.merge(groupPatch);
+        if (await _applyAuthoredMaterialPatch(
+          address,
+          validationPatch: groupPatch,
+          appliedPatch: candidate,
+          sink: sink,
+        )) {
+          appliedPatch = candidate;
+          appliedAny = true;
+        }
       }
-      appliedAny = true;
     }
     if (appliedAny) {
       sink.requestRenderFrame();
     }
+  }
+
+  Future<bool> _applyAuthoredMaterialPatch(
+    PartAddress address, {
+    required MaterialPatch validationPatch,
+    required MaterialPatch appliedPatch,
+    required ViewerCommandSink sink,
+  }) async {
+    final diagnostics = _validateMaterialPatch(
+      address,
+      validationPatch,
+      support: sink.materialExtensionSupport,
+    );
+    if (diagnostics.isNotEmpty) {
+      for (final diagnostic in diagnostics) {
+        recordDiagnostic(diagnostic);
+      }
+      return false;
+    }
+    final sinkDiagnostics = await sink.setPartMaterial(address, appliedPatch);
+    if (sinkDiagnostics.isNotEmpty) {
+      for (final diagnostic in sinkDiagnostics) {
+        recordDiagnostic(diagnostic);
+      }
+      return false;
+    }
+    return true;
   }
 
   Future<void> setPartVisibility(PartAddress address, bool visible) =>
@@ -328,16 +409,34 @@ class FlutterSceneViewerController extends ChangeNotifier {
 List<String> _textureSlotsForPatch(MaterialPatch patch) {
   return <String>[
     if (patch.baseColorTexture != null) 'baseColorTexture',
+    if (patch.baseColorTextureBinding != null) 'baseColorTextureBinding',
     if (patch.metallicRoughnessTexture != null) 'metallicRoughnessTexture',
+    if (patch.metallicRoughnessTextureBinding != null)
+      'metallicRoughnessTextureBinding',
     if (patch.normalTexture != null) 'normalTexture',
+    if (patch.normalTextureBinding != null) 'normalTextureBinding',
     if (patch.emissiveTexture != null) 'emissiveTexture',
+    if (patch.emissiveTextureBinding != null) 'emissiveTextureBinding',
     if (patch.occlusionTexture != null) 'occlusionTexture',
+    if (patch.occlusionTextureBinding != null) 'occlusionTextureBinding',
     if (patch.effectMask != null) 'effectMask',
     if (patch.transmissionTexture != null) 'transmissionTexture',
+    if (patch.transmissionTextureBinding != null) 'transmissionTextureBinding',
     if (patch.thicknessTexture != null) 'thicknessTexture',
+    if (patch.thicknessTextureBinding != null) 'thicknessTextureBinding',
     if (patch.clearcoatTexture != null) 'clearcoatTexture',
+    if (patch.clearcoatTextureBinding != null) 'clearcoatTextureBinding',
     if (patch.clearcoatRoughnessTexture != null) 'clearcoatRoughnessTexture',
+    if (patch.clearcoatRoughnessTextureBinding != null)
+      'clearcoatRoughnessTextureBinding',
     if (patch.clearcoatNormalTexture != null) 'clearcoatNormalTexture',
+    if (patch.clearcoatNormalTextureBinding != null)
+      'clearcoatNormalTextureBinding',
+    if (patch.specularTexture != null) 'specularTexture',
+    if (patch.specularTextureBinding != null) 'specularTextureBinding',
+    if (patch.specularColorTexture != null) 'specularColorTexture',
+    if (patch.specularColorTextureBinding != null)
+      'specularColorTextureBinding',
   ];
 }
 

@@ -1,5 +1,16 @@
 # Material Extension Production Readiness Implementation Plan
 
+> **Status (2026-07-10): deferred and superseded, not completed.** This file
+> preserves Task 012 implementation history and iOS Simulator evidence. Its
+> remaining correctness, renderer-ownership, platform-evidence, and release
+> work is owned by the canonical active plan:
+> [`014_selected_gltf_extension_support.md`](../active/014_selected_gltf_extension_support.md).
+> Package-local glass and clearcoat shader results below are historical
+> `verified locally` evidence and remain `candidate-only` until Plan 014's
+> Khronos/Filament audit and target gates pass. Other platforms remain
+> `not run`. Do not use older `production` wording in this history as current
+> capability truth.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use
 > `superpowers:subagent-driven-development` or
 > `superpowers:executing-plans` to implement this plan task-by-task. Steps use
@@ -974,6 +985,22 @@ recovery is complete.
 
 ## Progress log
 
+- 2026-07-10: Scoped a repo-local `pbr-materials` reference skill after the
+  user approved grounded, NotebookLM-like material knowledge without a vector
+  index or copied third-party PDFs/shader source. Three read-only baseline
+  scenarios correctly recovered the backend boundary, clearcoat differences,
+  and Frostbite v1 scope, but each rediscovered primary-source mappings and
+  used a different answer shape. The minimal skill therefore centralizes
+  Filament, Karis 2013, Frostbite sky/cloud, and ratified glTF references,
+  routes every conclusion through wrapper/renderer/research layers, and keeps
+  capability claims tied to the pinned `flutter_scene` source and target
+  evidence.
+- 2026-07-10: Refined the Frostbite reference after forward testing surfaced
+  the pinned upstream `PhysicalSkySource`, `SkyEnvironment`, and `SunLight`
+  foothold. The skill now distinguishes that bounded analytic daylight path
+  from Frostbite LUT atmosphere, aerial perspective, and volumetric clouds,
+  and keeps any viewer integration `candidate-only` pending an approved plan,
+  scheduler analysis, and target visual/performance evidence.
 - 2026-07-04: Created the production-readiness plan after Task 011 concluded
   package-local glass and clearcoat should remain `candidate-only`. The plan
   requires renderer-native material extension support, real-asset acceptance
@@ -1151,6 +1178,26 @@ recovery is complete.
 
 ## Verification log
 
+- 2026-07-10: verified locally for the repo-local `pbr-materials` skill.
+  Three read-only baseline scenarios ran without the skill, followed by the
+  same backend, clearcoat, and Frostbite scenarios with the skill. Forward
+  tests read the routed primary references, separated wrapper API from
+  renderer internals and future research, cited the pinned dependency, and
+  used literal evidence labels. A fourth Frostbite rerun passed after adding
+  the upstream analytic physical-sky nuance discovered during refactoring.
+- 2026-07-10: skill structure validation passed with
+  `quick_validate.py`; `agents/openai.yaml` parsed successfully and retained
+  the `$pbr-materials` default prompt. PyYAML was installed only under
+  `/private/tmp/pbr-skill-validate` for the validator and was not added as a
+  repository dependency. All canonical source and pinned-source links used by
+  the references returned HTTP 200. `python3 tools/repo_lint.py` and
+  `git diff --check` passed, and the scoped files contained no trailing
+  whitespace.
+- 2026-07-10: full verification initially stopped in the sandbox when Flutter
+  could not write SDK cache files. The escalated `bash tools/run_checks.sh`
+  rerun passed repo lint, Dart format check with 72 files and 0 changes,
+  `flutter pub get`, `flutter analyze` with no issues, and `flutter test` with
+  261 passing tests and 13 existing GPU-gated skips.
 - 2026-07-04: Plan-only creation verified locally with
   `python3 tools/repo_lint.py` passing and `git diff --check` reporting no
   whitespace errors.

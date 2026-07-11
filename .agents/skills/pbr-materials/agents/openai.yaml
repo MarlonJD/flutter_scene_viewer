@@ -1,0 +1,4 @@
+interface:
+  display_name: "PBR Materials"
+  short_description: "Grounded PBR material and lighting guidance"
+  default_prompt: "Use $pbr-materials to assess this material or lighting question against the repository and primary PBR sources."

@@ -1,7 +1,34 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter_scene_viewer/flutter_scene_viewer.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('acceptance reference state matches studio lighting defaults', () {
+    final referenceState = jsonDecode(
+      File(
+        'tools/material_extension_acceptance/fixtures/reference_state.json',
+      ).readAsStringSync(),
+    ) as Map<String, Object?>;
+    const lighting = ViewerLighting.studio();
+
+    expect(referenceState['schemaVersion'], 1);
+    expect(
+      referenceState['lighting'],
+      <String, Object?>{
+        'kind': lighting.kind.name,
+        'exposure': lighting.exposure,
+        'ambientOcclusion': lighting.ambientOcclusion,
+        'environmentIntensity': lighting.environmentIntensity,
+        'keyLightIntensity': lighting.keyLightIntensity,
+        'keyLightColor': lighting.keyLightColor,
+        'keyLightDirection': lighting.keyLightDirection,
+        'keyLightCastsShadow': lighting.keyLightCastsShadow,
+      },
+    );
+  });
+
   test('studio lighting exposes opt-in key-light shadow quality controls', () {
     const lighting = ViewerLighting.studio(
       keyLightCastsShadow: true,

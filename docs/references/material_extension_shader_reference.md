@@ -73,14 +73,16 @@ the older replacement path looked overly stylized/striped on complex source
 materials. A follow-up ToyCar iOS Simulator run verifies that the overlay path
 preserves the authored source material while adding visible glass and
 clearcoat effects. Task 012 accepts this repo-owned custom shader path as the
-production route for the verified iOS Simulator scope after shader preflight
-and acceptance metrics pass.
+`candidate-only` route with iOS Simulator evidence `verified locally`.
+Shader preflight and acceptance metrics establish availability, routing, and
+local visual trends; they do not prove Khronos correctness or physical-device
+release readiness.
 
-Production clearcoat uses `flutter_scene` `.fmat` metadata through
+The candidate clearcoat path uses `flutter_scene` `.fmat` metadata through
 `PreprocessedMaterial`. A lit `.fmat` must use that material wrapper so the
 engine lighting uniform block and image-based lighting samplers are bound.
 `ShaderMaterial` remains valid for injected CPU tests and custom unlit shader
-paths, but it is not the production wrapper for lit clearcoat.
+paths, but it is not the lit clearcoat wrapper used by this candidate.
 
 ## Source And License Boundaries
 

@@ -8,7 +8,7 @@ enum MaterialBaseFamily {
 }
 
 MaterialBaseFamily resolveMaterialBaseFamily(MaterialPatch patch) {
-  if (patch.hasGlassOverride) {
+  if (patch.hasTransmissionOrVolumeOverride) {
     return MaterialBaseFamily.realisticGlass;
   }
 
