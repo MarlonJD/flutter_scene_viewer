@@ -36,6 +36,7 @@ ViewerDiagnostic? flutterSceneTextureBindingDiagnostic({
   required PartAddress address,
   required MaterialTextureSlot slot,
   required MaterialTextureBinding binding,
+  bool allowExtendedPbrCoreTransform = false,
 }) {
   if (binding.sampler.wrapS != binding.sampler.wrapT) {
     return ViewerDiagnostic(
@@ -55,7 +56,8 @@ ViewerDiagnostic? flutterSceneTextureBindingDiagnostic({
       },
     );
   }
-  if (!_isIdentityTextureTransform(binding.transform)) {
+  if (!_isIdentityTextureTransform(binding.transform) &&
+      !(allowExtendedPbrCoreTransform && _isExtendedPbrCoreSlot(slot))) {
     return ViewerDiagnostic(
       code: ViewerDiagnosticCode.unsupportedMaterialFeature,
       message:
@@ -93,6 +95,13 @@ ViewerDiagnostic? flutterSceneTextureBindingDiagnostic({
   }
   return null;
 }
+
+bool _isExtendedPbrCoreSlot(MaterialTextureSlot slot) =>
+    slot == MaterialTextureSlot.baseColor ||
+    slot == MaterialTextureSlot.metallicRoughness ||
+    slot == MaterialTextureSlot.normal ||
+    slot == MaterialTextureSlot.occlusion ||
+    slot == MaterialTextureSlot.emissive;
 
 bool _isIdentityTextureTransform(TextureTransform transform) =>
     transform.offsetX == 0 &&

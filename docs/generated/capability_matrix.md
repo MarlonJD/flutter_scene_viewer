@@ -26,7 +26,7 @@ The original artifacts were temporary and are not durable release evidence.
 
 | Feature | Target | Historical evidence | Date | Scope | Source | Artifact durability | Current Plan 014 target evidence | Release maturity |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `KHR_draco_mesh_compression` | iOS Simulator | verified locally | 2026-07-04 | historical Plan 013 iPhone 17 Simulator candidate run | `docs/exec-plans/completed/013_v2_production_glb_pipeline.md` | not durable | not run | candidate-only |
+| `KHR_draco_mesh_compression` | iOS Simulator | verified locally | 2026-07-04 | historical Plan 013 iPhone 17 Simulator candidate run | `docs/exec-plans/completed/013_v2_production_glb_pipeline.md` | not durable | verified locally | candidate-only |
 | `KHR_texture_basisu` | iOS Simulator | verified locally | 2026-07-05 | historical Plan 013 iPhone 17 Simulator candidate run | `docs/exec-plans/completed/013_v2_production_glb_pipeline.md` | not durable | not run | candidate-only |
 
 ## Host pipeline evidence
@@ -66,18 +66,18 @@ feature, backend, simulator, host codec, or validator result.
 
 | Feature | Target | Applied | Visually verified | Runtime capability | Release maturity | Target evidence | Exact blocker |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `KHR_texture_transform` | iOS Simulator | blocked | not run | diagnostic-only | diagnostic-only | not run | pinned flutter_scene has no standard-material per-slot transform contract; Glorvia evidence is unavailable |
-| `KHR_texture_transform` | physical iOS | blocked | not run | diagnostic-only | diagnostic-only | not run | pinned flutter_scene has no standard-material per-slot transform contract; no physical-device run |
-| `KHR_texture_transform` | Android | blocked | not run | diagnostic-only | diagnostic-only | not run | pinned flutter_scene has no standard-material per-slot transform contract; no Android runtime run |
-| `KHR_texture_transform` | Web | blocked | not run | diagnostic-only | diagnostic-only | not run | pinned flutter_scene has no standard-material per-slot transform contract; no Web runtime run |
-| `KHR_materials_specular` | iOS Simulator | blocked | not run | diagnostic-only | diagnostic-only | not run | pinned flutter_scene exposes no specular fields, slots, importer mapping, or shader inputs |
-| `KHR_materials_specular` | physical iOS | blocked | not run | diagnostic-only | diagnostic-only | not run | pinned flutter_scene exposes no specular renderer contract; no physical-device run |
-| `KHR_materials_specular` | Android | blocked | not run | diagnostic-only | diagnostic-only | not run | pinned flutter_scene exposes no specular renderer contract; no Android runtime run |
-| `KHR_materials_specular` | Web | blocked | not run | diagnostic-only | diagnostic-only | not run | pinned flutter_scene exposes no specular renderer contract; no Web runtime run |
-| `KHR_materials_ior` | iOS Simulator | blocked | not run | diagnostic-only | diagnostic-only | not run | pinned flutter_scene fixes dielectric F0 at 0.04 and has no opaque-IOR input |
-| `KHR_materials_ior` | physical iOS | blocked | not run | diagnostic-only | diagnostic-only | not run | pinned flutter_scene has no opaque-IOR renderer contract; no physical-device run |
-| `KHR_materials_ior` | Android | blocked | not run | diagnostic-only | diagnostic-only | not run | pinned flutter_scene has no opaque-IOR renderer contract; no Android runtime run |
-| `KHR_materials_ior` | Web | blocked | not run | diagnostic-only | diagnostic-only | not run | pinned flutter_scene has no opaque-IOR renderer contract; no Web runtime run |
+| `KHR_texture_transform` | iOS Simulator | verified locally | verified locally | candidate-only availability | candidate-only | verified locally | candidate-only iPhone 17 Simulator transform evidence recorded at tools/out/material_extension_acceptance/plan014_extended_pbr_ios_simulator/evidence.json; physical and release evidence remain not run |
+| `KHR_texture_transform` | physical iOS | blocked | not run | diagnostic-only | diagnostic-only | not run | package-local FSViewerExtendedPbr transform path has no physical-device run |
+| `KHR_texture_transform` | Android | blocked | not run | diagnostic-only | diagnostic-only | not run | package-local FSViewerExtendedPbr transform path has no Android runtime/render run |
+| `KHR_texture_transform` | Web | blocked | not run | diagnostic-only | diagnostic-only | not run | package-local FSViewerExtendedPbr transform path has no Web runtime/render run |
+| `KHR_materials_specular` | iOS Simulator | verified locally | verified locally | candidate-only availability | candidate-only | verified locally | candidate-only iPhone 17 Simulator specular evidence recorded at tools/out/material_extension_acceptance/plan014_extended_pbr_ios_simulator/evidence.json; physical and release evidence remain not run |
+| `KHR_materials_specular` | physical iOS | blocked | not run | diagnostic-only | diagnostic-only | not run | package-local FSViewerExtendedPbr specular path has no physical-device run |
+| `KHR_materials_specular` | Android | blocked | not run | diagnostic-only | diagnostic-only | not run | package-local FSViewerExtendedPbr specular path has no Android runtime/render run |
+| `KHR_materials_specular` | Web | blocked | not run | diagnostic-only | diagnostic-only | not run | package-local FSViewerExtendedPbr specular path has no Web runtime/render run |
+| `KHR_materials_ior` | iOS Simulator | verified locally | verified locally | candidate-only availability | candidate-only | verified locally | candidate-only iPhone 17 Simulator opaque-IOR evidence recorded at tools/out/material_extension_acceptance/plan014_extended_pbr_ios_simulator/evidence.json; physical and release evidence remain not run |
+| `KHR_materials_ior` | physical iOS | blocked | not run | diagnostic-only | diagnostic-only | not run | package-local FSViewerExtendedPbr opaque-IOR path has no physical-device run |
+| `KHR_materials_ior` | Android | blocked | not run | diagnostic-only | diagnostic-only | not run | package-local FSViewerExtendedPbr opaque-IOR path has no Android runtime/render run |
+| `KHR_materials_ior` | Web | blocked | not run | diagnostic-only | diagnostic-only | not run | package-local FSViewerExtendedPbr opaque-IOR path has no Web runtime/render run |
 | `KHR_materials_clearcoat` | iOS Simulator | not run | not run | candidate-only availability | candidate-only | not run | current Plan 014 target run is absent; renderer-native integration is deferred to Plan 015 |
 | `KHR_materials_clearcoat` | physical iOS | not run | not run | candidate-only availability | candidate-only | not run | no physical-iOS candidate-backend or renderer-native run; follow-up is Plan 015 |
 | `KHR_materials_clearcoat` | Android | not run | not run | candidate-only availability | candidate-only | not run | no Android candidate-backend or renderer-native runtime run; follow-up is Plan 015 |
@@ -90,7 +90,7 @@ feature, backend, simulator, host codec, or validator result.
 | `KHR_materials_volume` | physical iOS | not run | not run | candidate-only availability | candidate-only | not run | no physical-iOS volume run; renderer-native follow-up is Plan 016 |
 | `KHR_materials_volume` | Android | not run | not run | candidate-only availability | candidate-only | not run | no Android volume run; renderer-native follow-up is Plan 016 |
 | `KHR_materials_volume` | Web | not run | not run | candidate-only availability | candidate-only | not run | no Web volume run; renderer-native follow-up is Plan 016 |
-| `KHR_draco_mesh_compression` | iOS Simulator | not run | not run | candidate-only native plugin | candidate-only | not run | no current Plan 014 iOS Simulator runtime, render, or packaging run |
+| `KHR_draco_mesh_compression` | iOS Simulator | verified locally | verified locally | candidate-only native plugin | candidate-only | verified locally | candidate-only A1B32 Draco decode/render evidence recorded at tools/out/material_extension_acceptance/plan014_extended_pbr_ios_simulator/evidence.json; native in-flight cancellation, allocation control, and release packaging remain unverified |
 | `KHR_draco_mesh_compression` | physical iOS | not run | not run | candidate-only native plugin | candidate-only | not run | no physical-iOS runtime, render, or release-packaging run |
 | `KHR_draco_mesh_compression` | Android | not run | not run | candidate-only native plugin | candidate-only | not run | Android bridge/native sources compile on the host, but no Android app runtime or packaging run exists |
 | `KHR_draco_mesh_compression` | Web | unsupported | not run | unsupported | diagnostic-only | not run | the optional Draco decoder is native-only; no Web decoder is provided |

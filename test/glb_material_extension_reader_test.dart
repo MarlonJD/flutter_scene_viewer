@@ -1046,6 +1046,67 @@ void main() {
     expect(result.patches, isEmpty);
     expect(result.diagnostics.single.code, ViewerDiagnosticCode.adapterFailure);
   });
+
+  test('JSON reader limit does not reject a larger decoded BIN chunk', () {
+    final bin = Uint8List(8 * 1024 * 1024 + 4);
+    final result = readGlbMaterialExtensionIntent(
+      _glbWithBin(
+        <String, Object?>{
+          'asset': <String, Object?>{'version': '2.0'},
+          'scene': 0,
+          'scenes': <Object?>[
+            <String, Object?>{
+              'nodes': <Object?>[0],
+            },
+          ],
+          'nodes': <Object?>[
+            <String, Object?>{'name': 'LargeDecodedMesh', 'mesh': 0},
+          ],
+          'meshes': <Object?>[
+            <String, Object?>{
+              'primitives': <Object?>[
+                <String, Object?>{
+                  'attributes': <String, Object?>{'POSITION': 0},
+                  'material': 0,
+                },
+              ],
+            },
+          ],
+          'materials': <Object?>[
+            <String, Object?>{
+              'extensions': <String, Object?>{
+                'KHR_materials_specular': <String, Object?>{
+                  'specularFactor': 0.8,
+                },
+                'KHR_materials_ior': <String, Object?>{'ior': 1.45},
+              },
+            },
+          ],
+          'buffers': <Object?>[
+            <String, Object?>{'byteLength': bin.lengthInBytes},
+          ],
+        },
+        <Uint8List>[bin],
+      ),
+      debugName: 'decoded-large-bin.glb',
+    );
+
+    final patchGroups = result.patches.values.single;
+    expect(
+      result.diagnostics.where(
+        (diagnostic) => diagnostic.code == ViewerDiagnosticCode.adapterFailure,
+      ),
+      isEmpty,
+    );
+    expect(
+      patchGroups[MaterialExtensionPatchGroup.specular]!.specular,
+      0.8,
+    );
+    expect(
+      patchGroups[MaterialExtensionPatchGroup.opaqueIor]!.ior,
+      1.45,
+    );
+  });
 }
 
 Map<String, Object?> _meshWithTransmissionPrimitive() {

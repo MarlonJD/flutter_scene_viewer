@@ -47,55 +47,98 @@ RUNTIME_CAPABILITY_VALUES = {
     "unsupported",
     "production-ready",
 }
-CURRENT_PLAN014_UPSTREAM_BLOCKERS = {
-    (
-        "KHR_texture_transform",
-        "ios_simulator",
-    ): "pinned flutter_scene has no standard-material per-slot transform contract; Glorvia evidence is unavailable",
+CURRENT_PLAN014_IOS_SIMULATOR_EVIDENCE = (
+    "tools/out/material_extension_acceptance/"
+    "plan014_extended_pbr_ios_simulator/evidence.json"
+)
+CURRENT_PLAN014_VERIFIED_TARGET_ROWS = {
+    ("KHR_texture_transform", "ios_simulator"): {
+        "applied": "verified locally",
+        "visuallyVerified": "verified locally",
+        "runtimeCapability": "candidate-only availability",
+        "releaseMaturity": "candidate-only",
+        "targetEvidence": "verified locally",
+        "blocker": (
+            "candidate-only iPhone 17 Simulator transform evidence recorded at "
+            f"{CURRENT_PLAN014_IOS_SIMULATOR_EVIDENCE}; physical and release "
+            "evidence remain not run"
+        ),
+    },
+    ("KHR_materials_specular", "ios_simulator"): {
+        "applied": "verified locally",
+        "visuallyVerified": "verified locally",
+        "runtimeCapability": "candidate-only availability",
+        "releaseMaturity": "candidate-only",
+        "targetEvidence": "verified locally",
+        "blocker": (
+            "candidate-only iPhone 17 Simulator specular evidence recorded at "
+            f"{CURRENT_PLAN014_IOS_SIMULATOR_EVIDENCE}; physical and release "
+            "evidence remain not run"
+        ),
+    },
+    ("KHR_materials_ior", "ios_simulator"): {
+        "applied": "verified locally",
+        "visuallyVerified": "verified locally",
+        "runtimeCapability": "candidate-only availability",
+        "releaseMaturity": "candidate-only",
+        "targetEvidence": "verified locally",
+        "blocker": (
+            "candidate-only iPhone 17 Simulator opaque-IOR evidence recorded at "
+            f"{CURRENT_PLAN014_IOS_SIMULATOR_EVIDENCE}; physical and release "
+            "evidence remain not run"
+        ),
+    },
+    ("KHR_draco_mesh_compression", "ios_simulator"): {
+        "applied": "verified locally",
+        "visuallyVerified": "verified locally",
+        "runtimeCapability": "candidate-only native plugin",
+        "releaseMaturity": "candidate-only",
+        "targetEvidence": "verified locally",
+        "blocker": (
+            "candidate-only A1B32 Draco decode/render evidence recorded at "
+            f"{CURRENT_PLAN014_IOS_SIMULATOR_EVIDENCE}; native in-flight "
+            "cancellation, allocation control, and release packaging remain "
+            "unverified"
+        ),
+    },
+}
+CURRENT_PLAN014_UNVERIFIED_TARGET_BLOCKERS = {
     (
         "KHR_texture_transform",
         "ios_physical",
-    ): "pinned flutter_scene has no standard-material per-slot transform contract; no physical-device run",
+    ): "package-local FSViewerExtendedPbr transform path has no physical-device run",
     (
         "KHR_texture_transform",
         "android",
-    ): "pinned flutter_scene has no standard-material per-slot transform contract; no Android runtime run",
+    ): "package-local FSViewerExtendedPbr transform path has no Android runtime/render run",
     (
         "KHR_texture_transform",
         "web",
-    ): "pinned flutter_scene has no standard-material per-slot transform contract; no Web runtime run",
-    (
-        "KHR_materials_specular",
-        "ios_simulator",
-    ): "pinned flutter_scene exposes no specular fields, slots, importer mapping, or shader inputs",
+    ): "package-local FSViewerExtendedPbr transform path has no Web runtime/render run",
     (
         "KHR_materials_specular",
         "ios_physical",
-    ): "pinned flutter_scene exposes no specular renderer contract; no physical-device run",
+    ): "package-local FSViewerExtendedPbr specular path has no physical-device run",
     (
         "KHR_materials_specular",
         "android",
-    ): "pinned flutter_scene exposes no specular renderer contract; no Android runtime run",
+    ): "package-local FSViewerExtendedPbr specular path has no Android runtime/render run",
     (
         "KHR_materials_specular",
         "web",
-    ): "pinned flutter_scene exposes no specular renderer contract; no Web runtime run",
-    (
-        "KHR_materials_ior",
-        "ios_simulator",
-    ): "pinned flutter_scene fixes dielectric F0 at 0.04 and has no opaque-IOR input",
+    ): "package-local FSViewerExtendedPbr specular path has no Web runtime/render run",
     (
         "KHR_materials_ior",
         "ios_physical",
-    ): "pinned flutter_scene has no opaque-IOR renderer contract; no physical-device run",
+    ): "package-local FSViewerExtendedPbr opaque-IOR path has no physical-device run",
     (
         "KHR_materials_ior",
         "android",
-    ): "pinned flutter_scene has no opaque-IOR renderer contract; no Android runtime run",
+    ): "package-local FSViewerExtendedPbr opaque-IOR path has no Android runtime/render run",
     (
         "KHR_materials_ior",
         "web",
-    ): "pinned flutter_scene has no opaque-IOR renderer contract; no Web runtime run",
+    ): "package-local FSViewerExtendedPbr opaque-IOR path has no Web runtime/render run",
 }
 CURRENT_PLAN014_NATIVE_ONLY_WEB_ROWS = {
     "KHR_draco_mesh_compression": "the optional Draco decoder is native-only; no Web decoder is provided",
@@ -110,7 +153,7 @@ CURRENT_PLAN014_HISTORICAL_CONTEXT = [
         "scope": "historical Plan 013 iPhone 17 Simulator candidate run",
         "source": "docs/exec-plans/completed/013_v2_production_glb_pipeline.md",
         "artifactDurability": "not durable",
-        "currentPlan014TargetEvidence": "not run",
+        "currentPlan014TargetEvidence": "verified locally",
         "releaseMaturity": "candidate-only",
     },
     {
@@ -420,22 +463,31 @@ def validate_source(source: dict[str, object]) -> None:
                 raise MatrixError(
                     f"{feature_id}.{target} production-ready gates are incomplete"
                 )
-            if row["targetEvidence"] != "not run":
-                raise MatrixError(
-                    f"{feature_id}.{target} current Plan 014 target evidence "
-                    "must remain not run until a target artifact is recorded"
-                )
-            if row["visuallyVerified"] != "not run":
-                raise MatrixError(
-                    f"{feature_id}.{target} current Plan 014 visual evidence "
-                    "must remain not run until a target artifact is recorded"
-                )
-            if row["applied"] == "verified locally":
-                raise MatrixError(
-                    f"{feature_id}.{target} host evidence cannot establish "
-                    "current Plan 014 target application"
-                )
-            expected_blocker = CURRENT_PLAN014_UPSTREAM_BLOCKERS.get(
+            expected_verified_row = CURRENT_PLAN014_VERIFIED_TARGET_ROWS.get(
+                (feature_id, target)
+            )
+            if expected_verified_row is not None:
+                if row != expected_verified_row:
+                    raise MatrixError(
+                        f"{feature_id}.{target} verified target evidence row changed"
+                    )
+            else:
+                if row["targetEvidence"] != "not run":
+                    raise MatrixError(
+                        f"{feature_id}.{target} current Plan 014 target evidence "
+                        "must remain not run until a target artifact is recorded"
+                    )
+                if row["visuallyVerified"] != "not run":
+                    raise MatrixError(
+                        f"{feature_id}.{target} current Plan 014 visual evidence "
+                        "must remain not run until a target artifact is recorded"
+                    )
+                if row["applied"] == "verified locally":
+                    raise MatrixError(
+                        f"{feature_id}.{target} host evidence cannot establish "
+                        "current Plan 014 target application"
+                    )
+            expected_blocker = CURRENT_PLAN014_UNVERIFIED_TARGET_BLOCKERS.get(
                 (feature_id, target)
             )
             if expected_blocker is not None and row["blocker"] != expected_blocker:
@@ -457,6 +509,7 @@ def validate_source(source: dict[str, object]) -> None:
             if (
                 feature_id in CURRENT_PLAN014_NATIVE_CODEC_TARGETS
                 and target != "web"
+                and expected_verified_row is None
                 and (
                     row["applied"] != "not run"
                     or row["visuallyVerified"] != "not run"

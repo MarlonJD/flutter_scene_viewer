@@ -25,7 +25,55 @@ V1 release-blocker capability to verify:
 Adapter implementation must keep direct `flutter_scene` imports isolated so API
 breakage is easy to repair.
 
-## 2026-07-13 pinned texture-binding audit
+## 2026-07-14 Plan 014 extended-PBR amendment
+
+This amendment supersedes the 2026-07-13 UV-transform, specular, and opaque-IOR
+blocked conclusions below. Those sections remain as historical evidence of the
+pinned standard-material seam; they no longer describe the package-local
+candidate capability.
+
+The dependency remains pinned at
+`cd6760912fa38beb55f63e388655a1aeabd32fe4`. The package adds one bounded
+`FSViewerExtendedPbr` material-scoped full fragment rather than changing the
+pin or pub cache. A supported lit material routes automatically when it has a
+nonidentity UV0 transform on a core PBR slot, `KHR_materials_specular` intent,
+or opaque `KHR_materials_ior` intent. Core-only identity materials remain on
+the pinned standard material. Combined triggers use one extended material; no
+asset-name branch, opt-in flag, fragment stacking, image tiling, UV generation,
+or byte rewrite is involved.
+
+The routed fragment applies each core slot as
+`offset + rotation * (uv * scale)` and uses the transformed normal UV for both
+sampling and the derivative tangent frame. It samples the specular-strength
+texture from linear alpha, decodes the specular-color texture from sRGB RGB,
+multiplies texture and factor intent, isolates metallic response, shares
+dielectric specular/diffuse energy, maps ordinary IOR through
+`((ior - 1) / (ior + 1))^2`, and treats exact IOR zero as full Fresnel. It owns
+the routed material's direct studio light, IBL, shadow, fog, and
+HDR-premultiplied output while retaining `flutter_scene` geometry, vertex,
+raster, picking, camera, environment-generation, tone-mapping, final-resolve,
+and scheduling contracts.
+
+On 2026-07-14 an iPhone 17 Simulator running iOS 26.5 with Impeller/Metal and
+Flutter GPU loaded the Draco-backed A1B32 fixture as 20 renderable primitives.
+Four combined UV/specular/IOR patches applied and persisted with zero new
+extension diagnostics. Picking returned `root/A1B32#0` and
+`root/A1B32#2`. Fixed-state captures verified the caller-supplied Glorvia C28
+albedo repeat 2.5 versus normal repeat 1.0, specular 0.1 versus 1.0, and opaque
+IOR 2/tinted versus exact IOR zero. The encoded model and texture hashes were
+unchanged. Evidence and reproduction snapshots are recorded at
+`tools/out/material_extension_acceptance/plan014_extended_pbr_ios_simulator/`.
+This is `verified locally` and `candidate-only`; physical iOS, Android, Web,
+release packaging, and production readiness remain `not run`.
+
+The fragment's lighting/resource structure is adapted from the pinned
+`flutter_scene` `material_lighting.glsl` and `flutter_scene_standard.frag`.
+`flutter_scene` is Copyright (c) 2023 Brandon DeRosier and MIT licensed; the
+complete notice is retained in `THIRD_PARTY_NOTICES.md`. Khronos extension
+specifications remain normative for transform, channel, color-space, and IOR
+semantics.
+
+## 2026-07-13 pinned texture-binding audit (historical pre-amendment)
 
 This audit is scoped to the dependency revision in `pubspec.lock`,
 `cd6760912fa38beb55f63e388655a1aeabd32fe4`. It records renderer capability,
@@ -142,7 +190,9 @@ resulting standard-material `TextureSource` sampler state, clearcoat config
 forwarding, and the typed unavailable-source path; it does not establish that
 the clearcoat `MaterialParameters` sampler was bound by a live GPU run.
 
-The following remain `blocked` on a real upstream contract:
+At the time of this audit, the following were `blocked` on a real upstream
+contract. The 2026-07-14 amendment above supersedes the nonidentity UV-transform
+conclusion for the package-local extended path:
 
 - asymmetric `wrapS`/`wrapT` is preserved in the public binding and returned as
   a typed `independentWrapAxes` diagnostic;
@@ -156,7 +206,7 @@ The following remain `blocked` on a real upstream contract:
 No texture tiling, texture baking, generated UVs, shared mutable transform
 state, pub-cache edits, or package-local replacement PBR renderer were added.
 
-## 2026-07-13 pinned specular and opaque-IOR audit
+## 2026-07-13 pinned specular and opaque-IOR audit (historical pre-amendment)
 
 This audit is scoped to `flutter_scene` revision
 `cd6760912fa38beb55f63e388655a1aeabd32fe4`. Khronos remains the authority for
@@ -223,7 +273,8 @@ The wrapper validation/parser subset is `verified locally` by CPU tests:
   disable candidate transmissive IOR, and an actual renderer-native material
   contract retains its opaque-IOR application path.
 
-Actual texture channel/color-space sampling, factor-times-texture behavior,
+At the time of this audit, actual texture channel/color-space sampling,
+factor-times-texture behavior,
 dielectric energy conservation, metal isolation, and visible opaque-IOR BRDF
 trends remain `blocked` on a first-class upstream renderer contract. A skipped
 acceptance test records that exact blocker without pretending wrapper parsing
@@ -231,6 +282,9 @@ is rendering evidence. A1B32 visual/runtime evidence, iOS Simulator rendering,
 physical iOS, Android material rendering, and Web material rendering are
 `not run`. Runtime support remains unavailable/diagnostic-only; no release
 maturity or `production-ready` claim changed.
+
+The 2026-07-14 amendment above supersedes this conclusion for the bounded
+package-local extended path, but not for renderer-native or release capability.
 
 ## 2026-07-13 pinned clearcoat audit
 

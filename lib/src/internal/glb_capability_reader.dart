@@ -649,7 +649,7 @@ _JsonChunkReadResult _readJsonChunk(
     final chunkLength = data.getUint32(offset, Endian.little);
     final chunkType = data.getUint32(offset + 4, Endian.little);
     offset += 8;
-    if (chunkLength > _maxJsonChunkBytes) {
+    if (chunkType == _jsonChunkType && chunkLength > _maxJsonChunkBytes) {
       return _JsonChunkReadResult.diagnostic(
         _glbFailure(debugName, 'GLB JSON chunk exceeds the reader limit.'),
       );

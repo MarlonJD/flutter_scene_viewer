@@ -339,10 +339,7 @@ Simulator evidence is separately labeled `verified locally`. Physical iOS,
 Android material rendering, and Web material rendering remain `not run`.
 
 The [generated capability matrix](generated/capability_matrix.md) is the
-current Plan 014 feature/target claim source. The preceding candidate evidence
-is historical context; current Plan 014 target evidence remains `not run` for
-all selected extension rows. Host decoder, rewrite, validator, and reference
-renderer results remain separate from target runtime and release maturity.
+current Plan 014 feature/target claim source. Plan 014 iOS Simulator evidence is `verified locally` for `KHR_texture_transform`, `KHR_materials_specular`, opaque `KHR_materials_ior`, and the A1B32 Draco load; physical iOS, Android, and Web remain `not run`. Other historical runs remain context, and host decoder, rewrite, validator, or reference-renderer results remain separate from target runtime and release maturity.
 
 As of 2026-07-03, the installed `flutter_scene` 0.18.1 target does not expose
 real transmission/glass or clearcoat support. The local audit found no public

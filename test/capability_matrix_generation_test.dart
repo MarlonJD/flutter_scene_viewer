@@ -26,6 +26,16 @@ const _targets = <String>[
   'web',
 ];
 
+const _plan014IosSimulatorEvidence = 'tools/out/material_extension_acceptance/'
+    'plan014_extended_pbr_ios_simulator/evidence.json';
+
+const _verifiedIosSimulatorFeatures = <String>{
+  'KHR_texture_transform',
+  'KHR_materials_specular',
+  'KHR_materials_ior',
+  'KHR_draco_mesh_compression',
+};
+
 void main() {
   test('generated capability matrix has explicit feature-target truth',
       () async {
@@ -74,8 +84,26 @@ void main() {
           ]),
           reason: '${feature['id']} / $target',
         );
-        expect(row['visuallyVerified'], 'not run');
-        expect(row['targetEvidence'], 'not run');
+        final isVerifiedSimulatorRow = target == 'ios_simulator' &&
+            _verifiedIosSimulatorFeatures.contains(feature['id']);
+        expect(
+          row['applied'],
+          isVerifiedSimulatorRow
+              ? 'verified locally'
+              : isNot('verified locally'),
+        );
+        expect(
+          row['visuallyVerified'],
+          isVerifiedSimulatorRow ? 'verified locally' : 'not run',
+        );
+        expect(
+          row['targetEvidence'],
+          isVerifiedSimulatorRow ? 'verified locally' : 'not run',
+        );
+        if (isVerifiedSimulatorRow) {
+          expect(row['releaseMaturity'], 'candidate-only');
+          expect(row['blocker'], contains(_plan014IosSimulatorEvidence));
+        }
         expect(row['releaseMaturity'], isNot('production-ready'));
       }
     }
@@ -130,13 +158,11 @@ void main() {
       'docs/RUNTIME_GLB_PIPELINE.md',
     ]) {
       final document = File(path).readAsStringSync();
+      expect(document, contains('Plan 014 iOS Simulator evidence'));
+      expect(document, contains('`verified locally`'), reason: path);
       expect(
         document,
-        matches(
-          RegExp(
-            r'current\s+Plan 014 target\s+evidence remains\s+`not run`',
-          ),
-        ),
+        contains('physical iOS, Android, and Web remain `not run`'),
         reason: path,
       );
       expect(
@@ -183,13 +209,13 @@ void main() {
     expect(result.stderr, contains('MatrixError'));
   });
 
-  test('capability source rejects host leakage and upstream blocker erosion',
+  test('capability source rejects host leakage and evidence-row erosion',
       () async {
     final mutations = <void Function(Map)>[
       (source) => _targetRow(
             source,
             'KHR_texture_transform',
-            'ios_simulator',
+            'ios_physical',
           )['applied'] = 'verified locally',
       (source) => _targetRow(
             source,
@@ -262,7 +288,7 @@ void main() {
           'source':
               'docs/exec-plans/completed/013_v2_production_glb_pipeline.md',
           'artifactDurability': 'not durable',
-          'currentPlan014TargetEvidence': 'not run',
+          'currentPlan014TargetEvidence': 'verified locally',
           'releaseMaturity': 'candidate-only',
         },
         <String, Object?>{

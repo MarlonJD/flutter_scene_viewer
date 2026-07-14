@@ -6,6 +6,8 @@ import 'package:flutter_scene/scene.dart' as flutter_scene;
 import 'package:flutter_scene/src/gpu/gpu.dart' as flutter_scene_internal_gpu;
 import 'package:flutter_scene_viewer/flutter_scene_viewer.dart';
 import 'package:flutter_scene_viewer/src/internal/flutter_scene_adapter.dart';
+import 'package:flutter_scene_viewer/src/internal/flutter_scene_extended_pbr_backend.dart';
+import 'package:flutter_scene_viewer/src/internal/flutter_scene_extended_pbr_material.dart';
 import 'package:flutter_scene_viewer/src/internal/flutter_scene_material_extension_backend.dart';
 import 'package:flutter_scene_viewer/src/internal/material_extension_native_capability.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -344,6 +346,226 @@ void main() {
       expect(factory.paths, isEmpty);
       expect(_onePixelPng, before);
     });
+
+    test('combined UV specular and opaque IOR route to one extended material',
+        () async {
+      final textureFactory = _RecordingTextureFactory();
+      final extendedBackend = _RecordingExtendedPbrBackend();
+      final sourceMaterial = flutter_scene.PhysicallyBasedMaterial()
+        ..metallicFactor = 0.2
+        ..roughnessFactor = 0.7;
+      final root = flutter_scene.Node(
+        name: 'Body',
+        mesh: flutter_scene.Mesh(_UvStubGeometry(), sourceMaterial),
+      );
+      final runtimeAdapter = FlutterSceneRuntimeAdapter(
+        textureFactory: textureFactory,
+        extendedPbrBackend: extendedBackend,
+      );
+      final binding = MaterialTextureBinding(
+        source: TextureSource.bytes(_onePixelPng, debugName: 'repeat-2.5'),
+        transform: TextureTransform(scale: const <double>[2.5, 2.5]),
+      );
+
+      final diagnostics = await debugApplyMaterialPatchToRoot(
+        root,
+        PartAddress(nodePath: const <String>['Body'], primitiveIndex: 0),
+        MaterialPatch(
+          baseColorTextureBinding: binding,
+          specular: 0.6,
+          specularTextureBinding: MaterialTextureBinding(
+            source: TextureSource.bytes(
+              _onePixelPng,
+              debugName: 'specular-factor',
+            ),
+          ),
+          specularColorFactor: const <double>[1.2, 0.8, 0.4],
+          specularColorTextureBinding: MaterialTextureBinding(
+            source: TextureSource.bytes(
+              _onePixelPng,
+              debugName: 'specular-color',
+            ),
+          ),
+          ior: 1.45,
+        ),
+        materialExtensionSupport: MaterialExtensionSupport(
+          backendKind: MaterialExtensionBackendKind.flutterSceneCustomShader,
+          features: <MaterialExtensionFeature, MaterialExtensionFeatureSupport>{
+            MaterialExtensionFeature.specular:
+                MaterialExtensionFeatureSupport(available: true),
+            MaterialExtensionFeature.ior:
+                MaterialExtensionFeatureSupport(available: true),
+          },
+        ),
+        textureFactory: textureFactory,
+        runtimeAdapter: runtimeAdapter,
+      );
+
+      expect(diagnostics, isEmpty);
+      expect(extendedBackend.preflightCount, 1);
+      expect(extendedBackend.configs, hasLength(1));
+      final config = extendedBackend.configs.single;
+      expect(config.source, isNot(same(sourceMaterial)));
+      expect(config.source.metallicFactor, 0.2);
+      expect(config.source.roughnessFactor, 0.7);
+      expect(
+        config.transforms[MaterialTextureSlot.baseColor],
+        binding.transform,
+      );
+      expect(config.specularFactor, 0.6);
+      expect(config.specularColorFactor, <double>[1.2, 0.8, 0.4]);
+      expect(config.ior, 1.45);
+      expect(config.source.baseColorTexture,
+          same(textureFactory.createdSources[0]));
+      expect(
+          config.specularFactorTexture, same(textureFactory.createdSources[1]));
+      expect(
+          config.specularColorTexture, same(textureFactory.createdSources[2]));
+      expect(textureFactory.contents, <flutter_scene.TextureContent>[
+        flutter_scene.TextureContent.color,
+        flutter_scene.TextureContent.data,
+        flutter_scene.TextureContent.color,
+      ]);
+      expect(root.mesh!.primitives.single.material,
+          same(extendedBackend.createdMaterials.single));
+      expect(
+          root.mesh!.primitives.single.material, isNot(same(sourceMaterial)));
+    });
+
+    test('core-only delta keeps the active extended PBR state', () async {
+      final textureFactory = _RecordingTextureFactory();
+      final extendedBackend = _RecordingExtendedPbrBackend();
+      final sourceMaterial = flutter_scene.PhysicallyBasedMaterial()
+        ..metallicFactor = 0.2
+        ..roughnessFactor = 0.7;
+      final root = flutter_scene.Node(
+        name: 'Body',
+        mesh: flutter_scene.Mesh(_UvStubGeometry(), sourceMaterial),
+      );
+      final runtimeAdapter = FlutterSceneRuntimeAdapter(
+        textureFactory: textureFactory,
+        extendedPbrBackend: extendedBackend,
+      );
+      final address = PartAddress(
+        nodePath: const <String>['Body'],
+        primitiveIndex: 0,
+      );
+      final transformedBaseColor = MaterialTextureBinding(
+        source: TextureSource.bytes(_onePixelPng, debugName: 'repeat-2.5'),
+        transform: TextureTransform(scale: const <double>[2.5, 2.5]),
+      );
+
+      final initialDiagnostics = await debugApplyMaterialPatchToRoot(
+        root,
+        address,
+        MaterialPatch(
+          baseColorTextureBinding: transformedBaseColor,
+          specular: 0.6,
+          ior: 1.45,
+        ),
+        runtimeAdapter: runtimeAdapter,
+      );
+      final deltaDiagnostics = await debugApplyMaterialPatchToRoot(
+        root,
+        address,
+        const MaterialPatch(roughness: 0.35),
+        runtimeAdapter: runtimeAdapter,
+      );
+
+      expect(initialDiagnostics, isEmpty);
+      expect(deltaDiagnostics, isEmpty);
+      expect(extendedBackend.configs, hasLength(2));
+      expect(extendedBackend.configs.last.specularFactor, 0.6);
+      expect(extendedBackend.configs.last.ior, 1.45);
+      expect(
+        extendedBackend.configs.last.transforms[MaterialTextureSlot.baseColor],
+        transformedBaseColor.transform,
+      );
+      expect(extendedBackend.configs.last.source.roughnessFactor, 0.35);
+
+      final resetDiagnostics = await runtimeAdapter.resetMaterial(address);
+
+      expect(resetDiagnostics, isEmpty);
+      expect(root.mesh!.primitives.single.material, same(sourceMaterial));
+      expect(sourceMaterial.metallicFactor, 0.2);
+      expect(sourceMaterial.roughnessFactor, 0.7);
+    });
+
+    test('identity core texture stays on the native material', () async {
+      final textureFactory = _RecordingTextureFactory();
+      final extendedBackend = _RecordingExtendedPbrBackend();
+      final sourceMaterial = flutter_scene.PhysicallyBasedMaterial();
+      final root = flutter_scene.Node(
+        name: 'Body',
+        mesh: flutter_scene.Mesh(_UvStubGeometry(), sourceMaterial),
+      );
+      final runtimeAdapter = FlutterSceneRuntimeAdapter(
+        textureFactory: textureFactory,
+        extendedPbrBackend: extendedBackend,
+      );
+
+      final diagnostics = await debugApplyMaterialPatchToRoot(
+        root,
+        PartAddress(
+          nodePath: const <String>['Body'],
+          primitiveIndex: 0,
+        ),
+        MaterialPatch(
+          baseColorTextureBinding: MaterialTextureBinding(
+            source: TextureSource.bytes(_onePixelPng, debugName: 'identity'),
+          ),
+        ),
+        runtimeAdapter: runtimeAdapter,
+      );
+
+      expect(diagnostics, isEmpty);
+      expect(extendedBackend.preflightCount, 0);
+      expect(extendedBackend.configs, isEmpty);
+      expect(root.mesh!.primitives.single.material, same(sourceMaterial));
+      expect(sourceMaterial.baseColorTexture,
+          same(textureFactory.createdSources.single));
+    });
+
+    test('invalid extended backend result leaves live state unchanged',
+        () async {
+      final backend = _InvalidExtendedPbrBackend();
+      final sourceMaterial = flutter_scene.PhysicallyBasedMaterial()
+        ..metallicFactor = 0.2
+        ..roughnessFactor = 0.7;
+      final geometry = _UvStubGeometry();
+      final root = flutter_scene.Node(
+        name: 'Body',
+        mesh: flutter_scene.Mesh(geometry, sourceMaterial),
+      );
+      final runtimeAdapter = FlutterSceneRuntimeAdapter(
+        extendedPbrBackend: backend,
+      );
+
+      final diagnostics = await debugApplyMaterialPatchToRoot(
+        root,
+        PartAddress(
+          nodePath: const <String>['Body'],
+          primitiveIndex: 0,
+        ),
+        MaterialPatch(
+          baseColorFactor: const <double>[0.1, 0.2, 0.3, 1],
+          specular: 0.6,
+          visible: false,
+        ),
+        runtimeAdapter: runtimeAdapter,
+      );
+
+      expect(diagnostics, hasLength(1));
+      expect(diagnostics.single.details['limitation'],
+          'extendedPbrMaterialConstructionFailed');
+      expect(diagnostics.single.details['materialReplaced'], isFalse);
+      expect(root.mesh!.primitives.single.material, same(sourceMaterial));
+      expect(root.mesh!.primitives.single.geometry, same(geometry));
+      expect(root.visible, isTrue);
+      expect(sourceMaterial.baseColorFactor.x, 1);
+      expect(sourceMaterial.metallicFactor, 0.2);
+      expect(sourceMaterial.roughnessFactor, 0.7);
+    });
   });
 
   test('binding-only transmission and thickness require feature support', () {
@@ -470,9 +692,10 @@ void main() {
     }
   });
 
-  test('adapter rejects native specular texture intent before loading',
+  test('unavailable extended shader rejects native specular intent before load',
       () async {
     final factory = _RecordingTextureFactory();
+    final extendedBackend = _UnavailableExtendedPbrBackend();
     final originalMaterial = flutter_scene.PhysicallyBasedMaterial();
     final root = flutter_scene.Node(
       name: 'Paint',
@@ -499,22 +722,23 @@ void main() {
         MaterialExtensionBackendKind.rendererNative,
       ),
       textureFactory: factory,
+      runtimeAdapter: FlutterSceneRuntimeAdapter(
+        textureFactory: factory,
+        extendedPbrBackend: extendedBackend,
+      ),
     );
 
     expect(diagnostics, hasLength(1));
     expect(diagnostics.single.details['limitation'],
-        'rendererNativeExtensionTextureContractMissing');
-    expect(
-      diagnostics.single.details['slots'],
-      containsAll(<String>['specular', 'specularColor']),
-    );
+        'extendedPbrShaderUnavailable');
     expect(factory.paths, isEmpty);
     expect(root.mesh!.primitives.single.material, same(originalMaterial));
   });
 
-  test('adapter rejects non-native specular intent before load or mutation',
+  test('unavailable extended shader rejects candidate specular before mutation',
       () async {
     final factory = _RecordingTextureFactory();
+    final extendedBackend = _UnavailableExtendedPbrBackend();
     final originalMaterial = flutter_scene.PhysicallyBasedMaterial();
     final root = flutter_scene.Node(
       name: 'Paint',
@@ -544,13 +768,17 @@ void main() {
           const ViewerMaterialExtensionPolicy.experimentalShaders(),
       materialExtensionSupport: support,
       textureFactory: factory,
+      runtimeAdapter: FlutterSceneRuntimeAdapter(
+        textureFactory: factory,
+        extendedPbrBackend: extendedBackend,
+      ),
     );
 
     expect(diagnostics, hasLength(1));
     expect(diagnostics.single.code,
         ViewerDiagnosticCode.unsupportedMaterialFeature);
     expect(diagnostics.single.details['limitation'],
-        'pinnedStandardPbrSpecularContractMissing');
+        'extendedPbrShaderUnavailable');
     expect(factory.paths, isEmpty);
     expect(root.mesh!.primitives.single.material, same(originalMaterial));
   });
@@ -2354,23 +2582,6 @@ void main() {
   });
 
   test(
-    'renderer acceptance applies specular texture roles multiplication and opaque IOR BRDF semantics',
-    () {
-      fail(
-        'A renderer-native acceptance path must prove data/linear alpha for '
-        'specular strength, sRGB-decoded RGB for specular color, factor times '
-        'texture, dielectric energy conservation, metal isolation, and opaque '
-        'IOR including the zero compatibility mode.',
-      );
-    },
-    skip:
-        'blocked: pinned flutter_scene cd6760912fa38beb55f63e388655a1aeabd32fe4 '
-        'has no first-class KHR_materials_specular or opaque-IOR material inputs, '
-        'texture slots, importer fields, or shader contract; fixed dielectric '
-        'F0 remains 0.04.',
-  );
-
-  test(
       'adapter routes only supported transmission patches to extension backend',
       () {
     expect(
@@ -2710,6 +2921,122 @@ final class _StubTextureSource implements flutter_scene.TextureSource {
 
   @override
   flutter_scene_internal_gpu.SamplerOptions get sampledSampler => _sampler;
+}
+
+final class _RecordingExtendedPbrBackend
+    implements FlutterSceneExtendedPbrMaterialBackend {
+  int preflightCount = 0;
+  final List<FlutterSceneExtendedPbrMaterialConfig> configs =
+      <FlutterSceneExtendedPbrMaterialConfig>[];
+  final List<flutter_scene.PhysicallyBasedMaterial> createdMaterials =
+      <flutter_scene.PhysicallyBasedMaterial>[];
+
+  @override
+  bool get isReady => true;
+
+  @override
+  Future<ViewerDiagnostic?> preflight(PartAddress address) async {
+    preflightCount += 1;
+    return null;
+  }
+
+  @override
+  Future<flutter_scene.PhysicallyBasedMaterial> createMaterial(
+    FlutterSceneExtendedPbrMaterialConfig config,
+  ) async {
+    configs.add(config);
+    final material = _TestExtendedPbrMaterial(config);
+    createdMaterials.add(material);
+    return material;
+  }
+}
+
+final class _TestExtendedPbrMaterial extends flutter_scene
+    .PhysicallyBasedMaterial implements FlutterSceneExtendedPbrState {
+  _TestExtendedPbrMaterial(FlutterSceneExtendedPbrMaterialConfig config)
+      : transforms = Map<MaterialTextureSlot, TextureTransform>.unmodifiable(
+          config.transforms,
+        ),
+        specularFactor = config.specularFactor,
+        specularColorFactor = List<double>.unmodifiable(
+          config.specularColorFactor,
+        ),
+        ior = config.ior,
+        specularFactorTexture = config.specularFactorTexture,
+        specularColorTexture = config.specularColorTexture {
+    baseColorFactor = config.source.baseColorFactor.clone();
+    baseColorTexture = config.source.baseColorTexture;
+    metallicRoughnessTexture = config.source.metallicRoughnessTexture;
+    normalTexture = config.source.normalTexture;
+    normalScale = config.source.normalScale;
+    emissiveTexture = config.source.emissiveTexture;
+    emissiveFactor = config.source.emissiveFactor.clone();
+    occlusionTexture = config.source.occlusionTexture;
+    occlusionStrength = config.source.occlusionStrength;
+    metallicFactor = config.source.metallicFactor;
+    roughnessFactor = config.source.roughnessFactor;
+    environment = config.source.environment;
+    alphaMode = config.source.alphaMode;
+    alphaCutoff = config.source.alphaCutoff;
+    vertexColorWeight = config.source.vertexColorWeight;
+    doubleSided = config.source.doubleSided;
+    specularAntiAliasingVariance = config.source.specularAntiAliasingVariance;
+    specularAntiAliasingThreshold = config.source.specularAntiAliasingThreshold;
+  }
+
+  @override
+  final Map<MaterialTextureSlot, TextureTransform> transforms;
+  @override
+  final double specularFactor;
+  @override
+  final List<double> specularColorFactor;
+  @override
+  final double ior;
+  @override
+  final flutter_scene.TextureSource? specularFactorTexture;
+  @override
+  final flutter_scene.TextureSource? specularColorTexture;
+}
+
+final class _InvalidExtendedPbrBackend
+    implements FlutterSceneExtendedPbrMaterialBackend {
+  @override
+  bool get isReady => true;
+
+  @override
+  Future<ViewerDiagnostic?> preflight(PartAddress address) async => null;
+
+  @override
+  Future<flutter_scene.PhysicallyBasedMaterial> createMaterial(
+    FlutterSceneExtendedPbrMaterialConfig config,
+  ) async =>
+      flutter_scene.PhysicallyBasedMaterial();
+}
+
+final class _UnavailableExtendedPbrBackend
+    implements FlutterSceneExtendedPbrMaterialBackend {
+  @override
+  bool get isReady => false;
+
+  @override
+  Future<ViewerDiagnostic?> preflight(PartAddress address) async =>
+      ViewerDiagnostic(
+        code: ViewerDiagnosticCode.unsupportedMaterialFeature,
+        message: 'Extended shader unavailable for test.',
+        details: <String, Object?>{
+          'part': address.debugPath,
+          'feature': 'FSViewerExtendedPbr',
+          'limitation': 'extendedPbrShaderUnavailable',
+          'status': 'blocked',
+          'materialReplaced': false,
+        },
+      );
+
+  @override
+  Future<flutter_scene.PhysicallyBasedMaterial> createMaterial(
+    FlutterSceneExtendedPbrMaterialConfig config,
+  ) =>
+      throw StateError('createMaterial must not run after failed preflight');
 }
 
 final class _UvStubGeometry extends _StubGeometry {

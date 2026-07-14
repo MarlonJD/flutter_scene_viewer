@@ -1,0 +1,6 @@
+{
+  "FSViewerExtendedPbr": {
+    "type": "fragment",
+    "file": "shaders/fsviewer_extended_pbr.frag"
+  }
+}

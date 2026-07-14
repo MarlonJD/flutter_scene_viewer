@@ -12,6 +12,9 @@ Flutter-native GLB product viewing and configuration.
 - runtime base-color texture and core PBR material overrides;
 - alpha opaque/masked cutout/translucent blend overrides and material/effect
   mask intent with capability diagnostics;
+- automatic material-scoped UV0 transforms, dielectric specular, and opaque
+  IOR through the bounded `FSViewerExtendedPbr` candidate path when its full
+  reflected contract is available;
 - original material reset and serializable override state;
 - orbit/pan/zoom, auto camera fit, picking, visibility, and diagnostics;
 - viewer-controlled studio lighting and adaptive/on-demand rendering.
@@ -53,8 +56,9 @@ product, medical, and industrial models. The full rationale is in
 ## MVP scope
 
 The first implementation targets **static GLB product/medical/industrial models**.
-It does not tessellate CAD formats, unwrap UVs, ship a production custom PBR
-renderer, or implement game-engine-style animation systems.
+It does not tessellate CAD formats, unwrap UVs, ship a general-purpose or
+production-ready replacement renderer, or implement game-engine-style
+animation systems.
 
 MVP core material support:
 
@@ -66,6 +70,13 @@ MVP core material support:
 - alpha mode and double-sided handling where supported by `flutter_scene`.
 - opaque-family material/effect mask intent, validated as material data rather
   than visibility.
+
+Plan 014 adds one internal, material-scoped full-fragment route for supported
+core UV0 transforms, `KHR_materials_specular`, and opaque
+`KHR_materials_ior`. Core-only identity materials remain on native
+`flutter_scene` PBR. The extended route is `candidate-only`; iPhone 17
+Simulator application and visual evidence is `verified locally`, while
+physical iOS, Android, and Web remain `not run`.
 
 Transmission/glass support is a v1.0 release blocker. It requires real
 `KHR_materials_transmission`, `KHR_materials_ior`, and `KHR_materials_volume`
@@ -101,8 +112,11 @@ Explicit non-goals for v1:
 
 This package is **not** a new 3D engine. It adapts `flutter_scene` into a stable
 public Flutter API for app developers. It does not tessellate CAD files, unwrap
-UVs, invent missing texture coordinates, implement custom PBR rendering, or
-claim performance superiority over other viewers without benchmark evidence.
+UVs, invent missing texture coordinates, implement a separate general-purpose
+PBR engine, or claim performance superiority over other viewers without
+benchmark evidence. Its bounded material-scoped fragment extensions continue
+to use `flutter_scene` scene, geometry, camera, lighting resources, shadows,
+environment generation, tone mapping, resolve, and scheduling.
 CAD tessellation would require a future OCCT FFI plus STEP/IGES import track
 before tessellation could even be considered.
 
@@ -146,3 +160,5 @@ use the Flutter channel/version required by `flutter_scene`.
 closed-source larger works. Changes to this package's covered source files that
 you distribute must remain available under the MPL-2.0, so improvements to the
 viewer layer can keep flowing back to the community.
+Third-party license notices are retained in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

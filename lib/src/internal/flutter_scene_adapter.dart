@@ -18,6 +18,8 @@ import '../part_address.dart';
 import '../texture_binding.dart';
 import '../texture_source.dart';
 import 'environment_source_loader.dart';
+import 'flutter_scene_extended_pbr_backend.dart';
+import 'flutter_scene_extended_pbr_material.dart';
 import 'flutter_scene_material_extension_backend.dart';
 import 'material_base_family.dart';
 import 'material_extension_native_applier.dart';
@@ -143,12 +145,15 @@ final class FlutterSceneRuntimeAdapter implements FlutterSceneAdapter {
     this.materialExtensionPolicy =
         const ViewerMaterialExtensionPolicy.diagnosticsOnly(),
     FlutterSceneMaterialExtensionBackend? materialExtensionBackend,
+    FlutterSceneExtendedPbrMaterialBackend? extendedPbrBackend,
     RendererMaterialExtensionProbe? materialExtensionRendererProbe,
     FlutterSceneTextureFactory? textureFactory,
   })  : _environmentSourceLoader =
             environmentSourceLoader ?? EnvironmentSourceLoader(),
         _materialExtensionBackend =
             materialExtensionBackend ?? FlutterSceneMaterialExtensionBackend(),
+        _extendedPbrBackend =
+            extendedPbrBackend ?? FlutterSceneExtendedPbrBackend(),
         _materialExtensionRendererProbe = materialExtensionRendererProbe ??
             const CurrentFlutterSceneMaterialExtensionProbe(),
         _textureFactory =
@@ -157,6 +162,7 @@ final class FlutterSceneRuntimeAdapter implements FlutterSceneAdapter {
   final EnvironmentSourceLoader _environmentSourceLoader;
   final ViewerMaterialExtensionPolicy materialExtensionPolicy;
   final FlutterSceneMaterialExtensionBackend _materialExtensionBackend;
+  final FlutterSceneExtendedPbrMaterialBackend _extendedPbrBackend;
   final RendererMaterialExtensionProbe _materialExtensionRendererProbe;
   final FlutterSceneTextureFactory _textureFactory;
   MaterialExtensionSupport _productionMaterialExtensionSupport =
@@ -174,11 +180,11 @@ final class FlutterSceneRuntimeAdapter implements FlutterSceneAdapter {
   flutter_scene.Scene? get debugScene => _scene;
 
   MaterialExtensionSupport get materialExtensionSupport {
-    if (materialExtensionPolicy.mode ==
-        ViewerMaterialExtensionMode.productionFlutterSceneShaders) {
-      return _productionMaterialExtensionSupport;
-    }
-    return materialExtensionPolicy.support;
+    final base = materialExtensionPolicy.mode ==
+            ViewerMaterialExtensionMode.productionFlutterSceneShaders
+        ? _productionMaterialExtensionSupport
+        : materialExtensionPolicy.support;
+    return _extendedPbrBackend.isReady ? _withExtendedPbrSupport(base) : base;
   }
 
   @override
@@ -257,6 +263,12 @@ final class FlutterSceneRuntimeAdapter implements FlutterSceneAdapter {
     }
     _diagnostics.clear();
     _productionMaterialExtensionSupport = MaterialExtensionSupport.unsupported;
+    final extendedPbrDiagnostic = await _extendedPbrBackend.preflight(
+      PartAddress(nodePath: const <String>['model'], primitiveIndex: 0),
+    );
+    if (extendedPbrDiagnostic != null) {
+      _diagnostics.add(extendedPbrDiagnostic);
+    }
     if (materialExtensionPolicy.mode ==
         ViewerMaterialExtensionMode.productionFlutterSceneShaders) {
       final nativeCapability = detectNativeMaterialExtensionCapability(
@@ -469,6 +481,48 @@ final class FlutterSceneRuntimeAdapter implements FlutterSceneAdapter {
       return <ViewerDiagnostic>[_primitiveNotFound(address)];
     }
 
+    final usesNativeMaterialExtensionApplier =
+        _usesNativeMaterialExtensionApplierFor(
+      materialExtensionPolicy,
+      patch,
+      support: materialExtensionSupport,
+    );
+    final usesExtendedPbr = !usesNativeMaterialExtensionApplier &&
+        _usesExtendedPbrFor(target.primitive.material, patch);
+    if (usesExtendedPbr) {
+      if (patch.hasGlassOverride || patch.hasClearcoatOverride) {
+        return <ViewerDiagnostic>[
+          _extendedPbrCombinationUnavailable(address, patch),
+        ];
+      }
+      if (target.primitive.material is! flutter_scene.PhysicallyBasedMaterial) {
+        return <ViewerDiagnostic>[
+          ViewerDiagnostic(
+            code: ViewerDiagnosticCode.unsupportedMaterialFeature,
+            message: 'FSViewerExtendedPbr requires a lit PBR material.',
+            details: <String, Object?>{
+              'part': address.debugPath,
+              'feature': flutterSceneExtendedPbrShaderName,
+              'limitation': 'extendedPbrRequiresLitMaterial',
+              'status': 'blocked',
+              'materialReplaced': false,
+            },
+          ),
+        ];
+      }
+      final validationDiagnostics = patch.validate(
+        address,
+        support: _withExtendedPbrSupport(materialExtensionSupport),
+      );
+      if (validationDiagnostics.isNotEmpty) {
+        return validationDiagnostics;
+      }
+      final preflightDiagnostic = await _extendedPbrBackend.preflight(address);
+      if (preflightDiagnostic != null) {
+        return <ViewerDiagnostic>[preflightDiagnostic];
+      }
+    }
+
     if (materialExtensionPolicy.mode ==
             ViewerMaterialExtensionMode.productionFlutterSceneShaders &&
         materialExtensionSupport.backendKind ==
@@ -484,18 +538,13 @@ final class FlutterSceneRuntimeAdapter implements FlutterSceneAdapter {
       }
     }
 
-    final usesNativeMaterialExtensionApplier =
-        _usesNativeMaterialExtensionApplierFor(
-      materialExtensionPolicy,
-      patch,
-      support: materialExtensionSupport,
-    );
     final standardPbrExtensionDiagnostic =
         _pinnedStandardPbrExtensionDiagnostic(
       address,
       patch,
       backendKind: materialExtensionSupport.backendKind,
       usesNativeMaterialExtensionApplier: usesNativeMaterialExtensionApplier,
+      usesExtendedPbr: usesExtendedPbr,
       hasEffectiveOpaqueIorIntent: patch.hasOpaqueIorOverride ||
           ((patch.transmission ?? 0.0) == 0.0 && patch.ior != null),
     );
@@ -583,7 +632,12 @@ final class FlutterSceneRuntimeAdapter implements FlutterSceneAdapter {
       if (binding == null) {
         continue;
       }
-      final plan = _flutterSceneTextureBindingPlan(binding, slot, address);
+      final plan = _flutterSceneTextureBindingPlan(
+        binding,
+        slot,
+        address,
+        allowExtendedPbrCoreTransform: usesExtendedPbr,
+      );
       textureBindingPlans[slot] = plan;
       final diagnostic = plan.diagnostic;
       if (diagnostic != null) {
@@ -654,9 +708,9 @@ final class FlutterSceneRuntimeAdapter implements FlutterSceneAdapter {
     final clearcoatManagesCoreNormal =
         patch.textureBindingFor(MaterialTextureSlot.normal) != null &&
             clearcoatManagesCoreInputs;
-    final usesRawNormalTexture =
+    final usesRawNormalTexture = usesExtendedPbr ||
         (usesMaterialExtensionBackend && !packageLocalTransmissionZeroBypass) ||
-            clearcoatManagesCoreNormal;
+        clearcoatManagesCoreNormal;
     if (patch.hasGlassOverride &&
         usesMaterialExtensionBackend &&
         !packageLocalTransmissionZeroBypass) {
@@ -739,6 +793,20 @@ final class FlutterSceneRuntimeAdapter implements FlutterSceneAdapter {
       textureContent: flutter_scene.TextureContent.data,
       bindingPlan: textureBindingPlans[MaterialTextureSlot.occlusion],
     );
+    final loadedSpecularTexture = await _loadTextureOverride(
+      patch.textureBindingFor(MaterialTextureSlot.specular),
+      address,
+      slot: MaterialTextureSlot.specular,
+      textureContent: flutter_scene.TextureContent.data,
+      bindingPlan: textureBindingPlans[MaterialTextureSlot.specular],
+    );
+    final loadedSpecularColorTexture = await _loadTextureOverride(
+      patch.textureBindingFor(MaterialTextureSlot.specularColor),
+      address,
+      slot: MaterialTextureSlot.specularColor,
+      textureContent: flutter_scene.TextureContent.color,
+      bindingPlan: textureBindingPlans[MaterialTextureSlot.specularColor],
+    );
     final loadedTransmissionTexture = packageLocalTransmissionZeroBypass
         ? null
         : await _loadTextureOverride(
@@ -784,6 +852,8 @@ final class FlutterSceneRuntimeAdapter implements FlutterSceneAdapter {
       loadedNormalTexture,
       loadedEmissiveTexture,
       loadedOcclusionTexture,
+      loadedSpecularTexture,
+      loadedSpecularColorTexture,
       loadedTransmissionTexture,
       loadedThicknessTexture,
       loadedClearcoatTexture,
@@ -829,6 +899,89 @@ final class FlutterSceneRuntimeAdapter implements FlutterSceneAdapter {
       if (diagnostics.isNotEmpty) {
         return diagnostics;
       }
+    }
+
+    if (usesExtendedPbr) {
+      final source = material as flutter_scene.PhysicallyBasedMaterial;
+      final stagedSource = _copyPbrMaterial(source);
+      _applyCorePbrState(
+        stagedSource,
+        patch,
+        baseColorTexture: loadedBaseColorTexture?.texture,
+        metallicRoughnessTexture: loadedMetallicRoughnessTexture?.texture,
+        normalTexture: loadedNormalTexture?.texture,
+        emissiveTexture: loadedEmissiveTexture?.texture,
+        occlusionTexture: loadedOcclusionTexture?.texture,
+        rawNormalTexture: true,
+      );
+      final FlutterSceneExtendedPbrState? currentExtended =
+          source is FlutterSceneExtendedPbrState
+              ? source as FlutterSceneExtendedPbrState
+              : null;
+      final transforms = <MaterialTextureSlot, TextureTransform>{
+        ...?currentExtended?.transforms,
+      };
+      for (final slot in _extendedPbrCoreSlots) {
+        final binding = patch.textureBindingFor(slot);
+        if (binding != null) {
+          transforms[slot] = binding.transform;
+        }
+      }
+
+      final flutter_scene.PhysicallyBasedMaterial replacement;
+      try {
+        final candidate = await _extendedPbrBackend.createMaterial(
+          FlutterSceneExtendedPbrMaterialConfig(
+            source: stagedSource,
+            transforms: transforms,
+            specularFactor:
+                patch.specular ?? currentExtended?.specularFactor ?? 1,
+            specularColorFactor: patch.specularColorFactor ??
+                currentExtended?.specularColorFactor ??
+                const <double>[1, 1, 1],
+            ior: patch.ior ?? currentExtended?.ior ?? 1.5,
+            specularFactorTexture: loadedSpecularTexture?.texture ??
+                currentExtended?.specularFactorTexture,
+            specularColorTexture: loadedSpecularColorTexture?.texture ??
+                currentExtended?.specularColorTexture,
+          ),
+        );
+        if (candidate is! FlutterSceneExtendedPbrState) {
+          throw StateError(
+            'FSViewerExtendedPbr backend returned a material without retained extension state.',
+          );
+        }
+        replacement = candidate;
+      } on Object catch (error) {
+        return <ViewerDiagnostic>[
+          ViewerDiagnostic(
+            code: ViewerDiagnosticCode.unsupportedMaterialFeature,
+            message:
+                'FSViewerExtendedPbr material construction failed before replacement.',
+            details: <String, Object?>{
+              'part': address.debugPath,
+              'feature': flutterSceneExtendedPbrShaderName,
+              'limitation': 'extendedPbrMaterialConstructionFailed',
+              'status': 'blocked',
+              'materialReplaced': false,
+              'encodedBytesModified': false,
+              'error': error.toString(),
+              'nextStep': 'verifyExtendedPbrReflectedContract',
+            },
+          ),
+        ];
+      }
+
+      _originalMaterials.putIfAbsent(
+        address,
+        () => _OriginalMaterialState.capture(target.node, target.primitive),
+      );
+      target.primitive.material = replacement;
+      if (patch.visible != null) {
+        _applyPrimitiveVisibility(target, patch.visible!, address);
+      }
+      _refreshMountedMesh(target.node);
+      return const <ViewerDiagnostic>[];
     }
 
     _originalMaterials.putIfAbsent(
@@ -1277,8 +1430,62 @@ final class FlutterSceneRuntimeAdapter implements FlutterSceneAdapter {
       ..alphaMode = source.alphaMode
       ..alphaCutoff = source.alphaCutoff
       ..vertexColorWeight = source.vertexColorWeight
-      ..doubleSided = source.doubleSided;
+      ..doubleSided = source.doubleSided
+      ..specularAntiAliasingVariance = source.specularAntiAliasingVariance
+      ..specularAntiAliasingThreshold = source.specularAntiAliasingThreshold;
     return material;
+  }
+
+  void _applyCorePbrState(
+    flutter_scene.PhysicallyBasedMaterial material,
+    MaterialPatch patch, {
+    flutter_scene.TextureSource? baseColorTexture,
+    flutter_scene.TextureSource? metallicRoughnessTexture,
+    flutter_scene.TextureSource? normalTexture,
+    flutter_scene.TextureSource? emissiveTexture,
+    flutter_scene.TextureSource? occlusionTexture,
+    required bool rawNormalTexture,
+  }) {
+    if (patch.baseColorFactor != null) {
+      material.baseColorFactor = _vector4(patch.baseColorFactor!);
+    }
+    if (baseColorTexture != null) {
+      material.baseColorTexture = baseColorTexture;
+    }
+    if (metallicRoughnessTexture != null) {
+      material.metallicRoughnessTexture = metallicRoughnessTexture;
+    }
+    if (normalTexture != null) {
+      material.normalTexture = normalTexture;
+    }
+    if (patch.textureBindingFor(MaterialTextureSlot.normal) != null &&
+        patch.normalScale != null) {
+      material.normalScale = rawNormalTexture ? patch.normalScale! : 1;
+    }
+    if (patch.metallic != null) {
+      material.metallicFactor = patch.metallic!;
+    }
+    if (patch.roughness != null) {
+      material.roughnessFactor = patch.roughness!;
+    }
+    if (patch.emissiveFactor != null) {
+      material.emissiveFactor = _emissiveVector(patch.emissiveFactor!);
+    }
+    if (emissiveTexture != null) {
+      material.emissiveTexture = emissiveTexture;
+    }
+    if (occlusionTexture != null) {
+      material.occlusionTexture = occlusionTexture;
+    }
+    if (patch.occlusionStrength != null) {
+      material.occlusionStrength = patch.occlusionStrength!;
+    }
+    if (patch.alphaMode != null) {
+      material.alphaMode = _alphaMode(patch.alphaMode!);
+    }
+    if (patch.alphaCutoff != null) {
+      material.alphaCutoff = patch.alphaCutoff!;
+    }
   }
 
   Future<_TextureLoadResult?> _loadTextureOverride(
@@ -2111,12 +2318,14 @@ typedef FlutterSceneTextureBindingPlan = ({
 FlutterSceneTextureBindingPlan _flutterSceneTextureBindingPlan(
   MaterialTextureBinding binding,
   MaterialTextureSlot slot,
-  PartAddress address,
-) {
+  PartAddress address, {
+  bool allowExtendedPbrCoreTransform = false,
+}) {
   final diagnostic = flutterSceneTextureBindingDiagnostic(
     address: address,
     slot: slot,
     binding: binding,
+    allowExtendedPbrCoreTransform: allowExtendedPbrCoreTransform,
   );
   if (diagnostic != null) {
     return (sampling: null, diagnostic: diagnostic);
@@ -2234,6 +2443,53 @@ bool _requiresPbrFamilyReplacement(
     family == MaterialBaseFamily.translucentBlend ||
     patch.alphaMode == MaterialAlphaMode.opaque;
 
+const List<MaterialTextureSlot> _extendedPbrCoreSlots = <MaterialTextureSlot>[
+  MaterialTextureSlot.baseColor,
+  MaterialTextureSlot.metallicRoughness,
+  MaterialTextureSlot.normal,
+  MaterialTextureSlot.occlusion,
+  MaterialTextureSlot.emissive,
+];
+
+bool _usesExtendedPbrFor(
+  flutter_scene.Material material,
+  MaterialPatch patch,
+) =>
+    material is FlutterSceneExtendedPbrState ||
+    patch.hasSpecularOverride ||
+    patch.hasOpaqueIorOverride ||
+    _extendedPbrCoreSlots.any((slot) {
+      final binding = patch.textureBindingFor(slot);
+      return binding != null && !_isIdentityTransform(binding.transform);
+    });
+
+bool _isIdentityTransform(TextureTransform transform) =>
+    transform.offsetX == 0 &&
+    transform.offsetY == 0 &&
+    transform.scaleX == 1 &&
+    transform.scaleY == 1 &&
+    transform.rotation == 0;
+
+ViewerDiagnostic _extendedPbrCombinationUnavailable(
+  PartAddress address,
+  MaterialPatch patch,
+) =>
+    ViewerDiagnostic(
+      code: ViewerDiagnosticCode.unsupportedMaterialFeature,
+      message:
+          'FSViewerExtendedPbr does not implement clearcoat or transmission/volume in this bounded slice.',
+      details: <String, Object?>{
+        'part': address.debugPath,
+        'feature': flutterSceneExtendedPbrShaderName,
+        'limitation': 'extendedPbrLayeredMaterialCombinationUnsupported',
+        'clearcoat': patch.hasClearcoatOverride,
+        'transmissionVolume': patch.hasGlassOverride,
+        'status': 'blocked',
+        'materialReplaced': false,
+        'nextStep': 'useSeparatelyAcceptedLayeredMaterialBackend',
+      },
+    );
+
 bool _hasPackageLocalClearcoatConsumedCoreIntent(MaterialPatch patch) =>
     patch.baseColorFactor != null ||
     patch.textureBindingFor(MaterialTextureSlot.baseColor) != null ||
@@ -2245,9 +2501,10 @@ ViewerDiagnostic? _pinnedStandardPbrExtensionDiagnostic(
   MaterialPatch patch, {
   required MaterialExtensionBackendKind backendKind,
   required bool usesNativeMaterialExtensionApplier,
+  required bool usesExtendedPbr,
   bool? hasEffectiveOpaqueIorIntent,
 }) {
-  if (usesNativeMaterialExtensionApplier) {
+  if (usesNativeMaterialExtensionApplier || usesExtendedPbr) {
     return null;
   }
   if (patch.hasSpecularOverride) {
@@ -2382,6 +2639,29 @@ bool _hasAvailableMaterialExtensionBackendFeatures(
       MaterialExtensionFeature.volume,
       MaterialExtensionFeature.clearcoat,
     }.every((feature) => support.supportFor(feature).available);
+
+MaterialExtensionSupport _withExtendedPbrSupport(
+  MaterialExtensionSupport base,
+) {
+  final candidate = MaterialExtensionFeatureSupport(
+    available: true,
+    maturityByTarget: <MaterialExtensionTarget, MaterialExtensionMaturity>{
+      for (final target in MaterialExtensionTarget.values)
+        target: MaterialExtensionMaturity.candidateOnly,
+    },
+  );
+  return MaterialExtensionSupport(
+    backendKind: base.backendKind == MaterialExtensionBackendKind.none
+        ? MaterialExtensionBackendKind.flutterSceneCustomShader
+        : base.backendKind,
+    features: <MaterialExtensionFeature, MaterialExtensionFeatureSupport>{
+      ...base.features,
+      MaterialExtensionFeature.specular: candidate,
+      MaterialExtensionFeature.ior: candidate,
+    },
+    claimedReleaseTargets: base.claimedReleaseTargets,
+  );
+}
 
 @visibleForTesting
 flutter_scene.AlphaMode debugFlutterSceneAlphaModeFor(

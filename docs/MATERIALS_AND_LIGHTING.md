@@ -14,12 +14,18 @@ Support core glTF metallic-roughness PBR:
 - alpha mode and double-sided where `flutter_scene` exposes them.
 
 The [generated capability matrix](generated/capability_matrix.md) is the
-current Plan 014 claim source for selected glTF extensions. Historical
-candidate screenshots and simulator runs remain contextual records; current
-Plan 014 target evidence remains `not run` for every selected feature/target
-row. Host parsing, intent preservation, codec output, rewrite validation, and
-Three.js reference captures are reported separately and do not establish
-flutter_scene target rendering.
+current Plan 014 claim source for selected glTF extensions. Plan 014 iOS Simulator evidence is `verified locally` for `KHR_texture_transform`, `KHR_materials_specular`, opaque `KHR_materials_ior`, and the A1B32 Draco load; physical iOS, Android, and Web remain `not run`. The extended material path remains `candidate-only`, and host parsing, intent preservation, codec output, rewrite validation, or Three.js captures alone do not establish target rendering.
+
+Supported lit materials automatically route through one internal
+`FSViewerExtendedPbr` material when they contain a nonidentity UV0 transform on
+a core PBR slot, specular intent, or opaque-IOR intent. Combined triggers stay
+on that one material instance. Core-only identity materials remain native
+`flutter_scene.PhysicallyBasedMaterial`. The routed fragment owns core
+sampling, transformed normal-map derivatives, dielectric specular/IOR, direct
+studio lighting, IBL through `flutter_scene` resources, generated shadows,
+fog, and HDR-premultiplied output. It does not replace the engine's scene
+graph, geometry, camera, rasterization, picking, environment generation, tone
+mapping, resolve, or scheduling.
 
 Transmission/glass is required before v1.0 release. It must mean real
 glTF-style transmission/refraction behavior with IOR and volume attenuation
@@ -163,8 +169,10 @@ an opt-in backend advertises glass support. Clearcoat texture, clearcoat
 roughness texture, and clearcoat normal texture requests likewise require UV0;
 the default policy reports them as unsupported first unless an opt-in backend
 advertises clearcoat support. Specular texture and specular color texture
-requests also require UV0; current renderer support is diagnostic-only unless a
-future backend advertises `KHR_materials_specular` support.
+requests also require UV0. On a supported extended-PBR target they route
+automatically, with the strength texture sampled from linear alpha and the
+color texture decoded from sRGB RGB. An unavailable shader contract or an
+unsupported target returns diagnostics before live material mutation.
 
 Authored GLB extension texture slots follow the same UV0 rule. UV1 is never
 substituted for `transmissionTexture`, `thicknessTexture`, clearcoat textures,

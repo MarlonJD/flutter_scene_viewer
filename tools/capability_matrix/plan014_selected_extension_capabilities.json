@@ -27,7 +27,7 @@
       "scope": "historical Plan 013 iPhone 17 Simulator candidate run",
       "source": "docs/exec-plans/completed/013_v2_production_glb_pipeline.md",
       "artifactDurability": "not durable",
-      "currentPlan014TargetEvidence": "not run",
+      "currentPlan014TargetEvidence": "verified locally",
       "releaseMaturity": "candidate-only"
     },
     {
@@ -143,12 +143,12 @@
       },
       "targets": {
         "ios_simulator": {
-          "applied": "blocked",
-          "visuallyVerified": "not run",
-          "runtimeCapability": "diagnostic-only",
-          "releaseMaturity": "diagnostic-only",
-          "targetEvidence": "not run",
-          "blocker": "pinned flutter_scene has no standard-material per-slot transform contract; Glorvia evidence is unavailable"
+          "applied": "verified locally",
+          "visuallyVerified": "verified locally",
+          "runtimeCapability": "candidate-only availability",
+          "releaseMaturity": "candidate-only",
+          "targetEvidence": "verified locally",
+          "blocker": "candidate-only iPhone 17 Simulator transform evidence recorded at tools/out/material_extension_acceptance/plan014_extended_pbr_ios_simulator/evidence.json; physical and release evidence remain not run"
         },
         "ios_physical": {
           "applied": "blocked",
@@ -156,7 +156,7 @@
           "runtimeCapability": "diagnostic-only",
           "releaseMaturity": "diagnostic-only",
           "targetEvidence": "not run",
-          "blocker": "pinned flutter_scene has no standard-material per-slot transform contract; no physical-device run"
+          "blocker": "package-local FSViewerExtendedPbr transform path has no physical-device run"
         },
         "android": {
           "applied": "blocked",
@@ -164,7 +164,7 @@
           "runtimeCapability": "diagnostic-only",
           "releaseMaturity": "diagnostic-only",
           "targetEvidence": "not run",
-          "blocker": "pinned flutter_scene has no standard-material per-slot transform contract; no Android runtime run"
+          "blocker": "package-local FSViewerExtendedPbr transform path has no Android runtime/render run"
         },
         "web": {
           "applied": "blocked",
@@ -172,7 +172,7 @@
           "runtimeCapability": "diagnostic-only",
           "releaseMaturity": "diagnostic-only",
           "targetEvidence": "not run",
-          "blocker": "pinned flutter_scene has no standard-material per-slot transform contract; no Web runtime run"
+          "blocker": "package-local FSViewerExtendedPbr transform path has no Web runtime/render run"
         }
       }
     },
@@ -198,12 +198,12 @@
       },
       "targets": {
         "ios_simulator": {
-          "applied": "blocked",
-          "visuallyVerified": "not run",
-          "runtimeCapability": "diagnostic-only",
-          "releaseMaturity": "diagnostic-only",
-          "targetEvidence": "not run",
-          "blocker": "pinned flutter_scene exposes no specular fields, slots, importer mapping, or shader inputs"
+          "applied": "verified locally",
+          "visuallyVerified": "verified locally",
+          "runtimeCapability": "candidate-only availability",
+          "releaseMaturity": "candidate-only",
+          "targetEvidence": "verified locally",
+          "blocker": "candidate-only iPhone 17 Simulator specular evidence recorded at tools/out/material_extension_acceptance/plan014_extended_pbr_ios_simulator/evidence.json; physical and release evidence remain not run"
         },
         "ios_physical": {
           "applied": "blocked",
@@ -211,7 +211,7 @@
           "runtimeCapability": "diagnostic-only",
           "releaseMaturity": "diagnostic-only",
           "targetEvidence": "not run",
-          "blocker": "pinned flutter_scene exposes no specular renderer contract; no physical-device run"
+          "blocker": "package-local FSViewerExtendedPbr specular path has no physical-device run"
         },
         "android": {
           "applied": "blocked",
@@ -219,7 +219,7 @@
           "runtimeCapability": "diagnostic-only",
           "releaseMaturity": "diagnostic-only",
           "targetEvidence": "not run",
-          "blocker": "pinned flutter_scene exposes no specular renderer contract; no Android runtime run"
+          "blocker": "package-local FSViewerExtendedPbr specular path has no Android runtime/render run"
         },
         "web": {
           "applied": "blocked",
@@ -227,7 +227,7 @@
           "runtimeCapability": "diagnostic-only",
           "releaseMaturity": "diagnostic-only",
           "targetEvidence": "not run",
-          "blocker": "pinned flutter_scene exposes no specular renderer contract; no Web runtime run"
+          "blocker": "package-local FSViewerExtendedPbr specular path has no Web runtime/render run"
         }
       }
     },
@@ -253,12 +253,12 @@
       },
       "targets": {
         "ios_simulator": {
-          "applied": "blocked",
-          "visuallyVerified": "not run",
-          "runtimeCapability": "diagnostic-only",
-          "releaseMaturity": "diagnostic-only",
-          "targetEvidence": "not run",
-          "blocker": "pinned flutter_scene fixes dielectric F0 at 0.04 and has no opaque-IOR input"
+          "applied": "verified locally",
+          "visuallyVerified": "verified locally",
+          "runtimeCapability": "candidate-only availability",
+          "releaseMaturity": "candidate-only",
+          "targetEvidence": "verified locally",
+          "blocker": "candidate-only iPhone 17 Simulator opaque-IOR evidence recorded at tools/out/material_extension_acceptance/plan014_extended_pbr_ios_simulator/evidence.json; physical and release evidence remain not run"
         },
         "ios_physical": {
           "applied": "blocked",
@@ -266,7 +266,7 @@
           "runtimeCapability": "diagnostic-only",
           "releaseMaturity": "diagnostic-only",
           "targetEvidence": "not run",
-          "blocker": "pinned flutter_scene has no opaque-IOR renderer contract; no physical-device run"
+          "blocker": "package-local FSViewerExtendedPbr opaque-IOR path has no physical-device run"
         },
         "android": {
           "applied": "blocked",
@@ -274,7 +274,7 @@
           "runtimeCapability": "diagnostic-only",
           "releaseMaturity": "diagnostic-only",
           "targetEvidence": "not run",
-          "blocker": "pinned flutter_scene has no opaque-IOR renderer contract; no Android runtime run"
+          "blocker": "package-local FSViewerExtendedPbr opaque-IOR path has no Android runtime/render run"
         },
         "web": {
           "applied": "blocked",
@@ -282,7 +282,7 @@
           "runtimeCapability": "diagnostic-only",
           "releaseMaturity": "diagnostic-only",
           "targetEvidence": "not run",
-          "blocker": "pinned flutter_scene has no opaque-IOR renderer contract; no Web runtime run"
+          "blocker": "package-local FSViewerExtendedPbr opaque-IOR path has no Web runtime/render run"
         }
       }
     },
@@ -473,12 +473,12 @@
       },
       "targets": {
         "ios_simulator": {
-          "applied": "not run",
-          "visuallyVerified": "not run",
+          "applied": "verified locally",
+          "visuallyVerified": "verified locally",
           "runtimeCapability": "candidate-only native plugin",
           "releaseMaturity": "candidate-only",
-          "targetEvidence": "not run",
-          "blocker": "no current Plan 014 iOS Simulator runtime, render, or packaging run"
+          "targetEvidence": "verified locally",
+          "blocker": "candidate-only A1B32 Draco decode/render evidence recorded at tools/out/material_extension_acceptance/plan014_extended_pbr_ios_simulator/evidence.json; native in-flight cancellation, allocation control, and release packaging remain unverified"
         },
         "ios_physical": {
           "applied": "not run",

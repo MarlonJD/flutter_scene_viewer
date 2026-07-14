@@ -14,6 +14,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_gpu_shaders: ^0.5.1
   flutter_scene:
     git:
       url: https://github.com/bdero/flutter_scene.git
@@ -38,5 +39,6 @@ topics:
 
 flutter:
   assets:
+    - build/shaderbundles/fsviewer_extended_pbr.shaderbundle
     - build/shaderbundles/materials.shaderbundle
     - build/shaderbundles/materials.fmat.json

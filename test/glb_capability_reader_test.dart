@@ -484,6 +484,39 @@ void main() {
     expect(result.diagnostics, hasLength(1));
     expect(result.diagnostics.single.code, ViewerDiagnosticCode.adapterFailure);
   });
+
+  test('JSON reader limit does not reject a larger decoded BIN chunk', () {
+    final result = readGlbAssetCapabilities(
+      _glbWithBin(
+        <String, Object?>{
+          'asset': <String, Object?>{'version': '2.0'},
+          'extensionsUsed': <Object?>['KHR_materials_specular'],
+          'materials': <Object?>[
+            <String, Object?>{
+              'extensions': <String, Object?>{
+                'KHR_materials_specular': <String, Object?>{
+                  'specularFactor': 0.8,
+                },
+              },
+            },
+          ],
+          'buffers': <Object?>[
+            <String, Object?>{'byteLength': 8 * 1024 * 1024 + 4},
+          ],
+        },
+        <Uint8List>[Uint8List(8 * 1024 * 1024 + 4)],
+      ),
+      debugName: 'decoded-large-bin.glb',
+    );
+
+    expect(
+      result.diagnostics.where(
+        (diagnostic) => diagnostic.code == ViewerDiagnosticCode.adapterFailure,
+      ),
+      isEmpty,
+    );
+    expect(result.materialExtensionCounts['KHR_materials_specular'], 1);
+  });
 }
 
 GlbTextureRole? _roleBySlot(GlbAssetCapabilityResult result, String slot) {

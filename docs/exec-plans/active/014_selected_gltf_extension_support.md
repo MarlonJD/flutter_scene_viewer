@@ -11,18 +11,32 @@
 
 Support the selected glTF material, texture, sampler, and compression
 extensions required by production configurator assets as honest runtime
-behavior, without texture baking, asset-specific material mutation, a second
-general PBR renderer, or false capability claims.
+behavior, without texture baking, asset-specific material mutation, an
+unbounded second renderer, or false capability claims.
 
 ## Architecture
 
 Keep `flutter_scene_viewer` as the high-level viewer/configurator wrapper.
 The wrapper owns GLB preflight, decoder rewrites, stable public texture-binding
-data, persistence, validation, diagnostics, and evidence. BRDF/BTDF
-integration, per-slot texture sampling, IBL, refraction compositing, and
-precision choices belong in the pinned `flutter_scene` renderer or in an
-explicitly separated, target-scoped candidate backend; a missing renderer
-feature remains diagnostic until a real backend implements it.
+data, persistence, validation, diagnostics, and evidence. Core-only standard
+PBR materials remain native `flutter_scene.PhysicallyBasedMaterial` instances.
+A supported lit material routes automatically through one internal,
+material-scoped `FSViewerExtendedPbr` path when it has a nonidentity UV0
+transform on a supported core texture slot, `KHR_materials_specular` intent,
+or opaque `KHR_materials_ior` intent. Combined triggers use that same material;
+fragment shaders are never stacked and requested behavior is never silently
+dropped.
+
+For routed materials, the bounded package-local fragment owns the five core
+PBR texture/factor inputs, independent supported UV0 transforms, specular,
+opaque IOR, alpha mask/cutoff, direct studio-light evaluation, IBL consumption
+using `flutter_scene` resources, shadow-map sampling, fog, and the existing HDR
+premultiplied output contract. `flutter_scene` continues to own scene graph,
+geometry and vertex processing, rasterization, picking, camera, shadow-map
+generation, environment decoding/convolution/resources, DFG/BRDF LUTs, tone
+mapping/final resolve, and render scheduling outside material replacement.
+This is an upstream-ready prototype for the selected extension seam, not a
+general renderer or public shader graph.
 
 Filament and Karis are shading references, not rendering backends. Khronos
 glTF specifications are normative for fields, defaults, channels, color
@@ -43,8 +57,10 @@ reproducible target evidence.
   explicitly asks.
 - Do not post GitHub issues, pull requests, comments, or reviews through a
   connector identity.
-- Do not add a Filament backend, general shader graph, custom PBR renderer,
-  texture bake, UV generation, CAD repair, or asset-name-based material fix.
+- Do not add a Filament backend, general shader graph, unbounded custom PBR
+  renderer, texture bake, UV generation, CAD repair, or asset-name-based
+  material fix. The approved `FSViewerExtendedPbr` boundary is the sole bounded
+  package-local PBR exception.
 - Keep `TextureSource` as source-location data. Sampler, UV-set, and transform
   metadata must be separate and reusable per material slot.
 - Required unsupported extensions fail before adapter import with an
@@ -104,7 +120,9 @@ reclassified below and must pass this plan's stricter gates.
 | BRDF, clearcoat, and real-time IBL audit direction | Filament material-system documentation and Karis 2013 |
 | Coherent background, IBL, key light, exposure, reflections, and shadows | Viewer lighting contract; Frostbite is reference context only |
 | Public API, serialization, validation, persistence, diagnostics | `flutter_scene_viewer` |
-| Core BRDF/BTDF, per-slot shader sampling, IBL, refraction compositing | Upstream `flutter_scene` or explicitly separated renderer backend |
+| Core BRDF, per-slot shader sampling, IBL, direct light, shadow sampling, fog, and HDR premultiplied output for routed UV/specular/opaque-IOR materials | Bounded package-local `FSViewerExtendedPbr`, structured for later upstreaming |
+| Geometry, vertex processing, rasterization, picking, camera, shadow generation, environment/DFG resources, tone mapping, final resolve, render scheduling | Pinned `flutter_scene` |
+| Refraction compositing and BTDF work | Upstream `flutter_scene` or an explicitly separated future backend; out of the Task 6/7 slice |
 | Draco and BasisU decoding | Optional sibling native plugins; the root package owns bounded GLB rewrite |
 
 The repo-local reference package is
@@ -129,16 +147,23 @@ The repo-local reference package is
 
 - A1B32 remains the immediate real-asset gate. It requires Draco,
   `KHR_materials_specular`, and `KHR_materials_ior`.
-- Glorvia runtime fabric uses repeat 2.5 for front/back albedo and normal
-  textures. Runtime binding metadata must express that without generated tiled
-  image bytes.
+- The official live Glorvia product page supplies C28 at runtime rather than
+  authoring it into A1B32. Its current contract is front/reverse-side albedo
+  repeat `2.5 × 2.5` and crepe-normal repeat `1.0 × 1.0`. The configurator,
+  not this package or the GLB, owns those URLs and values. Runtime binding
+  metadata must express them without generated tiled image bytes.
 - The same image may be bound to multiple slots with different UV sets,
   transforms, or sampler state.
 - The pinned `flutter_scene` PBR path already provides GGX/Smith/Schlick and
   split-sum IBL lineage, but it does not expose the selected glTF material
   extension inputs as first-class runtime fields.
-- Upstream renderer work is an explicit dependency gate. Do not edit the pub
-  cache or claim support while waiting for a pinned upstream capability.
+- Do not edit the pub cache or dependency pin for this implementation. On
+  2026-07-14 the user approved one bounded package-local extended-PBR material
+  for Tasks 6 and 7. It activates automatically only for supported lit
+  UV/specular/opaque-IOR intent and consumes the pinned renderer's existing
+  engine resources. Core-only identity materials remain native. The extended
+  path must preserve source material state, renderer lifecycle contracts, and
+  native-equivalent defaults while owning the selected fragment-lighting seam.
 
 ## Milestones and execution order
 
@@ -149,14 +174,15 @@ single acceptance decision:
 | Milestone | Tasks | Independently testable result |
 | --- | --- | --- |
 | M1: truthful baseline | 1, 2, then 5 | Capability/evidence claims are honest, authored patch families are isolated, asset-specific mutation is removed, and the fixed lighting state exists. |
-| M2: texture binding | 3, 4, then 6 | Public bindings preserve slot, UV, transform, and sampler intent; Glorvia repeat 2.5 is applied by a real renderer path or the milestone remains `blocked`. |
-| M3: A1B32 material gate | 7 | Draco, specular, and opaque IOR render without material hacks under the fixed state. |
+| M2: texture binding | 3, 4, then 6 | Public bindings preserve slot, UV, transform, and sampler intent; automatic `FSViewerExtendedPbr` routing applies the official Glorvia albedo 2.5/normal 1.0 contract through a real renderer path or the milestone remains `blocked`. |
+| M3: A1B32 material gate | 7 | The same bounded extended path renders Draco-backed A1B32 specular and opaque IOR without material hacks under the fixed state. |
 | M4: layered and transmissive materials | 8 and 9 | Clearcoat and glass are renderer-native or remain explicitly deferred without a production claim. |
 | M5: decoder and release evidence | 10 and 11 | Decoder budgets/conformance and durable target-specific evidence are complete. |
 
 Do not start M2 renderer integration before M1 is complete. Tasks 3 and 4 may
-prepare the wrapper model while upstream work is pending, but Task 6 cannot be
-accepted on parsing or persistence evidence alone.
+prepare the wrapper model before renderer work, but Task 6 cannot be accepted
+on parsing, compiler, or persistence evidence alone. Task 7 cannot be accepted
+on semantic CPU tests alone.
 
 ## Closure and release gates
 
@@ -164,8 +190,8 @@ Plan completion and `production-ready` are different claims:
 
 | Gate | Required to move Plan 014 to `completed` | Required for a `production-ready` feature/target claim |
 | --- | --- | --- |
-| A1B32 | Specular and opaque IOR are applied on the pinned renderer with iOS Simulator evidence `verified locally`; hierarchy, picking, and authored material invariants pass. If upstream support is unavailable, Plan 014 remains `blocked`. | The exact physical iOS, Android, or Web row being claimed has real runtime evidence, release packaging evidence, and no open correctness blocker. |
-| Glorvia | Base-color and normal bindings apply repeat 2.5 without generated image bytes on the pinned renderer with iOS Simulator evidence `verified locally`. If the transform contract is unavailable, Plan 014 remains `blocked`. | Each claimed physical target applies the sampler/transform contract and has durable target evidence. |
+| A1B32 | Specular and opaque IOR are applied through `FSViewerExtendedPbr` with iOS Simulator evidence `verified locally`; hierarchy, picking, authored metallic/material intent, and fixed-state response invariants pass. Until real application evidence exists, Plan 014 remains `blocked`. | The exact physical iOS, Android, or Web row being claimed has real runtime evidence, release packaging evidence, and no open correctness blocker. |
+| Glorvia | Base-color applies repeat 2.5 and normal applies repeat 1.0 without generated image bytes through automatic `FSViewerExtendedPbr` routing, with iOS Simulator evidence `verified locally`. If the path is unavailable or silently degrades to identity, Plan 014 remains `blocked`. | Each claimed physical target applies the sampler/transform contract and has durable target evidence. |
 | Clearcoat and transmission/volume | Tasks 8 and 9 either integrate a conformant renderer path or move the remaining candidate work to an explicit deferred plan. Candidate-only completion keeps the v1 release gate blocked and must not be described as feature support. | Every claimed feature/target row passes normative, visual, packaging, and physical-runtime gates. |
 | Meshopt, Draco, and BasisU | Shared budgets, declared conformance cases, rewritten-GLB validation, and honest platform labels pass. | Only targets with real decoder/runtime evidence may be labeled `production-ready`; other rows remain `not run` or `candidate-only`. |
 
@@ -186,6 +212,9 @@ release row.
   animation, morph targets, or skeletal posing.
 - Baking UV transforms into image bytes or changing authored metallic,
   roughness, clearcoat, alpha, visibility, or base color to improve one asset.
+- Clearcoat or transmission implementation inside `FSViewerExtendedPbr` in
+  this Task 6/7 slice.
+- Custom shader source fetched from the network.
 
 ## Planned file structure
 
@@ -209,6 +238,14 @@ release row.
 - Modify imported core and extension readers to share binding semantics.
 - Modify adapter/backend code only after the ownership gate identifies a real
   renderer path.
+- Create `shaders/fsviewer_extended_pbr.frag` and
+  `shaders/fsviewer_extended_pbr.shaderbundle.json` for the package-built full
+  fragment entry proven against the pinned Flutter GPU build hook.
+- Create `lib/src/internal/flutter_scene_extended_pbr_material.dart` for the
+  internal `PhysicallyBasedMaterial` subclass, deterministic parameter
+  packing, shader contract preflight, and immutable library/metadata cache.
+- Modify `hook/build.dart` and `pubspec.yaml` only as required to package and
+  load the separate extended bundle; do not edit the dependency cache.
 - Keep optional native codec work in the existing sibling plugin packages.
 
 ## Steps
@@ -1042,24 +1079,16 @@ Expected: all commands pass and later visual tasks reference the same fixture.
 
 **Files:**
 
+- Create: `shaders/fsviewer_extended_pbr.frag`
+- Create: `shaders/fsviewer_extended_pbr.shaderbundle.json`
+- Create: `lib/src/internal/flutter_scene_extended_pbr_material.dart`
 - Modify: `lib/src/internal/flutter_scene_adapter.dart`
-- Modify: `lib/src/internal/flutter_scene_material_extension_backend.dart`
-- Modify: `pubspec.yaml` and `pubspec.lock` only after an upstream commit is
-  available
-- Upstream, separate `flutter_scene` checkout:
-  `packages/flutter_scene/lib/src/texture/texture2d.dart`
-- Upstream, separate `flutter_scene` checkout:
-  `packages/flutter_scene/lib/src/material/physically_based_material.dart`
-- Upstream, separate `flutter_scene` checkout:
-  `packages/flutter_scene/lib/src/runtime_importer/material_builder.dart`
-- Upstream, separate `flutter_scene` checkout:
-  `packages/flutter_scene/lib/src/runtime_importer/texture_builder.dart`
-- Upstream, separate `flutter_scene` checkout:
-  `packages/flutter_scene/shaders/material_inputs.glsl`,
-  `packages/flutter_scene/shaders/material_varyings.glsl`, and
-  `packages/flutter_scene/shaders/flutter_scene_standard.frag`
+- Modify: `hook/build.dart`
+- Modify: `pubspec.yaml`
 - Test: `test/flutter_scene_adapter_material_test.dart`
-- Test: `test/flutter_scene_material_extension_backend_test.dart`
+- Test: `test/flutter_scene_extended_pbr_backend_test.dart`
+- Test: `test/flutter_scene_extended_pbr_material_test.dart`
+- Test: `test/flutter_scene_uv_transform_material_test.dart`
 - Test: `test/viewer_controller_material_test.dart`
 - Document: `docs/references/flutter_scene_capability_notes.md`
 
@@ -1067,10 +1096,13 @@ Expected: all commands pass and later visual tasks reference the same fixture.
 
 - Convert `MaterialTextureBinding` sampler intent to the active renderer's
   sampler representation.
-- Require renderer-native per-slot UV transform support for standard PBR
-  materials.
-- Do not replace the standard PBR material with a package-local full-PBR
-  shader merely to obtain transformed UVs.
+- Keep core-only identity materials on native
+  `flutter_scene.PhysicallyBasedMaterial`.
+- Route a lit material with a nonidentity UV0 binding on a supported core PBR
+  slot through the same bounded `FSViewerExtendedPbr` path used by Task 7 for
+  specular and opaque IOR. Combined triggers use one material instance.
+- Keep non-UV0 bindings and material-extension texture slots diagnostic-only
+  until their vertex-varying and renderer contracts exist.
 
 - [x] **Step 1: Add failing adapter tests**
 
@@ -1105,45 +1137,138 @@ Any current or future texture cache key must include content role and sampler
 state; transform remains per material slot and must never be stored as mutable
 state on a shared image object.
 
-- [ ] **Step 4: Integrate an upstream per-slot transform contract**
+- [x] **Step 4: Establish RED and integrate the combined extended-PBR foundation**
 
-`blocked`: the pinned revision has no standard-material per-slot transform
-contract, and no separate upstream checkout/commit is available. Runtime
-application remains diagnostic-only and the dependency pin is unchanged.
+The dependency pin and pub cache remain unchanged. Before production changes,
+add and run a fresh focused failing test proving all three missing seams:
 
-Implement the minimal change in the actual `flutter_scene` repository, obtain
-an explicit commit, then update this repo's dependency pin. The upstream
-contract must keep transform data per material texture slot and apply it in
-both direct texture sampling and IBL-relevant normal sampling. If no upstream
-commit is available, mark this step `blocked` and keep runtime application
-diagnostic-only. If upstream owns authored sampler import, update
-`runtime_importer/texture_builder.dart` to construct one texture object per glTF
-`texture` entry using that entry's sampler; do not key only by image index.
+- the pinned generated lit `.fmat` path always invokes the fixed native
+  `EvaluateLighting`, whose `MaterialInputs` and fixed dielectric F0 cannot
+  consume requested specular or opaque-IOR intent;
+- the package-built full fragment entry and reflected contract do not exist;
+- shader, entry, or contract unavailability causes no primitive replacement,
+  persisted override, or render request.
 
-- [ ] **Step 5: Add Glorvia runtime evidence**
+Record the exact RED command and failure below. Historical failures and skipped
+renderer tests do not satisfy this RED gate. Then package the separate full
+fragment entry, implement the internal `PhysicallyBasedMaterial` subclass and
+deterministic parameter packing, and preflight the bundle entry, uniform
+layout, texture slots, and samplers before material mutation. First prove
+native-equivalent defaults: `specularFactor = 1`,
+`specularColor = [1, 1, 1]`, `ior = 1.5`, and identity UV transforms.
 
-`blocked`: no durable Glorvia runtime fixture or renderer-native transform
-path is available. Repeat `2.5` intent is preserved without generated bytes,
-but renderer application is `not run`.
+#### Approved combined Task 6/7 material design
 
-Apply front/back albedo and crepe normal at repeat 2.5 through
-the slot-aware `setPartTextureBinding` API. Assert the original encoded bytes
-are unchanged and capture transform differences under the fixed reference
-state.
+**Ownership and activation**
 
-- [ ] **Step 6: Verify Task 6**
+- The caller/configurator supplies each texture URL or bytes, slot, sampler,
+  UV set, and transform through `MaterialTextureBinding`. The material never
+  infers C28, A1B32, or repeat `2.5` from asset names.
+- Core-only identity materials remain native. The extended path is eligible
+  only for a lit `PhysicallyBasedMaterial` and at least one supported trigger:
+  a nonidentity UV0 transform on base color, metallic-roughness, normal,
+  occlusion, or emissive; specular intent; or opaque-IOR intent.
+- Unlit materials, `texCoord > 0`, extension slots, unavailable shaders, and
+  unsupported mixed states return typed diagnostics before texture decode,
+  material replacement, persistence, or render requests. There is no silent
+  identity fallback.
+- UV, specular, and opaque IOR on one material compose through exactly one
+  extended instance. No opt-in flag, fragment stacking, or asset/product
+  branch is allowed.
+
+**Material and shader boundary**
+
+- Add one internal material subclass of
+  `flutter_scene.PhysicallyBasedMaterial`. It copies and preserves the source
+  texture sources, base/emissive factors, metallic/roughness factors, normal
+  scale, occlusion strength, environment, alpha mode/cutoff, double-sided
+  state, specular antialiasing controls, opacity classification, and inherited
+  reflection-roughness prepass behavior.
+- Package one full Flutter GPU fragment entry through the package build hook.
+  Do not use the lit `.fmat` emitter for this entry: its mandatory fixed
+  `EvaluateLighting(material)` call cannot express the approved seam.
+- The subclass reuses the native PBR binding path for `FragInfo`, the five core
+  textures/samplers, engine lighting, IBL, shadow, fog, and render state, then
+  binds only deterministic extended parameters and specular textures required
+  by the reflected contract.
+- For routed materials the fragment owns core sampling, alpha mask, normal
+  preparation, the selected dielectric specular/IOR equations, direct studio
+  light, IBL using `flutter_scene` environment/DFG resources, generated-shadow
+  sampling, fog, and HDR premultiplied output. It preserves the pinned
+  renderer's geometry, vertex-varying, rasterization, picking, camera,
+  environment-generation, tone-mapping, final-resolve, and scheduling
+  contracts.
+- Re-express Khronos and public PBR equations and record applicable source and
+  license attribution. Do not blindly copy third-party shader source.
+
+**Normative transform behavior**
+
+- Compute each slot independently as
+  `offset + rotationMatrix(rotation) * (uv * scale)`, matching ratified
+  `KHR_texture_transform` order and defaults. Finite negative scale remains
+  valid. Precompute cosine and sine on the CPU and pack each slot as two
+  std140 `vec4` values so shader layout is deterministic.
+- Use the transformed normal-slot coordinates both for the normal texture read
+  and derivative-derived tangent frame. Never store transform state on a
+  shared image or sampler object.
+- Preserve separately created per-slot texture sources and samplers. The first
+  bridge slice supports the already-verified equal-axis sampler subset;
+  asymmetric axes remain typed diagnostic-only until an explicit low-level
+  per-binding sampler route is separately accepted.
+
+**Atomicity and lifecycle**
+
+- Preflight the generated shader entry and metadata, validate every requested
+  binding, load all required texture sources, construct and configure the
+  replacement material, and only then replace the addressed primitive.
+- A failure leaves the live primitive, controller override store, encoded
+  bytes, UV buffers, geometry, visibility, and render-request count unchanged.
+  Reset restores the exact captured source material through the existing
+  adapter lifecycle.
+- Cache the immutable shader library/metadata only. Material transform state
+  remains per primitive and per slot. Any future texture cache includes
+  content role and sampler state and never includes mutable transform state.
+
+**Capability and evidence labels**
+
+- Successful local application is an automatic
+  `flutterSceneExtendedPbr`/`candidate-only` runtime capability, not
+  renderer-native support and not a production-ready claim.
+- Acceptance requires RED/GREEN CPU and compiler tests for independent
+  base-color/normal transforms, offset/rotation/negative scale, same-source
+  distinct bindings, native-equivalent defaults, combined routing,
+  shader-unavailable atomicity, reset, and no generated bytes. GPU-gated
+  binding tests plus fixed-state iPhone 17 Simulator and Three.js evidence must
+  show C28 albedo `2.5 × 2.5` and crepe normal `1.0 × 1.0` without the current
+  identity fallback.
+
+- [x] **Step 5: Add Glorvia runtime evidence**
+
+Accepted on 2026-07-14: the official external texture URLs, response metadata,
+byte hashes, Three.js reference, and real iPhone 17 Simulator extended-path
+artifacts are recorded. The current run applies the caller-provided transforms
+without `perSlotUvTransformContractMissing` diagnostics.
+
+Apply front/reverse-side albedo at repeat `2.5 × 2.5` and crepe normal at
+repeat `1.0 × 1.0` through the slot-aware `setPartTextureBinding` API. Assert
+the original encoded bytes are unchanged and capture transform differences
+under the fixed reference state. The caller supplies these values; the package
+must contain no A1B32/C28 conditional.
+
+- [x] **Step 6: Verify Task 6**
 
 ```sh
-flutter test test/flutter_scene_adapter_material_test.dart test/flutter_scene_material_extension_backend_test.dart test/viewer_controller_material_test.dart
+flutter test --no-pub test/flutter_scene_uv_transform_material_test.dart test/flutter_scene_extended_pbr_material_test.dart test/flutter_scene_extended_pbr_backend_test.dart test/flutter_scene_adapter_material_test.dart test/flutter_scene_material_extension_backend_test.dart test/viewer_controller_material_test.dart
 bash tools/run_checks.sh
 ```
 
-Expected: supported targets apply transformed UVs and sampler state; other
-targets emit diagnostics. No tiled image bytes are generated. This task remains
-`blocked` rather than accepted if the Glorvia gate has no real renderer
-application.
+Expected: automatic extended routing applies transformed UVs and sampler state
+on supported targets; other targets emit diagnostics. No tiled image bytes are
+generated. This task remains `blocked` rather than accepted if the Glorvia gate
+has no real renderer application. Candidate evidence does not change any
+physical-target or production-ready row.
 
-### Task 7: Integrate KHR_materials_specular and opaque IOR upstream-first
+### Task 7: Integrate KHR_materials_specular and opaque IOR through FSViewerExtendedPbr
 
 **Files:**
 
@@ -1153,30 +1278,23 @@ application.
 - Modify: `lib/src/internal/flutter_scene_adapter.dart`
 - Modify: `lib/src/internal/material_extension_native_capability.dart`
 - Modify: `lib/src/internal/material_extension_native_applier.dart`
-- Modify dependency pin only after a real upstream renderer commit
-- Upstream, separate `flutter_scene` checkout:
-  `packages/flutter_scene/lib/src/material/physically_based_material.dart`,
-  `packages/flutter_scene/lib/src/material/material_parameters.dart`, and
-  `packages/flutter_scene/lib/src/runtime_importer/material_builder.dart`
-- Upstream, separate `flutter_scene` checkout:
-  `packages/flutter_scene/shaders/pbr.glsl`,
-  `packages/flutter_scene/shaders/material_inputs.glsl`,
-  `packages/flutter_scene/shaders/material_lighting.glsl`, and
-  `packages/flutter_scene/shaders/flutter_scene_standard.frag`
+- Modify: `lib/src/internal/flutter_scene_extended_pbr_material.dart`
+- Modify: `shaders/fsviewer_extended_pbr.frag`
 - Test: `test/material_patch_test.dart`
 - Test: `test/material_extension_policy_test.dart`
 - Test: `test/glb_material_extension_reader_test.dart`
 - Test: `test/flutter_scene_adapter_material_test.dart`
 - Test: `test/material_extension_native_applier_test.dart`
+- Test: `test/flutter_scene_extended_pbr_material_test.dart`
 
 **Interfaces:**
 
 - Preserve `specularFactor`, `specularTexture`, `specularColorFactor`,
   `specularColorTexture`, and opaque `ior` through the wrapper.
-- Renderer support must apply them to the standard dielectric response; do not
-  map them to metallic or clearcoat.
+- Automatic extended routing must apply them to the dielectric response; do
+  not map them to metallic, roughness, clearcoat, alpha, or transmission.
 
-- [ ] **Step 1: Add failing semantic tests**
+- [x] **Step 1: Add failing semantic tests**
 
 Cover these semantics separately so factor and texture color spaces cannot be
 conflated:
@@ -1190,67 +1308,93 @@ conflated:
 - defaults, opaque IOR, the `ior == 0` compatibility mode, dielectric energy
   conservation, and metallic materials not gaining dielectric transmission.
 
-Safe-slice status: public and authored-data validation/parsing semantics are
+Current status: public and authored-data validation/parsing semantics are
 covered, including invalid-group isolation and opaque classification for
-`ior == 0`. Texture channel/color-space sampling, factor-times-texture,
-dielectric energy conservation, metal isolation, and visible IOR response are
-represented by an explicit skipped renderer-acceptance test because the pinned
-renderer exposes no contract that could make those assertions run. Step 1 is
-therefore partial and remains unchecked.
+`ior == 0`. The existing skipped renderer assertions are a RED inventory, not
+acceptance evidence; remove only skips satisfied by the real implementation
+and retain their meaningful assertions.
 
-- [ ] **Step 2: Run focused tests and confirm renderer red**
+- [x] **Step 2: Run focused tests and confirm renderer red**
 
 ```sh
 flutter test test/material_patch_test.dart test/material_extension_policy_test.dart test/glb_material_extension_reader_test.dart test/flutter_scene_adapter_material_test.dart test/material_extension_native_applier_test.dart
 ```
 
-Expected: parsing passes where already present, but renderer application and
-opaque IOR classification tests fail.
+Expected before implementation: parsing passes where already present, while
+the fresh extended-fragment contract/material-replacement test fails. Record
+that current failure as the new RED; historical validation failures and a skip
+do not satisfy this step.
 
-Safe-slice status: the RED run produced four expected validation/parser
-failures before implementation. The post-implementation focused suite is green
-with one explicit renderer-blocker skip; the skip is not acceptance evidence,
-so Step 2 remains unchecked.
+- [x] **Step 3: Implement the extended specular and opaque-IOR contract**
 
-- [ ] **Step 3: Implement or pin the renderer contract**
+Add specular factor/color factors and textures plus opaque IOR to the internal
+extended material and fragment. The specular factor texture samples alpha in
+linear space; the color texture samples sRGB RGB and decodes it; samples and
+factors multiply. Specular modifies only the dielectric response. Apply
+Khronos diffuse/specular energy sharing and keep metallic response isolated.
+For ordinary finite IOR greater than or equal to 1, use
+`((ior - 1) / (ior + 1))^2`; verify 1.5 maps to 0.04. Treat exactly `ior == 0`
+as the Khronos compatibility mode whose Fresnel is always 1, not as IOR 1 or a
+clamped denominator. Opaque IOR remains in the ordinary opaque PBR family.
+Do not expose GGX, Smith, Schlick, DFG, precision, or roughness-remap choices
+in viewer APIs.
 
-Add first-class specular and IOR material fields in upstream `flutter_scene`,
-including texture roles and per-slot bindings. Do not expose GGX, Smith,
-Schlick, DFG, precision, or roughness-remap choices in viewer APIs. If the
-upstream work is unavailable, keep support diagnostic-only and mark this task
-`blocked` rather than adding a wrapper overlay.
+- [x] **Step 4: Wire automatic routing and atomic capability**
 
-- [ ] **Step 4: Wire adapter capability after real support exists**
+Keep core-only identity materials native. Route any supported UV-transform,
+specular, or opaque-IOR trigger to exactly one extended material; compose
+combined patches without group loss. Preflight validation, shader contract,
+every required texture, and full material construction before replacing the
+primitive. Only then persist the override and request a frame. Any failure
+leaves the live material, override store, encoded bytes, UVs, geometry,
+visibility, and render-request count unchanged. Set per-feature runtime support
+available only when the active extended path consumes every requested field;
+record `candidate-only` maturity and target evidence independently.
 
-Set `supportFor(MaterialExtensionFeature.specular).available` only when the
-active renderer consumes all requested specular fields, and record maturity and
-evidence independently. Do the same for opaque IOR. Keep IOR-only materials in
-the ordinary PBR family.
-
-- [ ] **Step 5: Run the A1B32 intermediate gate**
+- [x] **Step 5: Run the A1B32 intermediate gate**
 
 Verify Draco load, 20 primitives, hierarchy, picking, unmodified material
 intent, metallic remaining authored, no forced clearcoat/roughness/alpha, and
 visible specular/IOR trends under the fixed reference state.
 
-- [ ] **Step 6: Verify Task 7**
+- [x] **Step 6: Verify Task 7**
 
 ```sh
-flutter test test/material_patch_test.dart test/material_extension_policy_test.dart test/glb_material_extension_reader_test.dart test/flutter_scene_adapter_material_test.dart test/material_extension_native_applier_test.dart
+flutter test --no-pub test/material_patch_test.dart test/material_extension_policy_test.dart test/glb_material_extension_reader_test.dart test/flutter_scene_adapter_material_test.dart test/material_extension_native_applier_test.dart
 bash tools/run_checks.sh
 ```
 
 Expected: all commands pass and A1B32 evidence is labeled for the exact target.
-If specular or opaque IOR is still diagnostic-only, Task 7 and Plan 014 remain
-`blocked`; a green parsing suite alone does not satisfy the A1B32 closure gate.
+If specular or opaque IOR is not applied by the full fragment, Task 7 and Plan
+014 remain `blocked`; a green parsing, compiler, or CPU suite alone does not
+satisfy the A1B32 closure gate. The fresh RED, real implementation, A1B32 iOS
+Simulator evidence, and passing final repository harness were recorded on
+2026-07-14. Other targets and production readiness remain `not run`.
 
-Blocked status: pinned `flutter_scene`
-`cd6760912fa38beb55f63e388655a1aeabd32fe4` has no first-class specular or
-opaque-IOR material fields, texture slots, importer mapping, surface inputs, or
-standard-fragment contract, and its dielectric F0 remains fixed at `0.04`.
-No separate upstream checkout/commit is available and the dependency pin is
-unchanged. Steps 3-6, Task 7, M3, the A1B32 gate, and Plan 014 completion remain
-`blocked`; A1B32 runtime/visual evidence is `not run`.
+#### Task 6/7 required test layers
+
+- CPU/Khronos semantics: per-slot transform order/defaults, negative scale,
+  transformed normal derivatives, specular factor/color validation and
+  multiplication, linear alpha versus sRGB RGB sampling, IOR values 1, 1.5,
+  greater than 1, and 0, dielectric F0, compatibility full Fresnel,
+  diffuse/specular energy sharing, and metallic isolation.
+- Routing and atomicity: core identity stays native; UV, specular, and opaque
+  IOR each route extended; combined UV/specular/IOR produces one extended
+  material; shader, texture, metadata, uniform, or sampler failure causes zero
+  live-material, persistence, byte, UV, geometry, visibility, and render-count
+  mutation; reset restores the exact captured source material.
+- Shader/compiler/GPU: the raw bundle entry compiles, its reflected
+  uniform/sampler contract matches deterministic packing, native-equivalent
+  defaults hold, independent core-slot transforms render, factor/color and IOR
+  trend matrices are visible, shadows/IBL/fog/HDR-premultiplied output remain
+  intact, and the retained source reflection-roughness prepass behavior is
+  unchanged.
+- Real gates: Glorvia uses the caller-provided C28 albedo repeat 2.5 and normal
+  repeat 1.0 without generated bytes; A1B32 preserves 20 primitives,
+  hierarchy, picking, authored metallic/material intent, and visibly applies
+  specular/opaque IOR under fixed camera, lighting, environment, and renderer
+  metadata. The iPhone Simulator and Three.js artifacts require paths and
+  hashes. Physical iOS, Android, and Web remain `not run` until executed.
 
 ### Task 8: Re-audit and integrate clearcoat
 
@@ -2089,27 +2233,27 @@ evidence remain incomplete.
 
 ## Acceptance criteria
 
-- [ ] Current docs and runtime support objects separate per-feature runtime
+- [x] Current docs and runtime support objects separate per-feature runtime
       capability, release maturity, and per-target evidence. A feature can be
       both `candidate-only` and `verified locally` without contradiction.
-- [ ] Core imported textures apply even when selected material extensions are
+- [x] Core imported textures apply even when selected material extensions are
       unsupported.
-- [ ] Unsupported authored specular, clearcoat, opaque IOR, or
+- [x] Unsupported authored specular, clearcoat, opaque IOR, or
       transmission/volume intent does not discard a different supported
       authored extension group on the same material.
-- [ ] IOR-only opaque materials stay in the standard PBR family.
-- [ ] No asset-name, texture-name, PNG-alpha, forced material-value, visibility,
+- [x] IOR-only opaque materials stay in the standard PBR family.
+- [x] No asset-name, texture-name, PNG-alpha, forced material-value, visibility,
       or generated-tiling repair remains in the production path.
-- [ ] Public runtime bindings use an explicit `MaterialTextureSlot`, are
+- [x] Public runtime bindings use an explicit `MaterialTextureSlot`, are
       defensively immutable, and preserve source, UV set, sampler, offset,
       scale, rotation, and extension UV override per texture slot.
-- [ ] `KHR_texture_transform` uses normative math/defaults and sampler state is
+- [x] `KHR_texture_transform` uses normative math/defaults and sampler state is
       preserved or diagnosed without byte baking. Finite negative scale is
       accepted; malformed optional transform data uses core fallback, while
       malformed required data blocks import.
-- [ ] `KHR_materials_specular` changes dielectric response with correct channel
+- [x] `KHR_materials_specular` changes dielectric response with correct channel
       and color-space handling.
-- [ ] Opaque `KHR_materials_ior` changes dielectric F0 without classifying the
+- [x] Opaque `KHR_materials_ior` changes dielectric F0 without classifying the
       material as glass.
 - [x] Clearcoat runtime support, when claimed, is a second authored lobe with
       independent normal and base attenuation. Otherwise it remains explicitly
@@ -2123,16 +2267,16 @@ evidence remain incomplete.
       explicit.
 - [ ] Meshopt and Draco rewrites pass conformance, budget, addressing, and
       validator gates.
-- [ ] A1B32 loads, renders, picks, preserves hierarchy, applies specular and
+- [x] A1B32 loads, renders, picks, preserves hierarchy, applies specular and
       opaque IOR, and does not receive material hacks.
-- [ ] Glorvia applies base-color and normal repeat 2.5 through slot-aware
-      bindings without changing or generating encoded image bytes.
-- [ ] Lighting/reference state is fixed before material visual comparison.
-- [ ] Durable evidence exists outside temporary directories with asset,
+- [x] Glorvia applies base-color repeat 2.5 and normal repeat 1.0 through
+      slot-aware bindings without changing or generating encoded image bytes.
+- [x] Lighting/reference state is fixed before material visual comparison.
+- [x] Durable evidence exists outside temporary directories with asset,
       renderer, platform, camera, lighting, and pass metadata.
-- [ ] Capability claims are target-specific; `not run` targets remain
+- [x] Capability claims are target-specific; `not run` targets remain
       `not run`.
-- [ ] Plan closure follows the explicit gate table: blocked A1B32 or Glorvia
+- [x] Plan closure follows the explicit gate table: blocked A1B32 or Glorvia
       renderer work prevents completion, and deferred clearcoat/glass work
       prevents a v1 `production-ready` release claim.
 - [x] `bash tools/run_checks.sh` passes.
@@ -2141,6 +2285,200 @@ evidence remain incomplete.
 
 ## Progress log
 
+- 2026-07-14: At the user's explicit request, staged only the Plan 014
+  extended-PBR handoff files and created a local conventional commit with
+  message `feat(materials): add extended PBR material path`. The pre-existing
+  untracked `tools/__pycache__/` directory was excluded. The staged diff check
+  passed; no push was performed.
+- 2026-07-14: Completed the authoritative extended-PBR Task 6/7 handoff and
+  accepted the independently testable M2 texture-binding and M3 A1B32 material
+  gates. The legacy Task 6 test path now protects the sole combined build
+  route rather than restoring the removed UV-only material. Its final focused
+  command passed 150 tests with 13 existing, explicitly labelled
+  Impeller/Flutter-GPU skips; the Task 7 command passed 122 tests with no
+  skips. The full repository harness passed repo lint, formatting of 88 files
+  with zero changes, dependency resolution, analysis with no issues, and 503
+  tests with 16 explicitly labelled GPU skips. A new Three.js r167 directional
+  reference uses the unchanged A1B32, C28 front/back, and crepe-normal hashes
+  with the same six UV/specular/IOR values as the iOS Simulator run; all six
+  captures were visually inspected and retain distinct hashes. Its durable
+  record is under
+  `tools/out/material_extension_acceptance/plan014_extended_pbr_threejs_reference/`
+  and is cross-linked from the iOS evidence. Post-run process inspection found
+  no Chrome, automation, or temporary HTTP-server process. This closes only
+  the approved Task 6/7 slice: the extended path remains `candidate-only`, iOS
+  Simulator remains `verified locally`, and physical iOS, Android, Web,
+  release packaging, and `production-ready` evidence remain `not run`. Other
+  active Plan 014 tasks remain open. No commit or push was performed.
+- 2026-07-14: Accepted the real Task 6 Glorvia and Task 7 A1B32 intermediate
+  gates for the bounded extended-PBR path. A disposable app ran on the already
+  booted iPhone 17 Simulator (`iOS 26.5`) with Impeller/Metal, Flutter GPU, and
+  the native Draco plugin enabled. The unchanged
+  `a9383e98ae7876e9589ad4c415c297c9862ee2267836f1f1e82024394c9ac592`
+  A1B32 GLB loaded as 20 renderable primitives. Four combined patches applied
+  and persisted with zero new extended-PBR diagnostics: albedo repeat
+  `2.5 × 2.5`, normal repeat `1 × 1`, specular variants, tinted IOR 2, and
+  exact IOR zero. Picking returned `root/A1B32#0` and `root/A1B32#2`; authored
+  metallic/material intent remained unchanged and no clearcoat, roughness,
+  alpha, visibility, geometry, UV, or encoded-byte repair was forced. Fixed
+  captures produced 37,067 changed pixels for UV identity versus 2.5, 34,453
+  for specular 0.1 versus 1.0, and 37,579 for tinted IOR 2 versus full-Fresnel
+  IOR zero in the isolated model region. The existing Three.js Glorvia
+  reference independently retains the same caller-supplied albedo 2.5/normal
+  1.0 contract. Evidence, capture hashes, input hashes, packaged bundle hash,
+  run log, and reproduction snapshots are under
+  `tools/out/material_extension_acceptance/plan014_extended_pbr_ios_simulator/`.
+  This accepts only iOS Simulator `verified locally` / `candidate-only`
+  evidence. Physical iOS, Android, Web, release packaging, and production
+  readiness remain `not run`.
+- 2026-07-14: Consolidated the implementation on the single combined route.
+  Removed the obsolete UV-only `.fmat`, bridge helper, and build-hook entry;
+  migrated the legacy Task 6 test path to guard the combined route after moving
+  transform, transformed-normal, asset-agnostic, packaging, and state-copy
+  assertions to the extended material suite. Added the complete
+  pinned `flutter_scene` MIT notice and source attribution; the attribution-only
+  shader header change rebuilt to the identical
+  `641585ac20b5ac1563bc91f349bcaf64e7c039754a13d886191809067bf2604b`
+  bundle. The capability matrix now accepts exactly the evidence-backed iOS
+  Simulator rows for texture transform, specular, opaque IOR, and Draco while
+  preserving physical iOS, Android, and Web as `not run`. Reader-facing docs
+  describe the automatic material-scoped route and retain `candidate-only`
+  boundaries. At this checkpoint Task 6 Step 6 and Task 7 Step 6 remained open
+  until the final repository harness pass recorded above.
+- 2026-07-14: Implemented the bounded CPU/compiler and atomic-routing slice of
+  the authoritative extended-PBR architecture without accepting Task 6, Task
+  7, M2, or M3. Added the raw `FSViewerExtendedPbr` bundle manifest/fragment,
+  hook packaging, deterministic 48-float transform/specular/IOR block, complete
+  reflected sampler contract, package-local material/backend, and automatic
+  adapter routing. The routed fragment now owns the five core texture reads,
+  transformed normal derivatives, specular factor/color sampling, opaque IOR,
+  direct light, IBL resources, shadows, SSAO, fog, and HDR premultiplied output
+  while retaining the pinned renderer's surrounding pipeline. A new retained
+  state interface keeps transformed UV, specular, and IOR state across later
+  core-only deltas; backend results lacking that contract fail before live
+  replacement. Core identity texture patches stay native, combined
+  UV/specular/IOR produces one replacement, failed construction leaves live
+  material/geometry/visibility unchanged, and reset restores the exact captured
+  source. The GPU shader-reflection test and visual trend assertion remain
+  explicitly gated because the plain Flutter test process has no Impeller.
+  Glorvia transformed rendering and A1B32 specular/IOR application are still
+  `not run`, so no physical-target or production-ready claim changes.
+- 2026-07-14: Established the fresh Task 6/7 RED required by the authoritative
+  handoff before extended-PBR production code. Added one focused shader-seam
+  assertion to `test/flutter_scene_uv_transform_material_test.dart` and one
+  real controller/adapter atomicity assertion to
+  `test/viewer_controller_material_test.dart`. The former confirms the pinned
+  lit `.fmat` output contains exactly one fixed
+  `EvaluateLighting(material)` and no specular-factor, specular-color, or IOR
+  inputs, then requires the absent raw `FSViewerExtendedPbr` manifest/fragment
+  contract. The latter passed while proving unavailable transformed-UV intent
+  leaves the live primitive material, override persistence, factors, and
+  render-request count unchanged. Task 6 Step 4 and Task 7 remain open; shader
+  compilation, GPU rendering, Glorvia application, and A1B32 specular/IOR are
+  still `not run`.
+- 2026-07-14: Applied the authoritative extended-PBR handoff amendment before
+  production code. The current contract now supersedes the older narrow
+  UV-only/fixed-`EvaluateLighting` Task 6 design and the upstream-only Task 7
+  blocker language retained later in this log as historical evidence.
+  Core-only identity PBR remains native; supported nonidentity UV0,
+  specular, and opaque-IOR intent automatically routes through one bounded,
+  material-scoped `FSViewerExtendedPbr`. The full fragment owns routed core
+  sampling, selected extension equations, direct studio light, IBL resource
+  consumption, generated-shadow sampling, fog, and HDR premultiplied output,
+  while the pinned renderer retains geometry/vertex/rasterization, picking,
+  camera, shadow and environment resource generation, DFG LUT, tone mapping,
+  final resolve, and scheduling ownership. Task 6 still requires real Glorvia
+  transformed-UV application; Task 7 still requires real A1B32
+  specular/opaque-IOR application. Both remain open, the extended capability
+  is `candidate-only`, and physical iOS, Android, and Web remain `not run`.
+  This amendment changed only
+  `docs/exec-plans/active/014_selected_gltf_extension_support.md`; no
+  production step, milestone, target gate, release, or `production-ready`
+  claim is accepted.
+- 2026-07-14: The user rejected a `flutter_scene` fork and approved a narrow,
+  fork-free Task 6 design amendment; no implementation step is accepted yet.
+  The canonical plan now assigns the caller/configurator ownership of runtime
+  texture URLs and transforms, records that A1B32 does not contain C28 or its
+  `2.5` scale, and corrects the official Glorvia contract to albedo
+  `2.5 × 2.5` plus crepe normal `1.0 × 1.0`. The selected internal material
+  bridge activates only for non-identity UV0 bindings on the five standard
+  core PBR slots, subclasses the pinned `PhysicallyBasedMaterial`, preserves
+  native material/render-prepass state, and delegates lighting to the pinned
+  engine-generated `EvaluateLighting` path. Its package-local shader may own
+  only per-slot UV calculation and the five standard texture reads; authored
+  BRDF/IBL/light/shadow/fog logic, asset-specific branches, byte baking, UV
+  generation, geometry mutation, and silent identity fallback remain
+  prohibited. Unsupported states must fail atomically with typed diagnostics.
+  Successful evidence will be `flutterSceneCustomShader`/`candidate-only`,
+  not renderer-native or production-ready. This turn changed documentation
+  only; RED tests and production code are intentionally pending written-design
+  review.
+- 2026-07-14: Added bounded Glorvia C28 diagnosis without accepting Task 6
+  Step 5, Task 6, or M2. The user-supplied official product page exposes the
+  exact A1B32 runtime call: front albedo `C28.jpg`, reverse-side albedo
+  `C28-back.jpg`, crepe normal `crepe-normal.jpg`, albedo repeat
+  `2.50 × 2.50`, and normal repeat `1.00 × 1.00`. The three CDN responses were
+  staged under ignored `tools/out/` evidence with HTTP 200 `image/jpeg`
+  metadata and SHA-256 identities
+  `d01c111ea23e8fbbefbba8058cb2841f6b48ab6d58224d0e270c659e31dbe1eb`,
+  `7e7a245d16ceec39d2b2f87be9913d7b7a24cb50cf107ef0672fd5a54fcaa308`,
+  and `9cd6e7f5d968fb424070b8605f852b8ab95bfea40dcd887aae5b2f378f1060c5`.
+  A disposable iPhone 17 Simulator harness addressed A1B32 primitives 0-3
+  through the public slot-aware API. All four exact albedo-repeat requests
+  were rejected before mutation with typed
+  `perSlotUvTransformContractMissing` diagnostics, proving the pinned
+  `flutter_scene` blocker on the real target path. The harness then applied a
+  clearly labelled identity-transform fallback using the unchanged real
+  front/reverse albedos and 1× normal solely to show texture identity. It
+  generated no image bytes or UVs and changed no geometry or visibility. The
+  centered front capture is
+  `tools/out/material_extension_acceptance/glorvia_c28/ios_c28_front.png`
+  (`215c2fdac78a18ae9932afae1ce3f1a334c1938790cdd8322943302f044b3ab2`).
+  A separate Three.js r167 directional reference applied the live-page
+  albedo 2.5/normal 1.0 contract to the same four named materials and produced
+  four fixed-state views without geometry, UV, visibility, or byte changes.
+  Its front artifact is
+  `tools/out/material_extension_acceptance/a1b32_threejs_glorvia_c28/front.png`
+  (`93404852a9872ed0cf00cfe15e871d50012757459218cb7b2aca36d6d776f9ec`).
+  The comparison removes the raw GLB's black garment speckling and isolates
+  the remaining iOS-versus-reference print-size difference to the unavailable
+  per-slot transform. This is iOS Simulator and Three.js reference evidence
+  only, not transformed-UV renderer acceptance, physical-iOS, Android, Web,
+  release, or production evidence. This run exposed the then-current
+  both-slots-at-2.5 plan mismatch; the user-approved design amendment above
+  corrects the gate to the live albedo-2.5/normal-1.0 contract, while the step
+  remains blocked pending actual bridge rendering.
+- 2026-07-14: Ran the user-authorized A1B32 bytes on the open iPhone 17
+  Simulator with the local native Draco plugin and the pinned renderer. The
+  unmodified authored asset
+  (`a9383e98ae7876e9589ad4c415c297c9862ee2267836f1f1e82024394c9ac592`)
+  reached `SUCCESS` with 20 renderable parts, but the centered front capture
+  failed visual acceptance: the garment contains severe black speckling. A
+  fresh fixed-state Three.js r167 capture of the same source SHA reproduced
+  the authoring defect. The front `beyaz_*` base-color images are solid white,
+  while the double-sided back materials incorrectly bind solid-black `R_0_*`
+  data/mask images as base color; internal `MAT_Body` / `MAT_Legs` geometry can
+  also intersect the opaque garment. The embedded `C` image is a Glorvia logo,
+  not a garment albedo, and no C28 fabric texture is embedded. Therefore this
+  run verifies native Draco decoding and byte preservation only; it does not
+  verify acceptable core-texture rendering. Specular and opaque IOR remain
+  diagnostic-only because the pinned renderer exposes no application
+  contract. The run exposed two false `adapterFailure` diagnostics after
+  native decode: both GLB readers applied their 8 MiB JSON limit to the larger
+  decoded BIN chunk. Two RED regressions reproduced the failure before the
+  minimal JSON-chunk-type guard made them GREEN. The rerun retained only the
+  typed `unsupportedModelFeature` and `unsupportedMaterialFeature` code
+  families and removed both metadata-reader failures. An on-demand frame was
+  lost after an iOS status-bar repaint; the disposable evidence harness now
+  uses the public `RenderPolicy.always` policy, but both that policy and an
+  immersive system-UI retry still lost the surface on a later repaint. The
+  pinned Flutter GPU / flutter_scene compositing boundary therefore remains a
+  target blocker. Runtime logs contain 44 non-blocking typed diagnostics: four
+  `unsupportedModelFeature` records for the two back-side data-map bindings
+  and the two internal-mannequin intersection risks, plus 40
+  `unsupportedMaterialFeature` records because all 20 primitives author both
+  unsupported specular and opaque-IOR intent. No Task 7, M3, A1B32,
+  target-release, or production-readiness gate is accepted.
 - 2026-07-14: Closed Task 10 Step 5 and Task 11 Step 5 without accepting
   either task or M5. The exact Task 10 root command passed 89 tests with three
   explicit GPU/Impeller skips; the Draco package passed 7/7 and BasisU passed
@@ -2939,6 +3277,162 @@ evidence remain incomplete.
 
 ## Verification log
 
+- 2026-07-14: Final Task 6/7 verification passed. The exact Task 6 command,
+  including the migrated legacy path and the combined material/backend suites,
+  completed at `+150 ~13`; every skip is an existing plain-process
+  Impeller/Flutter-GPU gate, while the real packaged shader path is covered by
+  the recorded Simulator run. The exact Task 7 command completed at `+122`
+  with no skips. `bash tools/run_checks.sh` then passed `repo lint`, formatted
+  88 files with zero changes, resolved dependencies, reported `No issues
+  found!`, and completed the full suite at `+503 ~16`. The additional six-stage
+  Three.js r167 run logged `FSV_PLAN014_THREEJS success stages=6 meshes=20`;
+  its evidence validates the exact input hashes, runtime values, fixed state,
+  capture hashes, and reproduction-harness hash. All six images were visually
+  inspected as directional evidence, not pixel-parity or target evidence.
+  Browser-process inspection after capture found only the inspection command
+  itself. Task 6 Step 6 and Task 7 Step 6 are accepted; physical-target,
+  cross-platform, release, and production-readiness gates are unchanged.
+  Post-log checks also passed repo lint, capability-matrix currency,
+  `git diff --check`, and JSON parsing for both the iOS and Three.js evidence
+  records.
+- 2026-07-14: Real iOS Simulator acceptance passed. Flutter logged
+  `Using the Impeller rendering backend (Metal)` and
+  `FSV_PLAN014_STATUS success parts=20 diagnostics=4`; the four diagnostics
+  were pre-existing authored A1B32 textile/body diagnostics, and every one of
+  the four combined patches plus six isolated trend stages reported
+  `diagnosticsDelta=0`. The final summary was `applied=4/4 parts=20
+  overrides=4 diagnostics=4`. GUI picking logged primitives 0 and 2. All
+  screenshot, source, input, bundle, and reproduction-snapshot hashes in
+  `evidence.json` validate; its post-attribution source hash is
+  `0be31724a00b2400280b1ef2141981f6c92af2103adec27daef99528a1a1a490`,
+  while the executable bundle remained byte-identical. The disposable harness
+  passed `flutter analyze` with no issues and was shut down after capture.
+- 2026-07-14: Capability evidence was updated RED-first. The focused command
+  `flutter test --no-pub test/capability_matrix_generation_test.dart
+  --plain-name 'generated capability matrix has explicit feature-target
+  truth'` exited 1 because the first expected iOS Simulator row was still
+  `blocked`. After restricting verified rows to the four recorded features,
+  updating the source and generated matrix, and correcting the three public
+  evidence summaries, all 8 capability-matrix tests passed. The focused
+  extended material/backend/adapter/controller command then passed 102 tests
+  with one explicit plain-process Impeller preflight skip; the obsolete
+  deliberately failing renderer-acceptance skip was removed because the real
+  simulator gate now supplies that evidence. Full repository verification is
+  still pending, so the two Task verification checkboxes remain open.
+- 2026-07-14: Extended-PBR foundation and atomic-routing verification passed.
+  RED `flutter test --no-pub test/flutter_scene_adapter_material_test.dart
+  --name 'core-only delta keeps the active extended PBR state'` exited 1 because
+  the second delta produced only one backend config; after replacing the
+  concrete-class coupling with the retained-state contract, the same command
+  passed. The focused atomic group passed 3/3, covering repeated composition
+  plus exact reset, identity-core native retention, and invalid-backend zero
+  mutation. The combined shader/material/backend/adapter/controller command
+  passed 102 tests with two explicit Impeller gates. The required Task 7
+  five-file command passed 122 tests with one explicit Impeller trend-matrix
+  gate. The raw shader bundle compiled during those Flutter test hooks. These
+  are CPU/compiler/routing results only: packaged GPU reflection, Glorvia 2.5
+  versus 1.0 application, A1B32 specular/IOR trends, physical iOS, Android,
+  Web, release, and production evidence remain `not run`; Task 6 Steps 4-6,
+  Task 7 Steps 3-6, M2, M3, and Plan 014 remain open.
+- 2026-07-14: Fresh RED command
+  `flutter test test/flutter_scene_uv_transform_material_test.dart test/viewer_controller_material_test.dart --name 'extended PBR contract'`
+  exited 1 with one pass and one expected failure. The atomicity test passed.
+  The shader-seam test failed at
+  `test/flutter_scene_uv_transform_material_test.dart:35` with
+  `Expected: true`, `Actual: <false>`, and
+  `A separate raw shader bundle is required to replace fixed EvaluateLighting.`
+  This is the current RED, not historical evidence. No shader or material
+  production implementation existed when it was captured.
+- 2026-07-14: The authoritative extended-PBR plan amendment passed its required
+  documentation gate. Self-review of the active architecture, assumptions,
+  ownership table, planned files, Task 6/7 interfaces, routing/atomicity test
+  layers, milestone gates, closure gates, and checklist found no current
+  placeholder, asset/product branch, fragment stacking, silent feature drop,
+  stale upstream-only blocker, or false completion claim. Older contradictory
+  entries remain explicitly historical and are superseded by the new topmost
+  progress entry. `python3 tools/repo_lint.py` exited 0 with
+  `repo lint passed`; `git diff --check` exited 0 with no output. This is
+  documentation-only verification. The fresh Task 6/7 RED, shader compilation,
+  Flutter/GPU tests, Glorvia transformed rendering, and A1B32 specular/IOR
+  rendering are `not run`; Task 6 Step 4, Task 7 Steps 1-6, M2, M3, and Plan
+  014 remain open.
+- 2026-07-14: The user-approved fork-free Task 6 design amendment passed its
+  documentation self-review. The scan found no unresolved current-contract
+  statement that assigns C28 or repeat 2.5 to A1B32; historical blocker entries
+  remain historical evidence. The selected design explicitly separates caller
+  data ownership, UV-transform sampling, pinned engine lighting, atomic
+  failure, and candidate-only evidence; it contains no placeholder, asset-name
+  branch, texture bake, generated UV, custom BRDF/IBL/light/shadow/fog path, or
+  silent identity fallback. `python3 tools/repo_lint.py` passed and
+  `git diff --check` passed. This was documentation-only verification: shader
+  compilation, Flutter tests, GPU binding, and simulator rendering for the new
+  bridge are `not run`, and Step 4/M2 remain open pending written-design review
+  and RED-first implementation.
+- 2026-07-14: Glorvia C28 focused evidence passed without changing production
+  behavior. The official page download produced three HTTP 200 JPEGs:
+  2028×2092 front/reverse albedos and a 1024×1024 crepe normal, with the exact
+  hashes recorded in the progress entry. The disposable Flutter harness
+  passed `flutter analyze` with no issues, loaded A1B32 on the open iPhone 17
+  Simulator as `SUCCESS · 20 renderable parts`, displayed the unchanged real
+  C28 files, and recorded four runtime
+  `perSlotUvTransformContractMissing` blockers for the rejected 2.5 albedo
+  intent. Its accepted visual state is explicitly labelled `albedo 1×
+  fallback + normal 1×`; it is not transformed-UV acceptance. The Three.js
+  evidence command completed four views and wrote
+  `tools/out/material_extension_acceptance/a1b32_threejs_glorvia_c28/evidence.json`
+  (`7115e0a9630b0345ead6d224475e25dc0c639a4398346c43a10d40482a20831c`).
+  The existing capture-contract suite passed 4/4. The exact Task 6 focused
+  Flutter command passed 129 tests with 13 explicit GPU/Impeller-gated skips;
+  those skips remain `not run`. Post-capture process inspection found no
+  headless Chrome, Puppeteer, Playwright, webdriver, or temporary HTTP-server
+  process. Task 6 Step 5, Task 6 Step 6, M2, transformed iOS rendering,
+  physical iOS, Android material rendering, Web, release, and production
+  gates remain blocked or `not run`.
+- 2026-07-14: Corrected the A1B32 visual classification after user review.
+  `npm run test:plan014-capture --prefix
+  tools/reference_renderers/threejs_material_extension_fixture` passed 4/4,
+  and `npm run capture:a1b32-plan014 --prefix
+  tools/reference_renderers/threejs_material_extension_fixture` reproduced all
+  four fixed authored-data views with Three.js r167. The raw Three.js front
+  capture SHA-256 is
+  `e83a2fcaac4be1f8e22762c4729928ffdd99ad8ada27ad466e085a5eda14eab9`;
+  it reproduces the same black garment failure direction as the iOS Simulator.
+  Source inspection mapped `top_FRONT_2219.041` to white
+  `beyaz_153968`, `skirt_FRONT_2234.014` to white `beyaz_153916`,
+  `top_BACK_2219.040` to black `R_0_153975`, and
+  `skirt_BACK_2234.013` to black `R_0_153923`; all four materials are opaque
+  and double-sided. Simulator logs reported `SUCCESS`, 20 parts, and exactly
+  44 diagnostics: four model-authoring diagnostics and two renderer-extension
+  diagnostics for each of 20 primitives. The prior capture is retained as a
+  failure artifact at
+  `tools/out/material_extension_acceptance/a1b32_flutter_scene_ios_simulator/front_authored_failure.jpg`;
+  it is not positive texture evidence. No headless Chrome/Puppeteer process
+  remained after capture. A clean historical Three.js repair variant is
+  diagnostic isolation only and cannot satisfy Plan 014 because it changes
+  authored back base color and visibility.
+- 2026-07-14: A1B32 iPhone 17 Simulator follow-up used iOS 26.5, Xcode 26.6,
+  Flutter 3.47.0-0.1.pre, Impeller/Flutter GPU, and the debug harness at
+  `/private/tmp/fsv_plan014_a1b32_sim`. The corrected focused reader command
+  first failed both new cases: the capability reader emitted
+  `adapterFailure`, and the material reader returned no patch. After guarding
+  the 8 MiB limit by JSON chunk type, the same two-file command passed 30/30.
+  The loader-inclusive command passed 58 tests with three explicit
+  GPU/Impeller-gated skips, and focused analysis of the five affected source
+  and test files reported no issues. Runtime UI inspection reported
+  `SUCCESS · 20 renderable parts`; after the fix, its unique diagnostic codes
+  were only `unsupportedModelFeature` and `unsupportedMaterialFeature`.
+  The full post-change `bash tools/run_checks.sh` gate passed repo lint, zero
+  formatting changes, dependency resolution, analysis, and 482 tests with 16
+  explicit GPU/renderer/visual skips. Standalone repo lint and
+  `git diff --check` also passed. The ignored evidence capture is
+  `tools/out/material_extension_acceptance/a1b32_flutter_scene_ios_simulator/front_authored_failure.jpg`;
+  its SHA-256 is
+  `4eb6323864afd6675a085e5e16da14b9d8914a0da51dc70037a4764c09060820`.
+  This is local simulator failure evidence, not accepted core-texture,
+  physical-iOS, Android, Web, release, or production evidence. Specular/IOR
+  application, acceptable garment rendering, picking, hierarchy invariants,
+  sustained compositing, and the full A1B32 closure gate remain blocked or
+  `not run`.
 - 2026-07-14: Task 10/11 executable closure checks passed. The exact focused
   root command completed 89 passes and three explicit adapter GPU/Impeller
   skips. `packages/flutter_scene_viewer_draco` completed 7/7 and

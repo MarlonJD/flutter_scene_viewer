@@ -50,10 +50,7 @@ a future integration path. Physical iOS, Android material rendering, and Web
 material rendering remain `not run`.
 
 The [generated capability matrix](generated/capability_matrix.md) is the
-current Plan 014 feature/target claim source. Historical candidate screenshots
-and simulator runs remain context. For each row, current Plan 014 target
-evidence remains `not run`. Host parser, codec, rewrite, and validator results
-do not change those target rows.
+current Plan 014 feature/target claim source. Plan 014 iOS Simulator evidence is `verified locally` for `KHR_texture_transform`, `KHR_materials_specular`, opaque `KHR_materials_ior`, and the A1B32 Draco load; physical iOS, Android, and Web remain `not run`. These are `candidate-only` target rows, not release or production-ready claims; host parser, codec, rewrite, and validator results do not promote any other row.
 
 `MaterialExtensionSupport.supportFor(MaterialExtensionFeature)` is the
 authoritative feature query. Each `MaterialExtensionFeatureSupport` keeps
@@ -344,15 +341,16 @@ That historical record is not a current Plan 014 target run. Physical iOS,
 Android material rendering, and Web material rendering remain `not run`.
 
 Specular fields are serializable request intent for `KHR_materials_specular`.
-With the default diagnostics-only policy, requests using those fields return
-`unsupportedMaterialFeature` diagnostics and are not applied or persisted.
 Authored GLB imports preserve `specularFactor`, `specularTexture`,
-`specularColorFactor`, and `specularColorTexture` as material intent so assets
-such as A1B32 do not collapse silently to ordinary metallic-roughness. Texture
-forms still require authored UV0. The current `flutter_scene` target does not
-expose renderer-native specular extension fields, so production rendering
-support remains deferred until a real backend advertises
-`MaterialExtensionSupport.specular`.
+`specularColorFactor`, and `specularColorTexture` so assets such as A1B32 do
+not collapse silently to ordinary metallic-roughness. Texture forms require
+authored UV0. When the complete package shader contract is available, the
+adapter automatically exposes `candidate-only` support and composes specular,
+opaque IOR, and core UV0 transforms through exactly one
+`FSViewerExtendedPbr` material. It performs shader/metadata, binding, texture,
+and construction preflight before replacing the primitive or persisting the
+patch. Unsupported targets and unavailable contracts remain diagnostic-only;
+no renderer-native or production-ready support is implied.
 
 ## Material override persistence
 
