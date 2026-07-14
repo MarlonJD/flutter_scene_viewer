@@ -53,6 +53,53 @@ void main() {
     );
   });
 
+  testWidgets(
+      'initial material overrides finish before ready surface is exposed',
+      (tester) async {
+    final controller = FlutterSceneViewerController();
+    final materialApplyGate = Completer<void>();
+    final adapter = FakeViewerAdapter(
+      snapshot: AdapterNodeSnapshot(name: 'Root', primitiveCount: 1),
+      renderScene: RecordingRenderScene(),
+      materialApplyGate: materialApplyGate,
+    );
+    final initialMaterialOverrides = MaterialOverrideSnapshot(
+      patches: <PartAddress, MaterialPatch>{
+        address: const MaterialPatch(roughness: 0.4),
+      },
+    );
+
+    await tester.pumpWidget(
+      Directionality(
+        textDirection: TextDirection.ltr,
+        child: FlutterSceneViewer.test(
+          source: source,
+          adapter: adapter,
+          controller: controller,
+          initialMaterialOverrides: initialMaterialOverrides,
+          loadingBuilder: (_) => const Text('Applying initial materials'),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(adapter.materialCalls, <PartAddress>[address]);
+    expect(controller.loadState.status, ViewerLoadStatus.loading);
+    expect(find.text('Applying initial materials'), findsOneWidget);
+    expect(_readyViewerFinder(), findsNothing);
+
+    materialApplyGate.complete();
+    await tester.pump();
+    await tester.pump();
+
+    expect(controller.loadState.status, ViewerLoadStatus.success);
+    expect(_readyViewerFinder(), findsOneWidget);
+    expect(
+      controller.materialOverrides.patchFor(address)?.roughness,
+      0.4,
+    );
+  });
+
   testWidgets('equivalent source rebuild does not reload the model',
       (tester) async {
     final adapter = FakeViewerAdapter(
@@ -1134,6 +1181,7 @@ final class FakeViewerAdapter implements FlutterSceneAdapter {
     this.modelStats,
     this.pickedPart,
     this.environmentDiagnostics = const <ViewerDiagnostic>[],
+    this.materialApplyGate,
   });
 
   final AdapterNodeSnapshot? snapshot;
@@ -1146,6 +1194,7 @@ final class FakeViewerAdapter implements FlutterSceneAdapter {
   final AdapterModelStats? modelStats;
   final PartAddress? pickedPart;
   final List<ViewerDiagnostic> environmentDiagnostics;
+  final Completer<void>? materialApplyGate;
   final List<PartAddress> materialCalls = <PartAddress>[];
   final List<MaterialPatch> materialPatches = <MaterialPatch>[];
   final List<Offset> pickPositions = <Offset>[];
@@ -1180,6 +1229,7 @@ final class FakeViewerAdapter implements FlutterSceneAdapter {
     MaterialPatch patch,
   ) async {
     materialCalls.add(address);
+    await materialApplyGate?.future;
     materialPatches.add(patch);
     return const <ViewerDiagnostic>[];
   }

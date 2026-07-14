@@ -59,6 +59,12 @@ The fixed capture state, tone mapping, renderer backend, renderer revision,
 viewport, and source asset must remain stable through every phase below. Change
 one material variable at a time and retain the baseline capture.
 
+On a multi-primitive real asset, every non-target primitive must remain at the
+same baseline optical state while a target primitive is varied. Restore the
+target to that baseline before handing the scene to interactive camera review;
+never leave different IOR/specular conformance extremes active across adjacent
+parts and present the result as a normal product-viewer state.
+
 | Phase | Required directional observation |
 | --- | --- |
 | Core metallic-roughness baseline | Preserve Khronos factor, texture, channel, and color-space semantics. Dielectrics retain a dielectric specular response and diffuse energy; metals move base color into colored specular response and lose the dielectric diffuse contribution. |

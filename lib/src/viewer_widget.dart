@@ -9,6 +9,7 @@ import 'diagnostics.dart';
 import 'internal/flutter_scene_adapter.dart';
 import 'internal/render_surface.dart';
 import 'material_extension_policy.dart';
+import 'material_override_store.dart';
 import 'material_patch.dart';
 import 'material_shading_mode.dart';
 import 'model_loader.dart';
@@ -33,6 +34,7 @@ class FlutterSceneViewer extends StatefulWidget {
     this.materialShadingPolicy = MaterialShadingPolicy.authored,
     this.materialExtensionPolicy =
         const ViewerMaterialExtensionPolicy.diagnosticsOnly(),
+    this.initialMaterialOverrides = MaterialOverrideSnapshot.empty,
     this.debugShowStatsOverlay = false,
     this.onStats,
     this.autoOrbit = false,
@@ -55,6 +57,7 @@ class FlutterSceneViewer extends StatefulWidget {
     this.materialShadingPolicy = MaterialShadingPolicy.authored,
     this.materialExtensionPolicy =
         const ViewerMaterialExtensionPolicy.diagnosticsOnly(),
+    this.initialMaterialOverrides = MaterialOverrideSnapshot.empty,
     this.debugShowStatsOverlay = false,
     this.onStats,
     this.autoOrbit = false,
@@ -73,6 +76,13 @@ class FlutterSceneViewer extends StatefulWidget {
   final ViewerEnvironment environment;
   final MaterialShadingPolicy materialShadingPolicy;
   final ViewerMaterialExtensionPolicy materialExtensionPolicy;
+
+  /// Persisted overrides to apply before the loaded scene becomes visible.
+  ///
+  /// This value is read when a model load begins. Use controller material
+  /// methods for incremental edits after the viewer reaches
+  /// [ViewerLoadStatus.success].
+  final MaterialOverrideSnapshot initialMaterialOverrides;
   final bool debugShowStatsOverlay;
   final ValueChanged<ViewerStatsSnapshot>? onStats;
   final bool autoOrbit;
@@ -418,7 +428,12 @@ class _FlutterSceneViewerState extends State<FlutterSceneViewer>
     _resetEnvironmentConfigurationAttempt();
     scheduleMicrotask(() {
       if (mounted) {
-        unawaited(_controller.load(source));
+        unawaited(
+          _controller.load(
+            source,
+            initialMaterialOverrides: widget.initialMaterialOverrides,
+          ),
+        );
       }
     });
   }

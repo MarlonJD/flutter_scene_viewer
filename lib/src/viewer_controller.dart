@@ -76,7 +76,11 @@ class FlutterSceneViewerController extends ChangeNotifier {
     }
   }
 
-  Future<void> load(ModelSource source) async {
+  Future<void> load(
+    ModelSource source, {
+    MaterialOverrideSnapshot initialMaterialOverrides =
+        MaterialOverrideSnapshot.empty,
+  }) async {
     final sink = _requireSink();
     _partTree = const PartTree.empty();
     _materialOverrides.resetAll();
@@ -94,6 +98,7 @@ class FlutterSceneViewerController extends ChangeNotifier {
           result.authoredExtensionMaterialPatches,
           sink,
         );
+        await applyMaterialOverrides(initialMaterialOverrides);
         _setLoadState(ViewerLoadState.success(source));
       } else {
         _partTree = const PartTree.empty();

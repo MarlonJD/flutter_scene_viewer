@@ -356,8 +356,14 @@ no renderer-native or production-ready support is implied.
 
 `controller.materialOverrides` returns a serializable `MaterialOverrideSnapshot`
 of the current sparse override state. Persist `snapshot.toJson()` and restore it
-with `MaterialOverrideSnapshot.fromJson(json)` followed by
-`controller.applyMaterialOverrides(snapshot)` after loading the matching model.
+with `MaterialOverrideSnapshot.fromJson(json)`. Pass the restored snapshot to
+`FlutterSceneViewer.initialMaterialOverrides` when it must be present on the
+first visible frame. The viewer keeps load status at `loading` while those
+patches and textures are applied, then exposes the ready render surface after
+the complete snapshot finishes. This avoids showing a partially restored model
+when one persisted snapshot spans several primitives. Use
+`controller.applyMaterialOverrides(snapshot)` for intentional incremental
+post-load changes.
 Authored GLB extension material state is source data, not user override state,
 so accepted or rejected authored extension patches are not added to this
 snapshot.

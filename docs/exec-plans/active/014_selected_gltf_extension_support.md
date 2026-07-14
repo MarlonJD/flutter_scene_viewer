@@ -2285,6 +2285,103 @@ evidence remain incomplete.
 
 ## Progress log
 
+- 2026-07-14: Commit/push handoff authorized by the user for the current Plan
+  014 follow-up diff on `main`. The intended scope is the eight tracked files
+  covering face-oriented extended-PBR normals, clean acceptance-state
+  isolation, load-gated initial material overrides, their regression tests,
+  public documentation, and this plan log. The pre-existing untracked
+  `tools/__pycache__/` directory remains excluded. Fresh verification before
+  staging is `bash tools/run_checks.sh` at `+505 ~16`, clean
+  `python3 tools/repo_lint.py`, clean `git diff --check`, successful iPhone 17
+  Simulator build/run, and cold-launch visual evidence `verified locally`.
+- 2026-07-14: Completed the RED-first first-visible-frame follow-up without
+  changing A1B32, its textures, or shader semantics. `FlutterSceneViewer` now
+  accepts an `initialMaterialOverrides` snapshot and keeps controller status at
+  `loading` while every patch and texture finishes. The ready render surface is
+  exposed only after the complete snapshot succeeds; ordinary controller
+  material calls remain incremental after load. The disposable A1B32 harness
+  now supplies its four Glorvia patches through this load-time path instead of
+  post-frame mutation. A fresh iPhone 17 Simulator cold launch showed loading
+  frames at `1/4`, `2/4`, and `3/4` with no model visible, followed by the first
+  model frame at `SUCCESS · 20 parts · 4/4 applied`; automatic orbit was left
+  running for user inspection. This target result is `verified locally`; the
+  extended material remains `candidate-only`, and physical iOS, Android, Web,
+  release, and `production-ready` evidence remain `not run`.
+- 2026-07-14: Cold-relaunch video isolated the remaining first-load flash to
+  non-atomic runtime override restoration. The disposable harness exposes the
+  ready render surface before its four caller-supplied Glorvia patches finish,
+  then awaits `setPartMaterial` once per primitive. Captured frames show the
+  exact mixed states: at `1/4 applied` the upper primitive uses C28 while the
+  skirt still shows the authored white/black state; at `3/4 applied` one final
+  garment primitive remains authored; `4/4 applied` is clean. This is not
+  shader warm-up, a GLB defect, or evidence for clamping glTF optical values.
+  The RED-first follow-up will allow a persisted initial override snapshot to
+  finish while load status remains `loading`, expose the ready surface only
+  afterward, and keep ordinary post-load edits incremental.
+- 2026-07-14: At the user's request, relaunched and foregrounded the corrected
+  disposable A1B32 acceptance harness on the already-booted iPhone 17
+  Simulator. The live UI again reached `SUCCESS · 20 parts · 4/4 applied` and
+  reported `Glorvia UV 2.5/1.0 + consistent optical state`. A fresh visual
+  capture showed the clean garment state, and automatic orbit was left running
+  for continued manual inspection.
+- 2026-07-14: Controlled Simulator isolation identified the remaining visual
+  defect as acceptance-state contamination, not a GLB requirement. Without
+  changing A1B32, C28 textures, the normal map, shader, camera, lighting, or
+  orbit, the disposable harness changed only the four simultaneous optical
+  overrides from divergent comparison extremes to one Glorvia-like state:
+  `specularFactor=1`, `specularColorFactor=[1,1,1]`, and `IOR=1.45` on every
+  garment primitive. Six fresh front/side/back orbit captures no longer showed
+  the moving white waist/skirt regions. `IOR=0` is intentionally full Fresnel
+  and the other extreme values are valid conformance inputs, so production
+  shader semantics must not clamp them. They belong in isolated one-variable
+  evidence captures, never as the persistent interactive garment state. The
+  material-acceptance contract now requires non-target primitives to retain
+  baseline and requires baseline restoration before interactive review. The
+  foreground Simulator is now running the consistent state for user review.
+- 2026-07-14: User review of the foreground Simulator run rejected the prior
+  white-patch closure. Six fresh live auto-orbit captures reproduced
+  angle-dependent white regions across the front waist/skirt while the
+  acceptance harness applied divergent extreme optical values to the four
+  garment primitives (`IOR 1.1`, `1.5`, `2`, and `0`). The face-oriented
+  normal change remains a normative glTF correction, but it is insufficient
+  evidence for this visual defect and is no longer considered the complete
+  fix. The earlier “without reproducing” statement below is superseded by this
+  entry. No second production change is accepted until a same-camera
+  controlled comparison separates consistent Glorvia-like optical state from
+  normal-map/specular aliasing and primitive/depth interaction.
+- 2026-07-14: At the user's request, rebuilt and launched the corrected
+  disposable A1B32 acceptance harness on the already-booted iPhone 17
+  Simulator through the Runner workspace. The build completed without errors,
+  the runtime UI reached `SUCCESS · 20 parts · 4/4 applied`, and automatic
+  orbit is active for manual inspection. Simulator.app was brought to the
+  foreground and the application was intentionally left running.
+- 2026-07-14: Completed the camera-dependent A1B32 white-patch follow-up with
+  a generic, specification-owned fix in `FSViewerExtendedPbr`. Back-facing
+  fragments now reverse the geometric normal before normal-map tangent-frame,
+  Fresnel/IBL energy, direct-light, and shadow evaluation. The same unchanged
+  A1B32 GLB and the original extreme four-primitive specular/IOR comparison
+  matrix ran on iPhone 17 Simulator with Impeller/Metal; automatic orbit
+  captures covered front, side, and back views without reproducing the white
+  flash regions. The implementation adds no asset/material-name branch,
+  parameter clamp, public API, GLB mutation, or depth offset. The repo-local
+  `pbr-materials` source hierarchy kept Khronos semantics normative; live
+  Glorvia/Babylon and pinned Three.js behavior were used only as renderer
+  evidence. The extended path remains `candidate-only`; physical iOS,
+  Android, Web, release, and `production-ready` evidence remain `not run`.
+- 2026-07-14: Began a RED-first follow-up for camera-dependent white patches
+  reported on A1B32 while the accepted extended-PBR comparison state was
+  active. The unchanged GLB remains authoritative and will not be repaired or
+  mutated. Live Glorvia inspection confirmed that the product page uses
+  Babylon Viewer 5.16, not Three.js, and renders all four garment materials
+  with two-sided lighting, IOR approximately `1.45`, roughness approximately
+  `0.83`, and no depth offset. The pinned Three.js r167 reference flips the
+  normal and derivative tangent frame on back-facing fragments; the current
+  `FSViewerExtendedPbr` fragment preserves disabled culling but does not flip
+  its geometric or perturbed normals. The working assumption for the smallest
+  renderer-owned fix is therefore glTF `doubleSided` back-face lighting
+  semantics, applied generically through `gl_FrontFacing` with no asset-name
+  branch, IOR clamp, or GLB change. This assumption must first fail a focused
+  shader-contract test and then pass compiler plus real Simulator evidence.
 - 2026-07-14: At the user's explicit request, staged only the Plan 014
   extended-PBR handoff files and created a local conventional commit with
   message `feat(materials): add extended PBR material path`. The pre-existing
@@ -3277,6 +3374,53 @@ evidence remain incomplete.
 
 ## Verification log
 
+- 2026-07-14: The initial-material regression was established RED-first. The
+  focused widget test initially failed compilation because
+  `initialMaterialOverrides` did not exist, then passed `+1` after the minimum
+  load-order implementation. The disposable iOS app passed `flutter analyze`
+  with no issues. XcodeBuildMCP rebuilt and ran it on iPhone 17 / iOS 26.5;
+  build completed with no errors and only the two existing unknown Swift debug
+  environment-variable warnings. A 30 fps cold-launch recording captured the
+  full restore sequence: `1/4`, `2/4`, and `3/4` remained behind the loading
+  surface, and the model appeared only at `SUCCESS · 20 parts · 4/4 applied`.
+  The permitted full `bash tools/run_checks.sh` run passed repo lint, formatted
+  88 files with zero changes, reported `No issues found!`, and completed at
+  `+505 ~16`; skips remain the explicit plain-process Flutter-GPU gates.
+  `python3 tools/repo_lint.py` and `git diff --check` also passed. No commit or
+  push was performed.
+- 2026-07-14: Same-runtime A/B isolation passed. The failing A state kept the
+  four-primitives matrix `IOR=[1.1,1.5,2,0]`, including tinted specular on the
+  front skirt, and reproduced the white regions in six orbit captures. The B
+  state changed only those optical values to common Glorvia-like
+  `specular=1`, neutral specular color, and `IOR=1.45`; it again reached
+  `SUCCESS · 20 parts · 4/4 applied`, and six equivalent continuous-orbit
+  captures were visually clean. This result does not justify a GLB edit,
+  polygon offset, depth hack, or valid-value clamp. It corrects the interactive
+  harness state while retaining isolated IOR/specular conformance trends.
+- 2026-07-14: The user-visible rerun invalidated the earlier Simulator visual
+  conclusion. The application still reached `SUCCESS · 20 parts · 4/4
+  applied`, but six subsequent live auto-orbit screenshots visibly retained
+  angle-dependent white regions. The RED/source/full-suite results below prove
+  only the face-normal contract and regression safety; they do not prove this
+  reported artifact fixed. Visual status is reopened and the current shader
+  change remains a candidate component pending controlled runtime isolation.
+- 2026-07-14: The face-orientation regression was established RED-first. The
+  focused test failed at `+0 -1` because the fragment had no
+  `ExtendedPbrGeometricNormal` contract, then passed at `+1` after the bounded
+  implementation. The complete extended-material file passed `+12`; the exact
+  Task 6 command passed `+151 ~13`, with the existing skips limited to explicit
+  plain-process Impeller/Flutter-GPU gates. A disposable iPhone 17 Simulator
+  harness logged `Using the Impeller rendering backend (Metal)`, loaded 20
+  A1B32 primitives, applied all four unchanged extreme specular/IOR variants
+  with zero new diagnostics, and completed continuous auto-orbit inspection at
+  front, side, and back angles. The first sandboxed `bash tools/run_checks.sh`
+  attempt was blocked only by Flutter SDK cache write permissions; the
+  permitted rerun passed repo lint, formatted 88 files with zero changes,
+  resolved dependencies, reported `No issues found!`, and completed the full
+  suite at `+504 ~16`. `git diff --check` also passed.
+  Post-run process inspection found no Flutter runner, Puppeteer, webdriver,
+  remote-debugging Chrome, or temporary HTTP-server process; post-log repo lint
+  and `git diff --check` passed.
 - 2026-07-14: Final Task 6/7 verification passed. The exact Task 6 command,
   including the migrated legacy path and the combined material/backend suites,
   completed at `+150 ~13`; every skip is an existing plain-process

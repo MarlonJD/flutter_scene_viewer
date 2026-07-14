@@ -238,6 +238,38 @@ void main() {
     }
   });
 
+  test('extended fragment lights back faces with face-correct normals', () {
+    final source =
+        File('shaders/fsviewer_extended_pbr.frag').readAsStringSync();
+
+    expect(source, contains('vec3 ExtendedPbrGeometricNormal()'));
+    expect(
+      source,
+      matches(
+        RegExp(
+          r'return gl_FrontFacing\s*\?\s*normalize\(v_normal\)\s*'
+          r':\s*-normalize\(v_normal\);',
+        ),
+      ),
+      reason: 'glTF double-sided back faces must reverse their normal.',
+    );
+    expect(
+      RegExp(
+        r'vec3 (?:normal|geometric_normal) = '
+        r'ExtendedPbrGeometricNormal\(\);',
+      ).allMatches(source),
+      hasLength(2),
+      reason:
+          'Surface perturbation and geometric lighting must share face orientation.',
+    );
+    expect(
+      source,
+      isNot(contains('GetWorldNormal()')),
+      reason:
+          'Unoriented geometric normals must not leak into energy, light, or shadow terms.',
+    );
+  });
+
   test('extended fragment applies core UV0 transforms without asset branches',
       () {
     final source =

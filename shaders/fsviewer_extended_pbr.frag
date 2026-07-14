@@ -55,6 +55,13 @@ vec2 TransformExtendedPbrUv(vec2 uv, vec4 offset_scale, vec4 rotation) {
   return offset_scale.xy + rotated;
 }
 
+// glTF double-sided materials disable culling and light both sides. Orienting
+// the geometric normal toward the rasterized face also flips the derivative
+// tangent frame built by PerturbNormal for back-facing normal-map samples.
+vec3 ExtendedPbrGeometricNormal() {
+  return gl_FrontFacing ? normalize(v_normal) : -normalize(v_normal);
+}
+
 void ExtendedPbrSurface(inout MaterialInputs material) {
   vec2 base_color_uv = TransformExtendedPbrUv(
       v_texture_coords, extended_pbr.base_color_uv_offset_scale,
@@ -85,7 +92,7 @@ void ExtendedPbrSurface(inout MaterialInputs material) {
   }
   material.base_color = vec4(albedo, alpha);
 
-  vec3 normal = normalize(v_normal);
+  vec3 normal = ExtendedPbrGeometricNormal();
   if (frag_info.has_normal_map > 0.5) {
     normal = PerturbNormal(normal_texture, normal, v_viewvector, normal_uv,
                            frag_info.normal_scale);
@@ -128,6 +135,7 @@ vec4 EvaluateExtendedPbrLighting(MaterialInputs material) {
   vec3 albedo = material.base_color.rgb;
   float alpha = material.base_color.a;
   vec3 normal = material.normal;
+  vec3 geometric_normal = ExtendedPbrGeometricNormal();
   float metallic = material.metallic;
   float roughness = material.roughness;
 
@@ -179,7 +187,7 @@ vec4 EvaluateExtendedPbrLighting(MaterialInputs material) {
 
   vec3 camera_normal = normalize(v_viewvector);
   float n_dot_v = max(dot(normal, camera_normal), 0.0);
-  float n_dot_v_energy = max(dot(GetWorldNormal(), camera_normal), 0.0);
+  float n_dot_v_energy = max(dot(geometric_normal, camera_normal), 0.0);
   vec3 reflection_normal = reflect(-camera_normal, normal);
   vec3 k_S = ExtendedPbrFresnelRoughness(
       n_dot_v_energy, reflectance, grazing_reflectance, roughness);
@@ -229,13 +237,13 @@ vec4 EvaluateExtendedPbrLighting(MaterialInputs material) {
   if (frag_info.has_directional_light > 0.5) {
     light_vector = -normalize(frag_info.directional_light_direction.xyz);
     n_dot_l = dot(normal, light_vector);
-    geometric_n_dot_l = dot(GetWorldNormal(), light_vector);
+    geometric_n_dot_l = dot(geometric_normal, light_vector);
   }
   float facing = clamp(geometric_n_dot_l / 0.15, 0.0, 1.0);
   float shadow =
       (frag_info.has_directional_light > 0.5 && frag_info.casts_shadow > 0.5 &&
        facing > 0.0)
-          ? SampleShadow(v_position, GetWorldNormal())
+          ? SampleShadow(v_position, geometric_normal)
           : 1.0;
   float sun_visibility = facing * shadow;
   float ambient_shadow =
