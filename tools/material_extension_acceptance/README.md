@@ -33,6 +33,33 @@ each asset. If a future run downloads or vendors any asset, update
 `manifest.json` with the local path and exact revision or content hash before
 using it as release evidence.
 
+Plan 014's immutable source/license records live under the manifest's
+`fixtureProvenance` key. Five official Khronos feature fixtures are pinned to
+one full `glTF-Sample-Assets` commit with exact GLB and model-license hashes.
+They remain metadata-only in git and can be downloaded plus verified into the
+ignored `tools/out/` staging area with system `curl` and Python 3:
+
+```sh
+python3 tools/stage_material_extension_fixtures.py --fetch-khronos
+```
+
+A1B32 is recorded separately for the current Plan 014 task as a
+user-authorized local fixture. No redistribution right, public source, SPDX
+identifier, or copyright holder is invented, and the asset is not vendored.
+Stage an explicitly provided copy only after its bytes and GLB contract pass
+the pinned checks:
+
+```sh
+python3 tools/stage_material_extension_fixtures.py \
+  --stage-a1b32 path/to/A1B32.glb
+```
+
+Fixture staging proves source/license identity only. It does not establish a
+renderer path, runtime capability, target evidence, package/release maturity,
+or production readiness. A1B32's two unsupported-image-feature warnings and
+four generated-tangent-space portability warnings remain exact acceptance
+blockers until target and visual evaluation disposes them.
+
 The `fixtures/` files are small tracked inputs for the comparator unit test.
 They mirror the reviewed iOS Simulator and reference-renderer metrics without
 depending on ignored `tools/out/` artifacts being present in every checkout.
@@ -58,3 +85,24 @@ pinned `flutter_scene` revision, target, renderer backend, tone-mapping mode,
 and source artifact. Comparisons with Khronos Sample Viewer or three.js are
 directional and are never pixel-parity claims. A GPU or visual target that was
 not executed remains `not run`.
+
+## Plan 014 A1B32 Reference Capture
+
+After local A1B32 staging, the Plan 014 Three.js harness can create the fixed
+front/left/right/back directional reference without changing authored
+materials, textures, geometry, UVs, or visibility:
+
+```sh
+npm run test:plan014-capture \
+  --prefix tools/reference_renderers/threejs_material_extension_fixture
+npm run capture:a1b32-plan014 \
+  --prefix tools/reference_renderers/threejs_material_extension_fixture
+```
+
+The manifest retains the exact source, renderer, browser/host, reference-state,
+artifact-hash, and evidence-boundary metadata. PNGs and the full local report
+remain under ignored `tools/out/` paths because redistribution is not
+established. The captures are `verified locally` as Three.js reference
+direction only. iOS Simulator, physical iOS, Android, and Web target evidence
+remain `not run`; runtime capability and release maturity remain
+`not established`.

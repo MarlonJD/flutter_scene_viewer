@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import '../diagnostics.dart';
+import 'glb_decode_budget.dart';
 import 'meshopt_decoder.dart';
 
 const String kMeshoptCompressionExtension = 'EXT_meshopt_compression';
@@ -9,7 +10,6 @@ const String kMeshoptCompressionExtension = 'EXT_meshopt_compression';
 const int _glbMagic = 0x46546C67;
 const int _jsonChunkType = 0x4E4F534A;
 const int _binChunkType = 0x004E4942;
-const int _maxJsonChunkBytes = 8 * 1024 * 1024;
 
 final class GlbMeshoptRewriteResult {
   const GlbMeshoptRewriteResult({
@@ -24,8 +24,28 @@ final class GlbMeshoptRewriteResult {
 GlbMeshoptRewriteResult rewriteMeshoptCompressedGlb(
   Uint8List bytes, {
   String? debugName,
+  GlbDecodeBudget budget = const GlbDecodeBudget(),
+  GlbDecodeBudgetTracker? budgetTracker,
+  MeshoptDecodeControl? decodeControl,
 }) {
-  final readResult = _readGlb(bytes, debugName: debugName);
+  final tracker = budgetTracker ?? GlbDecodeBudgetTracker(budget);
+  final rewriteTracker = GlbDecodeBudgetTracker(tracker.budget);
+  if (tracker.totalDecodedBytes > 0) {
+    rewriteTracker.reserveDecodedBytes(
+      tracker.totalDecodedBytes,
+      stage: 'meshoptTrackerSeed',
+    );
+  }
+  final control = decodeControl ??
+      MeshoptDecodeControl.running(
+        timeout: tracker.budget.decodeTimeout,
+        checkInterval: tracker.budget.cancellationCheckInterval,
+      );
+  final readResult = _readGlb(
+    bytes,
+    debugName: debugName,
+    budgetTracker: rewriteTracker,
+  );
   final diagnostic = readResult.diagnostic;
   if (diagnostic != null) {
     return GlbMeshoptRewriteResult(
@@ -55,10 +75,25 @@ GlbMeshoptRewriteResult rewriteMeshoptCompressedGlb(
       ],
     );
   }
-  var logicalBinLength = _intValue(firstBuffer['byteLength']) ?? bin.length;
-  if (logicalBinLength > bin.length) {
-    bin = _appendPadding(bin, logicalBinLength - bin.length);
+  final declaredBinLengthValue = firstBuffer['byteLength'];
+  final declaredBinLength = _intValue(declaredBinLengthValue);
+  if ((declaredBinLengthValue != null && declaredBinLength == null) ||
+      (declaredBinLength != null &&
+          (declaredBinLength < 0 ||
+              declaredBinLength > kGlbMaxSafeInteger ||
+              declaredBinLength > bin.lengthInBytes))) {
+    return GlbMeshoptRewriteResult(
+      diagnostics: <ViewerDiagnostic>[
+        _embeddedBinLengthFailure(
+          debugName,
+          json,
+          declaredBinLengthValue,
+          bin.lengthInBytes,
+        ),
+      ],
+    );
   }
+  var logicalBinLength = declaredBinLength ?? bin.lengthInBytes;
 
   final bufferViews = _ensureList(json, 'bufferViews');
   for (var viewIndex = 0; viewIndex < bufferViews.length; viewIndex += 1) {
@@ -85,7 +120,11 @@ GlbMeshoptRewriteResult rewriteMeshoptCompressedGlb(
         filter == null ||
         sourceByteOffset < 0 ||
         sourceByteLength < 0 ||
-        sourceByteOffset + sourceByteLength > bin.lengthInBytes) {
+        !_isSafeByteRange(
+          sourceByteOffset,
+          sourceByteLength,
+          bin.lengthInBytes,
+        )) {
       diagnostics.add(
         _rewriteFailure(
           debugName,
@@ -97,7 +136,28 @@ GlbMeshoptRewriteResult rewriteMeshoptCompressedGlb(
       continue;
     }
 
+    if (mode == MeshoptCompressionMode.attributes) {
+      final header = sourceByteLength == 0 ? null : bin[sourceByteOffset];
+      if (header != 0xa0) {
+        return GlbMeshoptRewriteResult(
+          diagnostics: <ViewerDiagnostic>[
+            _unsupportedAttributesVersionFailure(
+              debugName,
+              json,
+              bufferViewIndex: viewIndex,
+              header: header,
+            ),
+          ],
+        );
+      }
+    }
+
     try {
+      final expectedByteLength = rewriteTracker.reserveDecodedProduct(
+        count: count,
+        bytesPerElement: byteStride,
+        stage: 'meshoptDeclaredOutput',
+      );
       final decoded = decodeMeshoptGltfBuffer(
         Uint8List.sublistView(
           bin,
@@ -108,8 +168,8 @@ GlbMeshoptRewriteResult rewriteMeshoptCompressedGlb(
         byteStride: byteStride,
         mode: mode,
         filter: filter,
+        control: control,
       );
-      final expectedByteLength = count * byteStride;
       if (decoded.lengthInBytes != expectedByteLength) {
         diagnostics.add(
           _rewriteFailure(
@@ -142,6 +202,28 @@ GlbMeshoptRewriteResult rewriteMeshoptCompressedGlb(
       if (extensions != null && extensions.isEmpty) {
         bufferView.remove('extensions');
       }
+    } on GlbDecodeBudgetExceeded catch (error) {
+      return GlbMeshoptRewriteResult(
+        diagnostics: <ViewerDiagnostic>[
+          _budgetFailure(
+            debugName,
+            json,
+            error,
+            details: <String, Object?>{'bufferViewIndex': viewIndex},
+          ),
+        ],
+      );
+    } on MeshoptDecodeDeadlineExceeded catch (error) {
+      return GlbMeshoptRewriteResult(
+        diagnostics: <ViewerDiagnostic>[
+          _timeoutFailure(
+            debugName,
+            json,
+            error,
+            bufferViewIndex: viewIndex,
+          ),
+        ],
+      );
     } on MeshoptDecodeException catch (error) {
       diagnostics.add(
         _rewriteFailure(
@@ -188,7 +270,16 @@ GlbMeshoptRewriteResult rewriteMeshoptCompressedGlb(
     _removeTopLevelExtension(json, 'extensionsRequired');
   }
 
-  return GlbMeshoptRewriteResult(bytes: _writeGlb(json, bin));
+  final rewrittenBytes = _writeGlb(json, bin);
+  final decodedByteDelta =
+      rewriteTracker.totalDecodedBytes - tracker.totalDecodedBytes;
+  if (decodedByteDelta > 0) {
+    tracker.reserveDecodedBytes(
+      decodedByteDelta,
+      stage: 'meshoptRewriteCommit',
+    );
+  }
+  return GlbMeshoptRewriteResult(bytes: rewrittenBytes);
 }
 
 _BufferWrite _appendPayload(
@@ -253,6 +344,7 @@ void _removeTopLevelExtension(Map<String, Object?> json, String field) {
 _GlbReadResult _readGlb(
   Uint8List bytes, {
   required String? debugName,
+  required GlbDecodeBudgetTracker budgetTracker,
 }) {
   if (bytes.lengthInBytes < 12) {
     return _GlbReadResult.diagnostic(
@@ -297,14 +389,18 @@ _GlbReadResult _readGlb(
     final chunkLength = data.getUint32(offset, Endian.little);
     final chunkType = data.getUint32(offset + 4, Endian.little);
     offset += 8;
-    if (chunkLength > _maxJsonChunkBytes && chunkType == _jsonChunkType) {
-      return _GlbReadResult.diagnostic(
-        _rewriteFailure(
-          debugName,
-          const <String, Object?>{},
-          'GLB JSON chunk exceeds the reader limit.',
-        ),
-      );
+    if (chunkType == _jsonChunkType) {
+      try {
+        budgetTracker.checkJsonBytes(chunkLength, stage: 'glbJsonRead');
+      } on GlbDecodeBudgetExceeded catch (error) {
+        return _GlbReadResult.diagnostic(
+          _budgetFailure(
+            debugName,
+            const <String, Object?>{},
+            error,
+          ),
+        );
+      }
     }
     if (offset + chunkLength > declaredLength) {
       return _GlbReadResult.diagnostic(
@@ -431,6 +527,150 @@ ViewerDiagnostic _rewriteFailure(
       ...details,
     },
   );
+}
+
+ViewerDiagnostic _budgetFailure(
+  String? debugName,
+  Map<String, Object?> json,
+  GlbDecodeBudgetExceeded error, {
+  Map<String, Object?> details = const <String, Object?>{},
+}) {
+  final extensionsRequired = _list(json['extensionsRequired']);
+  return ViewerDiagnostic(
+    code: ViewerDiagnosticCode.unsupportedModelFeature,
+    message: 'Meshopt rewrite exceeded the configured GLB decode budget.',
+    details: <String, Object?>{
+      'source': debugName,
+      'extension': kMeshoptCompressionExtension,
+      'decoder': 'meshopt',
+      'required':
+          extensionsRequired?.contains(kMeshoptCompressionExtension) ?? true,
+      'limitation': 'decodeBudget',
+      'status': error.status,
+      'stage': error.stage,
+      'field': error.field,
+      'limit': error.limit,
+      'actual': error.actual,
+      'actualExact': error.actualExact,
+      'actualExceedsMaxSafeInteger': error.actualExceedsMaxSafeInteger,
+      if (error.actualLowerBound != null)
+        'actualLowerBound': error.actualLowerBound,
+      if (error.operands.isNotEmpty) 'operands': error.operands,
+      'reason': error.toString(),
+      ...details,
+    },
+  );
+}
+
+ViewerDiagnostic _timeoutFailure(
+  String? debugName,
+  Map<String, Object?> json,
+  MeshoptDecodeDeadlineExceeded error, {
+  required int bufferViewIndex,
+}) {
+  final extensionsRequired = _list(json['extensionsRequired']);
+  return ViewerDiagnostic(
+    code: ViewerDiagnosticCode.modelLoadTimeout,
+    message: 'Meshopt decoding exceeded the configured decode timeout.',
+    details: <String, Object?>{
+      'source': debugName,
+      'extension': kMeshoptCompressionExtension,
+      'decoder': 'meshopt',
+      'required':
+          extensionsRequired?.contains(kMeshoptCompressionExtension) ?? true,
+      'limitation': 'meshoptDecodeDeadline',
+      'status': 'timedOut',
+      'stage': error.stage,
+      'timeoutMilliseconds': error.timeout.inMilliseconds,
+      'timeoutMicroseconds': error.timeout.inMicroseconds,
+      'decoderWork': error.stage == 'meshoptDecodeStart'
+          ? 'notStartedForBufferView'
+          : 'started',
+      'dartResourceRelease': 'collectibleAfterStackUnwind',
+      'deterministicResourceRelease': 'notGuaranteed',
+      'cancellation': 'notAvailable',
+      'bufferViewIndex': bufferViewIndex,
+      'fallback': 'diagnosticOnly',
+    },
+  );
+}
+
+ViewerDiagnostic _embeddedBinLengthFailure(
+  String? debugName,
+  Map<String, Object?> json,
+  Object? actual,
+  int actualBinCapacity,
+) {
+  final requiredExtensions = _list(json['extensionsRequired']);
+  final actualInt = actual is int ? actual : null;
+  final actualIsSafe =
+      actualInt != null && actualInt >= 0 && actualInt <= kGlbMaxSafeInteger;
+  return ViewerDiagnostic(
+    code: ViewerDiagnosticCode.unsupportedModelFeature,
+    message: 'Meshopt GLB declares an invalid embedded BIN byte length.',
+    details: <String, Object?>{
+      'source': debugName,
+      'extension': kMeshoptCompressionExtension,
+      'decoder': 'meshopt',
+      'required':
+          requiredExtensions?.contains(kMeshoptCompressionExtension) ?? true,
+      'limitation': 'embeddedBinDeclaredLength',
+      'status': 'malformedAsset',
+      'stage': 'meshoptPreflight',
+      'limit': actualBinCapacity,
+      'actual': actualIsSafe ? actualInt : 'byteLength=$actual',
+      'actualExact': actualIsSafe,
+      'actualExceedsMaxSafeInteger':
+          actualInt != null && actualInt > kGlbMaxSafeInteger,
+      if (actualInt != null && actualInt > kGlbMaxSafeInteger)
+        'actualLowerBound': kGlbMaxSafeInteger,
+      'reason':
+          'buffers[0].byteLength must fit the existing embedded BIN chunk.',
+    },
+  );
+}
+
+ViewerDiagnostic _unsupportedAttributesVersionFailure(
+  String? debugName,
+  Map<String, Object?> json, {
+  required int bufferViewIndex,
+  required int? header,
+}) {
+  final requiredExtensions = _list(json['extensionsRequired']);
+  return ViewerDiagnostic(
+    code: ViewerDiagnosticCode.unsupportedModelFeature,
+    message: 'EXT_meshopt_compression ATTRIBUTES requires bitstream version 0.',
+    details: <String, Object?>{
+      'source': debugName,
+      'extension': kMeshoptCompressionExtension,
+      'decoder': 'meshopt',
+      'required':
+          requiredExtensions?.contains(kMeshoptCompressionExtension) ?? true,
+      'limitation': 'meshoptBitstreamVersion',
+      'status': 'unsupportedBitstreamVersion',
+      'stage': 'meshoptPreflight',
+      'field': 'attributesBitstreamVersion',
+      'limit': 0,
+      'actual': header == null ? 'missing' : header & 0x0f,
+      'header': header,
+      'bufferViewIndex': bufferViewIndex,
+      'reason':
+          'EXT_meshopt_compression ATTRIBUTES streams must begin with 0xa0.',
+    },
+  );
+}
+
+bool _isSafeByteRange(int offset, int length, int totalLength) {
+  if (offset < 0 ||
+      length < 0 ||
+      offset > kGlbMaxSafeInteger ||
+      length > kGlbMaxSafeInteger ||
+      totalLength < 0 ||
+      totalLength > kGlbMaxSafeInteger ||
+      offset > totalLength) {
+    return false;
+  }
+  return length <= totalLength - offset;
 }
 
 Map<String, Object?> _objectMap(Map<Object?, Object?> value) {

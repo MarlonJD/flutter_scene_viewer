@@ -1,28 +1,17 @@
 #ifndef FSV_BASISU_BRIDGE_H_
 #define FSV_BASISU_BRIDGE_H_
 
-#include <cstdint>
 #include <string>
 #include <vector>
 
-struct FsvBasisuImageRequest {
-  int texture_index = -1;
-  int image_index = -1;
-  std::string mime_type;
-  std::vector<uint8_t> bytes;
-};
+#include "fsv_basisu_budget.h"
 
 struct FsvBasisuDecodedImage {
   int image_index = -1;
   std::string mime_type;
+  uint32_t width = 0;
+  uint32_t height = 0;
   std::vector<uint8_t> bytes;
-};
-
-struct FsvBasisuDiagnostic {
-  std::string status;
-  std::string message;
-  int texture_index = -1;
-  int image_index = -1;
 };
 
 struct FsvBasisuTranscodeResult {
@@ -33,6 +22,8 @@ struct FsvBasisuTranscodeResult {
 bool FsvBasisuTranscoderLinked();
 bool FsvBasisuImageTranscodeAvailable();
 FsvBasisuTranscodeResult FsvBasisuTranscodeImages(
-    const std::vector<FsvBasisuImageRequest>& requests);
+    const std::vector<FsvBasisuImageRequest>& requests,
+    const FsvBasisuDecodeBudgetMetadata& budget,
+    const FsvBasisuDecodeBudgetState& state);
 
 #endif  // FSV_BASISU_BRIDGE_H_

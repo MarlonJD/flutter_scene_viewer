@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'diagnostics.dart';
 import 'internal/flutter_scene_adapter.dart';
 import 'internal/glb_capability_reader.dart';
+import 'internal/glb_decode_budget.dart';
 import 'internal/glb_imported_texture_patch_reader.dart';
 import 'internal/glb_material_extension_reader.dart';
 import 'internal/glb_meshopt_rewriter.dart';
@@ -25,12 +26,14 @@ final class ModelLoaderOptions {
     this.timeout = const Duration(seconds: 30),
     this.decoderCapabilities = const GlbDecoderCapabilities(),
     this.nativeDecoderProbe = const MethodChannelGlbNativeDecoderProbe(),
+    this.decodeBudget = const GlbDecodeBudget(),
   });
 
   final int maxBytes;
   final Duration timeout;
   final GlbDecoderCapabilities decoderCapabilities;
   final GlbNativeDecoderProbe nativeDecoderProbe;
+  final GlbDecodeBudget decodeBudget;
 }
 
 /// Result of a model load attempt.
@@ -123,6 +126,7 @@ final class ModelLoader {
     }
 
     final isGlb = isBinaryGlb(loaded.bytes);
+    final decodeBudgetTracker = GlbDecodeBudgetTracker(options.decodeBudget);
     var importBytes = loaded.bytes;
     var capabilityResult = isGlb
         ? readGlbAssetCapabilities(
@@ -136,6 +140,8 @@ final class ModelLoader {
       final meshoptRewrite = rewriteMeshoptCompressedGlb(
         importBytes,
         debugName: loaded.debugName,
+        budget: options.decodeBudget,
+        budgetTracker: decodeBudgetTracker,
       );
       meshoptRewriteDiagnostics =
           meshoptRewrite.diagnostics.toList(growable: false);
@@ -192,6 +198,8 @@ final class ModelLoader {
         final decodeResult = await options.nativeDecoderProbe.decodeGlb(
           bytes: importBytes,
           requiredExtensions: requiredExtensions,
+          budget: options.decodeBudget,
+          budgetTracker: decodeBudgetTracker,
           source: loaded.debugName,
         );
         nativeDecoderDiagnostics = <ViewerDiagnostic>[
@@ -199,6 +207,20 @@ final class ModelLoader {
           ...decodeResult.diagnostics,
         ];
         final decodedBytes = decodeResult.bytes;
+        final accountingDiagnostic = _nativeDecodeOutputAccountingDiagnostic(
+          decodeResult,
+          loaded.debugName,
+          requiredExtensions,
+        );
+        if (accountingDiagnostic != null) {
+          return ModelLoadResult.failure(
+            accountingDiagnostic,
+            diagnostics: <ViewerDiagnostic>[
+              ...nativeDecoderDiagnostics,
+              accountingDiagnostic,
+            ],
+          );
+        }
         if (decodedBytes == null) {
           return ModelLoadResult.failure(
             _nativeDecodeDiagnostic(
@@ -207,6 +229,35 @@ final class ModelLoader {
               requiredExtensions,
             ),
             diagnostics: nativeDecoderDiagnostics,
+          );
+        }
+        try {
+          switch (decodeResult.outputAccounting) {
+            case GlbNativeDecodeOutputAccounting.none:
+              break;
+            case GlbNativeDecodeOutputAccounting.opaqueFinalBytes:
+              decodeBudgetTracker.reserveNativeOutputBytes(
+                decodedBytes.lengthInBytes,
+                stage: 'nativeDecodedGlbOutput',
+              );
+            case GlbNativeDecodeOutputAccounting.componentPayloadsAccounted:
+              decodeBudgetTracker.checkNativeOutputBytes(
+                decodedBytes.lengthInBytes,
+                stage: 'nativeDecodedGlbOutput',
+              );
+          }
+        } on GlbDecodeBudgetExceeded catch (error) {
+          final diagnostic = _nativeDecodeBudgetDiagnostic(
+            error,
+            loaded.debugName,
+            requiredExtensions,
+          );
+          return ModelLoadResult.failure(
+            diagnostic,
+            diagnostics: <ViewerDiagnostic>[
+              ...nativeDecoderDiagnostics,
+              diagnostic,
+            ],
           );
         }
         importBytes = decodedBytes;
@@ -622,6 +673,69 @@ ViewerDiagnostic _meshoptRewriteDiagnostic(String? source) {
       'decoder': 'meshopt',
       'required': true,
       'status': 'rewriteFailed',
+    },
+  );
+}
+
+ViewerDiagnostic _nativeDecodeBudgetDiagnostic(
+  GlbDecodeBudgetExceeded error,
+  String? source,
+  Set<String> requiredExtensions,
+) {
+  final sortedExtensions = requiredExtensions.toList()..sort();
+  return ViewerDiagnostic(
+    code: ViewerDiagnosticCode.unsupportedModelFeature,
+    message: 'Native decoded GLB exceeded the configured decode budget.',
+    details: <String, Object?>{
+      'source': source,
+      if (sortedExtensions.length == 1) 'extension': sortedExtensions.single,
+      'extensions': sortedExtensions,
+      'decoder': 'native',
+      'required': true,
+      'limitation': 'decodeBudget',
+      'status': error.status,
+      'stage': error.stage,
+      'field': error.field,
+      'limit': error.limit,
+      'actual': error.actual,
+      'actualExact': error.actualExact,
+      'actualExceedsMaxSafeInteger': error.actualExceedsMaxSafeInteger,
+      if (error.actualLowerBound != null)
+        'actualLowerBound': error.actualLowerBound,
+      if (error.operands.isNotEmpty) 'operands': error.operands,
+    },
+  );
+}
+
+ViewerDiagnostic? _nativeDecodeOutputAccountingDiagnostic(
+  GlbNativeDecodeResult result,
+  String? source,
+  Set<String> requiredExtensions,
+) {
+  final hasBytes = result.bytes != null;
+  final hasAccounting =
+      result.outputAccounting != GlbNativeDecodeOutputAccounting.none;
+  if (hasBytes == hasAccounting) {
+    return null;
+  }
+  final sortedExtensions = requiredExtensions.toList()..sort();
+  return ViewerDiagnostic(
+    code: ViewerDiagnosticCode.unsupportedModelFeature,
+    message: 'Native decoder returned inconsistent output accounting.',
+    details: <String, Object?>{
+      'source': source,
+      if (sortedExtensions.length == 1) 'extension': sortedExtensions.single,
+      'extensions': sortedExtensions,
+      'decoder': 'native',
+      'required': true,
+      'limitation': 'nativeDecodeOutputAccounting',
+      'status': 'malformedOutput',
+      'stage': 'nativeDecodedGlbOutput',
+      'field': 'outputAccounting',
+      'limit':
+          hasBytes ? 'opaqueFinalBytes or componentPayloadsAccounted' : 'none',
+      'actual': result.outputAccounting.name,
+      'bytesPresent': hasBytes,
     },
   );
 }

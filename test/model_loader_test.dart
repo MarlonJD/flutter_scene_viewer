@@ -6,7 +6,10 @@ import 'package:flutter/services.dart';
 import 'package:flutter_scene/scene.dart' as flutter_scene;
 import 'package:flutter_scene_viewer/src/diagnostics.dart';
 import 'package:flutter_scene_viewer/src/internal/flutter_scene_adapter.dart';
+import 'package:flutter_scene_viewer/src/internal/glb_basisu_rewriter.dart';
 import 'package:flutter_scene_viewer/src/internal/glb_capability_reader.dart';
+import 'package:flutter_scene_viewer/src/internal/glb_decode_budget.dart';
+import 'package:flutter_scene_viewer/src/internal/glb_draco_rewriter.dart';
 import 'package:flutter_scene_viewer/src/internal/glb_native_decoder_probe.dart';
 import 'package:flutter_scene_viewer/src/internal/material_extension_patch_group.dart';
 import 'package:flutter_scene_viewer/src/internal/render_surface.dart';
@@ -536,13 +539,14 @@ void main() {
   test('rewrites required meshopt bufferViews before adapter import', () async {
     final adapter = FakeFlutterSceneAdapter();
     final loader = ModelLoader(adapter: adapter);
+    final encoded = _meshoptAttributeStream(<int>[1, 2, 3, 4]);
     final bytes = _glbWithBin(
       <String, Object?>{
         'asset': <String, Object?>{'version': '2.0'},
         'extensionsUsed': <Object?>['EXT_meshopt_compression'],
         'extensionsRequired': <Object?>['EXT_meshopt_compression'],
         'buffers': <Object?>[
-          <String, Object?>{'byteLength': 30},
+          <String, Object?>{'byteLength': encoded.lengthInBytes},
           <String, Object?>{
             'byteLength': 4,
             'extensions': <String, Object?>{
@@ -562,7 +566,7 @@ void main() {
               'EXT_meshopt_compression': <String, Object?>{
                 'buffer': 0,
                 'byteOffset': 0,
-                'byteLength': 30,
+                'byteLength': encoded.lengthInBytes,
                 'byteStride': 4,
                 'count': 1,
                 'mode': 'ATTRIBUTES',
@@ -571,7 +575,7 @@ void main() {
           },
         ],
       },
-      _meshoptAttributeStream(<int>[1, 2, 3, 4]),
+      encoded,
     );
 
     final result = await loader.load(
@@ -584,6 +588,10 @@ void main() {
     expect(capabilities.extensionsRequired, isEmpty);
     expect(capabilities.extensionsUsed, isEmpty);
     expect(capabilities.meshoptCompressedBufferViewCount, 0);
+    expect(
+      _glbBufferViewBytes(adapter.loadedBytes.single, 0),
+      orderedEquals(<int>[1, 2, 3, 4]),
+    );
     expect(
       result.diagnostics.where(
         (diagnostic) =>
@@ -707,6 +715,434 @@ void main() {
     );
 
     expect(result.isSuccess, isTrue);
+    expect(adapter.loadedBytes.single, decodedBytes);
+  });
+
+  test('threads the selected decode budget and per-load tracker to the probe',
+      () async {
+    final adapter = FakeFlutterSceneAdapter();
+    final compressedBytes = _glb(<String, Object?>{
+      'asset': <String, Object?>{'version': '2.0'},
+      'extensionsUsed': <Object?>['KHR_draco_mesh_compression'],
+      'extensionsRequired': <Object?>['KHR_draco_mesh_compression'],
+      'meshes': <Object?>[
+        <String, Object?>{
+          'primitives': <Object?>[
+            <String, Object?>{
+              'extensions': <String, Object?>{
+                'KHR_draco_mesh_compression': <String, Object?>{
+                  'bufferView': 0,
+                  'attributes': <String, Object?>{'POSITION': 0},
+                },
+              },
+            },
+          ],
+        },
+      ],
+    });
+    final decodedBytes = _glb(<String, Object?>{
+      'asset': <String, Object?>{'version': '2.0'},
+    });
+    const budget = GlbDecodeBudget(
+      maxTotalDecodedBytes: 4096,
+      maxNativeOutputBytes: 4096,
+      maxAccessors: 17,
+      maxVertices: 19,
+      maxIndices: 23,
+    );
+    final probe = RecordingNativeDecoderProbe(decodedBytes);
+    final loader = ModelLoader(
+      adapter: adapter,
+      options: ModelLoaderOptions(
+        decodeBudget: budget,
+        nativeDecoderProbe: probe,
+      ),
+    );
+
+    final result = await loader.load(
+      ModelSource.bytes(compressedBytes, debugName: 'threaded-budget.glb'),
+    );
+
+    expect(result.isSuccess, isTrue, reason: result.diagnostic?.toString());
+    expect(identical(probe.receivedBudget, budget), isTrue);
+    expect(probe.receivedTracker, isNotNull);
+    expect(identical(probe.receivedTracker!.budget, budget), isTrue);
+    expect(probe.trackerTotalDecodedBytesAtDecode, 0);
+    expect(probe.trackerNativeOutputBytesAtDecode, 0);
+    expect(
+        probe.receivedTracker!.totalDecodedBytes, decodedBytes.lengthInBytes);
+    expect(
+        probe.receivedTracker!.nativeOutputBytes, decodedBytes.lengthInBytes);
+    expect(adapter.loadedBytes.single, decodedBytes);
+  });
+
+  test('component Draco output checks final GLB size without double counting',
+      () async {
+    TestWidgetsFlutterBinding.ensureInitialized();
+    const channel = MethodChannel('test/model_loader/component-draco');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    addTearDown(() {
+      messenger.setMockMethodCallHandler(channel, null);
+    });
+    final sourceBytes = _nativeDracoComponentGlb();
+    final positionBytes = _float32Bytes(<double>[1, 2, 3]);
+    final indexBytes = _uint16Bytes(<int>[0, 0, 0]);
+    final expectedBytes = rewriteDracoCompressedGlb(
+      sourceBytes,
+      decodedPrimitives: <GlbDecodedDracoPrimitive>[
+        GlbDecodedDracoPrimitive(
+          meshIndex: 0,
+          primitiveIndex: 0,
+          attributes: <String, Uint8List>{'POSITION': positionBytes},
+          indices: indexBytes,
+        ),
+      ],
+    ).bytes!;
+    messenger.setMockMethodCallHandler(channel, (MethodCall call) async {
+      if (call.method == 'getDecoderAvailability') {
+        return <String, Object?>{
+          'capabilities': <String, Object?>{
+            'dracoMeshCompression': true,
+          },
+          'diagnostics': <Object?>[],
+        };
+      }
+      return <String, Object?>{
+        'diagnostics': <Object?>[],
+        'decodedPrimitives': <Object?>[
+          <String, Object?>{
+            'meshIndex': 0,
+            'primitiveIndex': 0,
+            'attributes': <String, Object?>{'POSITION': positionBytes},
+            'indices': indexBytes,
+          },
+        ],
+      };
+    });
+
+    for (final belowFinalLimit in <bool>[false, true]) {
+      final adapter = FakeFlutterSceneAdapter();
+      final loader = ModelLoader(
+        adapter: adapter,
+        options: ModelLoaderOptions(
+          decodeBudget: GlbDecodeBudget(
+            maxTotalDecodedBytes: 18,
+            maxNativeOutputBytes:
+                expectedBytes.lengthInBytes - (belowFinalLimit ? 1 : 0),
+            maxAccessors: 2,
+            maxVertices: 1,
+            maxIndices: 3,
+          ),
+          nativeDecoderProbe: const MethodChannelGlbNativeDecoderProbe(
+            channel: channel,
+          ),
+        ),
+      );
+
+      final result = await loader.load(
+        ModelSource.bytes(sourceBytes, debugName: 'component-draco.glb'),
+      );
+
+      expect(result.isSuccess, !belowFinalLimit);
+      if (belowFinalLimit) {
+        expect(result.diagnostic?.details['field'], 'nativeOutputBytes');
+        expect(result.diagnostic?.details['stage'], 'nativeDecodedGlbOutput');
+        expect(adapter.loadedBytes, isEmpty);
+      } else {
+        expect(adapter.loadedBytes.single, expectedBytes);
+      }
+    }
+  });
+
+  test('component BasisU output checks final GLB size without double counting',
+      () async {
+    TestWidgetsFlutterBinding.ensureInitialized();
+    const channel = MethodChannel('test/model_loader/component-basisu');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    addTearDown(() {
+      messenger.setMockMethodCallHandler(channel, null);
+    });
+    final sourceBytes = _nativeBasisuComponentGlb();
+    final decodedImageBytes = _pngBytes(width: 1, height: 1);
+    final expectedBytes = rewriteBasisuTexturesInGlb(
+      sourceBytes,
+      decodedImages: <GlbDecodedBasisuImage>[
+        GlbDecodedBasisuImage(
+          imageIndex: 0,
+          mimeType: 'image/png',
+          width: 1,
+          height: 1,
+          bytes: decodedImageBytes,
+        ),
+      ],
+    ).bytes!;
+    messenger.setMockMethodCallHandler(channel, (MethodCall call) async {
+      if (call.method == 'getDecoderAvailability') {
+        return <String, Object?>{
+          'capabilities': <String, Object?>{'textureBasisu': true},
+          'diagnostics': <Object?>[],
+        };
+      }
+      return <String, Object?>{
+        'diagnostics': <Object?>[],
+        'decodedImages': <Object?>[
+          <String, Object?>{
+            'imageIndex': 0,
+            'mimeType': 'image/png',
+            'width': 1,
+            'height': 1,
+            'bytes': decodedImageBytes,
+          },
+        ],
+      };
+    });
+
+    for (final belowFinalLimit in <bool>[false, true]) {
+      final adapter = FakeFlutterSceneAdapter();
+      final loader = ModelLoader(
+        adapter: adapter,
+        options: ModelLoaderOptions(
+          decodeBudget: GlbDecodeBudget(
+            maxTotalDecodedBytes: decodedImageBytes.lengthInBytes,
+            maxNativeOutputBytes:
+                expectedBytes.lengthInBytes - (belowFinalLimit ? 1 : 0),
+          ),
+          nativeDecoderProbe: const MethodChannelGlbNativeDecoderProbe(
+            basisuChannel: channel,
+          ),
+        ),
+      );
+
+      final result = await loader.load(
+        ModelSource.bytes(sourceBytes, debugName: 'component-basisu.glb'),
+      );
+
+      expect(result.isSuccess, !belowFinalLimit);
+      if (belowFinalLimit) {
+        expect(result.diagnostic?.details['field'], 'nativeOutputBytes');
+        expect(result.diagnostic?.details['stage'], 'nativeDecodedGlbOutput');
+        expect(adapter.loadedBytes, isEmpty);
+      } else {
+        expect(adapter.loadedBytes.single, expectedBytes);
+      }
+    }
+  });
+
+  test('opaque MethodChannel output is reserved exactly once', () async {
+    TestWidgetsFlutterBinding.ensureInitialized();
+    const channel = MethodChannel('test/model_loader/opaque-draco');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    addTearDown(() {
+      messenger.setMockMethodCallHandler(channel, null);
+    });
+    final sourceBytes = _nativeDracoComponentGlb();
+    final decodedBytes = _glb(<String, Object?>{
+      'asset': <String, Object?>{'version': '2.0'},
+    });
+    messenger.setMockMethodCallHandler(channel, (MethodCall call) async {
+      if (call.method == 'getDecoderAvailability') {
+        return <String, Object?>{
+          'capabilities': <String, Object?>{
+            'dracoMeshCompression': true,
+          },
+          'diagnostics': <Object?>[],
+        };
+      }
+      return <String, Object?>{
+        'bytes': decodedBytes,
+        'diagnostics': <Object?>[],
+      };
+    });
+
+    for (final belowFinalLimit in <bool>[false, true]) {
+      final adapter = FakeFlutterSceneAdapter();
+      final loader = ModelLoader(
+        adapter: adapter,
+        options: ModelLoaderOptions(
+          decodeBudget: GlbDecodeBudget(
+            maxTotalDecodedBytes:
+                decodedBytes.lengthInBytes - (belowFinalLimit ? 1 : 0),
+            maxNativeOutputBytes:
+                decodedBytes.lengthInBytes - (belowFinalLimit ? 1 : 0),
+          ),
+          nativeDecoderProbe: const MethodChannelGlbNativeDecoderProbe(
+            channel: channel,
+          ),
+        ),
+      );
+
+      final result = await loader.load(
+        ModelSource.bytes(sourceBytes, debugName: 'opaque-draco.glb'),
+      );
+
+      expect(result.isSuccess, !belowFinalLimit);
+      if (belowFinalLimit) {
+        expect(result.diagnostic?.details['field'], 'nativeOutputBytes');
+        expect(adapter.loadedBytes, isEmpty);
+      } else {
+        expect(adapter.loadedBytes.single, decodedBytes);
+      }
+    }
+  });
+
+  test('rejects inconsistent native output accounting metadata', () async {
+    final decodedBytes = _glb(<String, Object?>{
+      'asset': <String, Object?>{'version': '2.0'},
+    });
+    final cases = <GlbNativeDecodeResult>[
+      GlbNativeDecodeResult(
+        bytes: decodedBytes,
+        outputAccounting: GlbNativeDecodeOutputAccounting.none,
+      ),
+      const GlbNativeDecodeResult(
+        outputAccounting: GlbNativeDecodeOutputAccounting.opaqueFinalBytes,
+      ),
+    ];
+
+    for (final invalidResult in cases) {
+      final adapter = FakeFlutterSceneAdapter();
+      final loader = ModelLoader(
+        adapter: adapter,
+        options: ModelLoaderOptions(
+          nativeDecoderProbe: FixedNativeDecoderProbe(invalidResult),
+        ),
+      );
+
+      final result = await loader.load(
+        ModelSource.bytes(
+          _nativeDracoComponentGlb(),
+          debugName: 'invalid-accounting.glb',
+        ),
+      );
+
+      expect(result.isSuccess, isFalse);
+      expect(
+        result.diagnostic?.details['limitation'],
+        'nativeDecodeOutputAccounting',
+      );
+      expect(result.diagnostic?.details['status'], 'malformedOutput');
+      expect(
+        result.diagnostic?.details['bytesPresent'],
+        invalidResult.bytes != null,
+      );
+      expect(
+        result.diagnostic?.details['actual'],
+        invalidResult.outputAccounting.name,
+      );
+      expect(adapter.loadedBytes, isEmpty);
+    }
+  });
+
+  test('rejects oversized native decoded GLB before capability read or import',
+      () async {
+    final adapter = FakeFlutterSceneAdapter();
+    final compressedBytes = _glb(<String, Object?>{
+      'asset': <String, Object?>{'version': '2.0'},
+      'extensionsUsed': <Object?>['KHR_draco_mesh_compression'],
+      'extensionsRequired': <Object?>['KHR_draco_mesh_compression'],
+      'meshes': <Object?>[
+        <String, Object?>{
+          'primitives': <Object?>[
+            <String, Object?>{
+              'extensions': <String, Object?>{
+                'KHR_draco_mesh_compression': <String, Object?>{
+                  'bufferView': 0,
+                  'attributes': <String, Object?>{'POSITION': 0},
+                },
+              },
+            },
+          ],
+        },
+      ],
+    });
+    final decodedBytes = _glb(<String, Object?>{
+      'asset': <String, Object?>{'version': '2.0'},
+    });
+    final loader = ModelLoader(
+      adapter: adapter,
+      options: ModelLoaderOptions(
+        decodeBudget: GlbDecodeBudget(
+          maxNativeOutputBytes: decodedBytes.lengthInBytes - 1,
+        ),
+        nativeDecoderProbe: FakeNativeDecoderProbe(
+          const GlbNativeDecoderAvailability(
+            capabilities: GlbDecoderCapabilities(
+              dracoMeshCompression: true,
+            ),
+          ),
+          decodedBytes: decodedBytes,
+        ),
+      ),
+    );
+
+    final result = await loader.load(
+      ModelSource.bytes(compressedBytes, debugName: 'oversized-native.glb'),
+    );
+
+    expect(result.isSuccess, isFalse);
+    expect(
+        result.diagnostic?.code, ViewerDiagnosticCode.unsupportedModelFeature);
+    expect(result.diagnostic?.details['limitation'], 'decodeBudget');
+    expect(result.diagnostic?.details['status'], 'budgetExceeded');
+    expect(result.diagnostic?.details['stage'], 'nativeDecodedGlbOutput');
+    expect(
+      result.diagnostic?.details['limit'],
+      decodedBytes.lengthInBytes - 1,
+    );
+    expect(result.diagnostic?.details['actual'], decodedBytes.lengthInBytes);
+    expect(adapter.loadedBytes, isEmpty);
+  });
+
+  test('accepts native decoded GLB exactly at both output budgets', () async {
+    final adapter = FakeFlutterSceneAdapter();
+    final compressedBytes = _glb(<String, Object?>{
+      'asset': <String, Object?>{'version': '2.0'},
+      'extensionsUsed': <Object?>['KHR_draco_mesh_compression'],
+      'extensionsRequired': <Object?>['KHR_draco_mesh_compression'],
+      'meshes': <Object?>[
+        <String, Object?>{
+          'primitives': <Object?>[
+            <String, Object?>{
+              'extensions': <String, Object?>{
+                'KHR_draco_mesh_compression': <String, Object?>{
+                  'bufferView': 0,
+                  'attributes': <String, Object?>{'POSITION': 0},
+                },
+              },
+            },
+          ],
+        },
+      ],
+    });
+    final decodedBytes = _glb(<String, Object?>{
+      'asset': <String, Object?>{'version': '2.0'},
+    });
+    final loader = ModelLoader(
+      adapter: adapter,
+      options: ModelLoaderOptions(
+        decodeBudget: GlbDecodeBudget(
+          maxTotalDecodedBytes: decodedBytes.lengthInBytes,
+          maxNativeOutputBytes: decodedBytes.lengthInBytes,
+        ),
+        nativeDecoderProbe: FakeNativeDecoderProbe(
+          const GlbNativeDecoderAvailability(
+            capabilities: GlbDecoderCapabilities(
+              dracoMeshCompression: true,
+            ),
+          ),
+          decodedBytes: decodedBytes,
+        ),
+      ),
+    );
+
+    final result = await loader.load(
+      ModelSource.bytes(compressedBytes, debugName: 'exact-native-budget.glb'),
+    );
+
+    expect(result.isSuccess, isTrue, reason: result.diagnostic?.toString());
     expect(adapter.loadedBytes.single, decodedBytes);
   });
 
@@ -1076,13 +1512,181 @@ final class FakeNativeDecoderProbe implements GlbNativeDecoderProbe {
   Future<GlbNativeDecodeResult> decodeGlb({
     required Uint8List bytes,
     required Set<String> requiredExtensions,
+    required GlbDecodeBudget budget,
+    required GlbDecodeBudgetTracker budgetTracker,
     String? source,
   }) async {
     return GlbNativeDecodeResult(
       bytes: decodedBytes,
+      outputAccounting: decodedBytes == null
+          ? GlbNativeDecodeOutputAccounting.none
+          : GlbNativeDecodeOutputAccounting.opaqueFinalBytes,
       diagnostics: decodeDiagnostics,
     );
   }
+}
+
+final class RecordingNativeDecoderProbe implements GlbNativeDecoderProbe {
+  RecordingNativeDecoderProbe(this.decodedBytes);
+
+  final Uint8List decodedBytes;
+  GlbDecodeBudget? receivedBudget;
+  GlbDecodeBudgetTracker? receivedTracker;
+  int? trackerTotalDecodedBytesAtDecode;
+  int? trackerNativeOutputBytesAtDecode;
+
+  @override
+  Future<GlbNativeDecoderAvailability> checkAvailability({
+    required Set<String> requiredExtensions,
+    String? source,
+  }) async {
+    return const GlbNativeDecoderAvailability(
+      capabilities: GlbDecoderCapabilities(dracoMeshCompression: true),
+    );
+  }
+
+  @override
+  Future<GlbNativeDecodeResult> decodeGlb({
+    required Uint8List bytes,
+    required Set<String> requiredExtensions,
+    required GlbDecodeBudget budget,
+    required GlbDecodeBudgetTracker budgetTracker,
+    String? source,
+  }) async {
+    receivedBudget = budget;
+    receivedTracker = budgetTracker;
+    trackerTotalDecodedBytesAtDecode = budgetTracker.totalDecodedBytes;
+    trackerNativeOutputBytesAtDecode = budgetTracker.nativeOutputBytes;
+    return GlbNativeDecodeResult(
+      bytes: decodedBytes,
+      outputAccounting: GlbNativeDecodeOutputAccounting.opaqueFinalBytes,
+    );
+  }
+}
+
+final class FixedNativeDecoderProbe implements GlbNativeDecoderProbe {
+  const FixedNativeDecoderProbe(this.result);
+
+  final GlbNativeDecodeResult result;
+
+  @override
+  Future<GlbNativeDecoderAvailability> checkAvailability({
+    required Set<String> requiredExtensions,
+    String? source,
+  }) async {
+    return const GlbNativeDecoderAvailability(
+      capabilities: GlbDecoderCapabilities(dracoMeshCompression: true),
+    );
+  }
+
+  @override
+  Future<GlbNativeDecodeResult> decodeGlb({
+    required Uint8List bytes,
+    required Set<String> requiredExtensions,
+    required GlbDecodeBudget budget,
+    required GlbDecodeBudgetTracker budgetTracker,
+    String? source,
+  }) async {
+    return result;
+  }
+}
+
+Uint8List _nativeDracoComponentGlb() {
+  return _glbWithBin(
+    <String, Object?>{
+      'asset': <String, Object?>{'version': '2.0'},
+      'extensionsUsed': <Object?>['KHR_draco_mesh_compression'],
+      'extensionsRequired': <Object?>['KHR_draco_mesh_compression'],
+      'buffers': <Object?>[
+        <String, Object?>{'byteLength': 4},
+      ],
+      'bufferViews': <Object?>[
+        <String, Object?>{
+          'buffer': 0,
+          'byteOffset': 0,
+          'byteLength': 4,
+        },
+      ],
+      'accessors': <Object?>[
+        <String, Object?>{
+          'componentType': 5126,
+          'count': 1,
+          'type': 'VEC3',
+        },
+        <String, Object?>{
+          'componentType': 5123,
+          'count': 3,
+          'type': 'SCALAR',
+        },
+      ],
+      'meshes': <Object?>[
+        <String, Object?>{
+          'primitives': <Object?>[
+            <String, Object?>{
+              'attributes': <String, Object?>{'POSITION': 0},
+              'indices': 1,
+              'extensions': <String, Object?>{
+                'KHR_draco_mesh_compression': <String, Object?>{
+                  'bufferView': 0,
+                  'attributes': <String, Object?>{'POSITION': 0},
+                },
+              },
+            },
+          ],
+        },
+      ],
+    },
+    Uint8List.fromList(<int>[9, 9, 9, 9]),
+  );
+}
+
+Uint8List _nativeBasisuComponentGlb() {
+  return _glbWithBin(
+    <String, Object?>{
+      'asset': <String, Object?>{'version': '2.0'},
+      'extensionsUsed': <Object?>['KHR_texture_basisu'],
+      'extensionsRequired': <Object?>['KHR_texture_basisu'],
+      'buffers': <Object?>[
+        <String, Object?>{'byteLength': 4},
+      ],
+      'bufferViews': <Object?>[
+        <String, Object?>{
+          'buffer': 0,
+          'byteOffset': 0,
+          'byteLength': 4,
+        },
+      ],
+      'images': <Object?>[
+        <String, Object?>{'mimeType': 'image/ktx2', 'bufferView': 0},
+      ],
+      'textures': <Object?>[
+        <String, Object?>{
+          'extensions': <String, Object?>{
+            'KHR_texture_basisu': <String, Object?>{'source': 0},
+          },
+        },
+      ],
+    },
+    Uint8List.fromList(<int>[9, 9, 9, 9]),
+  );
+}
+
+Uint8List _float32Bytes(List<double> values) {
+  final bytes = Uint8List(values.length * 4);
+  final data = ByteData.sublistView(bytes);
+  for (var index = 0; index < values.length; index += 1) {
+    data.setFloat32(index * 4, values[index], Endian.little);
+  }
+  return bytes;
+}
+
+Uint8List _uint16Bytes(List<int> values) {
+  final bytes = Uint8List(values.length * 2);
+  final data = ByteData.sublistView(bytes);
+  for (var index = 0; index < values.length; index += 1) {
+    data.setUint16(index * 2, values[index], Endian.little);
+  }
+  return bytes;
 }
 
 Uint8List _glb(Map<String, Object?> json) {
@@ -1132,13 +1736,56 @@ Uint8List _glbWithBin(Map<String, Object?> json, Uint8List bin) {
 }
 
 Uint8List _meshoptAttributeStream(List<int> values) {
-  final bytes = Uint8List(30);
-  bytes[0] = 0xa1;
-  bytes[1] = 0xff;
-  for (var index = 0; index < values.length; index += 1) {
-    bytes[2 + index] = values[index] * 2;
+  final byteStride = values.length;
+  final bytes = Uint8List(1 + byteStride * 17 + 32);
+  bytes[0] = 0xa0;
+  var offset = 1;
+  for (final value in values) {
+    bytes[offset] = 0x03;
+    bytes[offset + 1] = value * 2;
+    offset += 17;
   }
   return bytes;
 }
 
+Uint8List _glbBufferViewBytes(Uint8List bytes, int bufferViewIndex) {
+  final data = ByteData.sublistView(bytes);
+  final jsonLength = data.getUint32(12, Endian.little);
+  final json = jsonDecode(
+    utf8.decode(bytes.sublist(20, 20 + jsonLength)),
+  ) as Map<String, Object?>;
+  final bufferViews = json['bufferViews'] as List<Object?>;
+  final bufferView = bufferViews[bufferViewIndex] as Map<String, Object?>;
+  final binHeaderOffset = 20 + jsonLength;
+  final binOffset = binHeaderOffset + 8;
+  final byteOffset = bufferView['byteOffset'] as int? ?? 0;
+  final byteLength = bufferView['byteLength'] as int;
+  return Uint8List.sublistView(
+    bytes,
+    binOffset + byteOffset,
+    binOffset + byteOffset + byteLength,
+  );
+}
+
 int _align4(int value) => (value + 3) & ~3;
+
+Uint8List _pngBytes({required int width, required int height}) {
+  final bytes = Uint8List(24);
+  bytes.setRange(0, 8, const <int>[
+    0x89,
+    0x50,
+    0x4e,
+    0x47,
+    0x0d,
+    0x0a,
+    0x1a,
+    0x0a,
+  ]);
+  final data = ByteData.sublistView(bytes);
+  data
+    ..setUint32(8, 13)
+    ..setUint32(12, 0x49484452)
+    ..setUint32(16, width)
+    ..setUint32(20, height);
+  return bytes;
+}

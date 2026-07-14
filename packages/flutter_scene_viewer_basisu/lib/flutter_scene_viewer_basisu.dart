@@ -22,6 +22,8 @@ class FlutterSceneViewerBasisu {
   static Future<Map<String, Object?>?> decodeGlb({
     required Uint8List bytes,
     required List<String> requiredExtensions,
+    required Map<String, Object?> decodeBudget,
+    required Map<String, Object?> decodeBudgetState,
     String? source,
     List<Object?> basisuImages = const <Object?>[],
   }) {
@@ -32,6 +34,8 @@ class FlutterSceneViewerBasisu {
         'requiredExtensions': requiredExtensions,
         'source': source,
         'basisuImages': basisuImages,
+        'decodeBudget': decodeBudget,
+        'decodeBudgetState': decodeBudgetState,
       },
     );
   }

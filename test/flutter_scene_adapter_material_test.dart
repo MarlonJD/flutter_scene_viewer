@@ -1,3 +1,7 @@
+import 'dart:convert';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
+
 import 'package:flutter_scene/scene.dart' as flutter_scene;
 import 'package:flutter_scene/src/gpu/gpu.dart' as flutter_scene_internal_gpu;
 import 'package:flutter_scene_viewer/flutter_scene_viewer.dart';
@@ -8,6 +12,2305 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:vector_math/vector_math.dart' as vm;
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  group('texture binding renderer plan', () {
+    test('maps symmetric repeat clamp and mirror sampler state', () {
+      final expected =
+          <TextureWrapMode, flutter_scene_internal_gpu.SamplerAddressMode>{
+        TextureWrapMode.repeat:
+            flutter_scene_internal_gpu.SamplerAddressMode.repeat,
+        TextureWrapMode.clampToEdge:
+            flutter_scene_internal_gpu.SamplerAddressMode.clampToEdge,
+        TextureWrapMode.mirroredRepeat:
+            flutter_scene_internal_gpu.SamplerAddressMode.mirror,
+      };
+
+      for (final entry in expected.entries) {
+        final plan = debugFlutterSceneTextureBindingPlan(
+          MaterialTextureBinding(
+            source: const TextureSource.asset('assets/albedo.png'),
+            sampler: TextureSampler(wrapS: entry.key, wrapT: entry.key),
+          ),
+          MaterialTextureSlot.baseColor,
+        );
+
+        expect(plan.diagnostic, isNull, reason: entry.key.name);
+        expect(plan.sampling!.addressMode, entry.value, reason: entry.key.name);
+      }
+    });
+
+    test('maps every glTF min mag and mip filter intent', () {
+      final cases = <TextureMinFilter,
+          (
+        flutter_scene_internal_gpu.MinMagFilter,
+        flutter_scene_internal_gpu.MipFilter,
+        bool
+      )>{
+        TextureMinFilter.nearest: (
+          flutter_scene_internal_gpu.MinMagFilter.nearest,
+          flutter_scene_internal_gpu.MipFilter.nearest,
+          false,
+        ),
+        TextureMinFilter.linear: (
+          flutter_scene_internal_gpu.MinMagFilter.linear,
+          flutter_scene_internal_gpu.MipFilter.nearest,
+          false,
+        ),
+        TextureMinFilter.nearestMipmapNearest: (
+          flutter_scene_internal_gpu.MinMagFilter.nearest,
+          flutter_scene_internal_gpu.MipFilter.nearest,
+          true,
+        ),
+        TextureMinFilter.linearMipmapNearest: (
+          flutter_scene_internal_gpu.MinMagFilter.linear,
+          flutter_scene_internal_gpu.MipFilter.nearest,
+          true,
+        ),
+        TextureMinFilter.nearestMipmapLinear: (
+          flutter_scene_internal_gpu.MinMagFilter.nearest,
+          flutter_scene_internal_gpu.MipFilter.linear,
+          true,
+        ),
+        TextureMinFilter.linearMipmapLinear: (
+          flutter_scene_internal_gpu.MinMagFilter.linear,
+          flutter_scene_internal_gpu.MipFilter.linear,
+          true,
+        ),
+      };
+
+      for (final entry in cases.entries) {
+        final plan = debugFlutterSceneTextureBindingPlan(
+          MaterialTextureBinding(
+            source: const TextureSource.asset('assets/data.png'),
+            sampler: TextureSampler(
+              magFilter: TextureMagFilter.nearest,
+              minFilter: entry.key,
+            ),
+          ),
+          MaterialTextureSlot.metallicRoughness,
+        );
+
+        expect(plan.diagnostic, isNull, reason: entry.key.name);
+        expect(plan.sampling!.minFilter, entry.value.$1,
+            reason: entry.key.name);
+        expect(plan.sampling!.mipFilter, entry.value.$2,
+            reason: entry.key.name);
+        expect(plan.sampling!.mipmaps, entry.value.$3, reason: entry.key.name);
+        expect(
+          plan.sampling!.magFilter,
+          flutter_scene_internal_gpu.MinMagFilter.nearest,
+          reason: entry.key.name,
+        );
+      }
+
+      final explicitLinear = debugFlutterSceneTextureBindingPlan(
+        MaterialTextureBinding(
+          source: const TextureSource.asset('assets/data.png'),
+          sampler: const TextureSampler(
+            magFilter: TextureMagFilter.linear,
+          ),
+        ),
+        MaterialTextureSlot.metallicRoughness,
+      );
+      expect(explicitLinear.diagnostic, isNull);
+      expect(
+        explicitLinear.sampling!.magFilter,
+        flutter_scene_internal_gpu.MinMagFilter.linear,
+      );
+    });
+
+    test('uses the effective UV set after a transform texCoord override', () {
+      final uv0Plan = debugFlutterSceneTextureBindingPlan(
+        MaterialTextureBinding(
+          source: const TextureSource.asset('assets/albedo.png'),
+          texCoord: 1,
+          transform: TextureTransform(texCoordOverride: 0),
+        ),
+        MaterialTextureSlot.baseColor,
+      );
+      final uv1Plan = debugFlutterSceneTextureBindingPlan(
+        MaterialTextureBinding(
+          source: const TextureSource.asset('assets/albedo.png'),
+          transform: TextureTransform(texCoordOverride: 1),
+        ),
+        MaterialTextureSlot.baseColor,
+      );
+
+      expect(uv0Plan.diagnostic, isNull);
+      expect(uv0Plan.sampling, isNotNull);
+      expect(uv1Plan.sampling, isNull);
+      expect(
+        uv1Plan.diagnostic!.details['limitation'],
+        'perSlotTextureCoordinateContractMissing',
+      );
+      expect(uv1Plan.diagnostic!.details['texCoord'], 1);
+    });
+
+    test('passes sampler through asset image and pixel creation paths',
+        () async {
+      final factory = _RecordingTextureFactory();
+      const sampler = TextureSampler(
+        wrapS: TextureWrapMode.clampToEdge,
+        wrapT: TextureWrapMode.clampToEdge,
+        magFilter: TextureMagFilter.nearest,
+        minFilter: TextureMinFilter.nearestMipmapLinear,
+      );
+
+      for (final entry in <(
+        MaterialTextureBinding,
+        MaterialTextureSlot,
+        flutter_scene.TextureContent,
+        double?
+      )>[
+        (
+          MaterialTextureBinding(
+            source: const TextureSource.asset('assets/albedo.png'),
+            sampler: sampler,
+          ),
+          MaterialTextureSlot.baseColor,
+          flutter_scene.TextureContent.color,
+          null,
+        ),
+        (
+          MaterialTextureBinding(
+            source: TextureSource.bytes(_onePixelPng, debugName: 'orm'),
+            sampler: sampler,
+          ),
+          MaterialTextureSlot.metallicRoughness,
+          flutter_scene.TextureContent.data,
+          null,
+        ),
+        (
+          MaterialTextureBinding(
+            source: TextureSource.bytes(_onePixelPng, debugName: 'normal'),
+            sampler: sampler,
+          ),
+          MaterialTextureSlot.normal,
+          flutter_scene.TextureContent.normal,
+          0.5,
+        ),
+      ]) {
+        final diagnostics = await debugLoadTextureBinding(
+          entry.$1,
+          entry.$2,
+          textureContent: entry.$3,
+          normalMapScale: entry.$4,
+          textureFactory: factory,
+        );
+        expect(diagnostics, isEmpty, reason: entry.$2.name);
+      }
+
+      expect(factory.paths, <String>['fromAsset', 'fromImage', 'fromPixels']);
+      expect(factory.contents, <flutter_scene.TextureContent>[
+        flutter_scene.TextureContent.color,
+        flutter_scene.TextureContent.data,
+        flutter_scene.TextureContent.normal,
+      ]);
+      for (final sampling in factory.samplings) {
+        expect(
+          sampling.addressMode,
+          flutter_scene_internal_gpu.SamplerAddressMode.clampToEdge,
+        );
+        expect(sampling.minFilter,
+            flutter_scene_internal_gpu.MinMagFilter.nearest);
+        expect(sampling.magFilter,
+            flutter_scene_internal_gpu.MinMagFilter.nearest);
+        expect(sampling.mipFilter, flutter_scene_internal_gpu.MipFilter.linear);
+        expect(sampling.mipmaps, isTrue);
+      }
+    });
+
+    test('same bytes keep distinct per-slot sampler state without mutation',
+        () async {
+      final factory = _RecordingTextureFactory();
+      final source = TextureSource.bytes(_onePixelPng, debugName: 'shared');
+      final before = Uint8List.fromList(_onePixelPng);
+      final repeat = MaterialTextureBinding(source: source);
+      final clamp = MaterialTextureBinding(
+        source: source,
+        sampler: const TextureSampler(
+          wrapS: TextureWrapMode.clampToEdge,
+          wrapT: TextureWrapMode.clampToEdge,
+        ),
+      );
+
+      expect(
+        await debugLoadTextureBinding(
+          repeat,
+          MaterialTextureSlot.baseColor,
+          textureContent: flutter_scene.TextureContent.color,
+          textureFactory: factory,
+        ),
+        isEmpty,
+      );
+      expect(
+        await debugLoadTextureBinding(
+          clamp,
+          MaterialTextureSlot.normal,
+          textureContent: flutter_scene.TextureContent.normal,
+          textureFactory: factory,
+        ),
+        isEmpty,
+      );
+
+      expect(factory.samplings, hasLength(2));
+      expect(factory.samplings.first.addressMode,
+          flutter_scene_internal_gpu.SamplerAddressMode.repeat);
+      expect(factory.samplings.last.addressMode,
+          flutter_scene_internal_gpu.SamplerAddressMode.clampToEdge);
+      expect(
+        factory.createdSources.first.sampledSampler.widthAddressMode,
+        flutter_scene_internal_gpu.SamplerAddressMode.repeat,
+      );
+      expect(
+        factory.createdSources.last.sampledSampler.widthAddressMode,
+        flutter_scene_internal_gpu.SamplerAddressMode.clampToEdge,
+      );
+      expect(
+        factory.createdSources.first.sampledSampler,
+        isNot(same(factory.createdSources.last.sampledSampler)),
+      );
+      expect(_onePixelPng, before);
+    });
+
+    test('standard PBR slots retain distinct resulting sampler state',
+        () async {
+      final factory = _RecordingTextureFactory();
+      const source = TextureSource.asset('assets/shared.png');
+      final material = flutter_scene.PhysicallyBasedMaterial();
+      final root = flutter_scene.Node(
+        name: 'Paint',
+        mesh: flutter_scene.Mesh(_UvStubGeometry(), material),
+      );
+
+      final diagnostics = await debugApplyMaterialPatchToRoot(
+        root,
+        PartAddress(
+          nodePath: const <String>['Paint'],
+          primitiveIndex: 0,
+        ),
+        MaterialPatch(
+          baseColorTextureBinding: MaterialTextureBinding(source: source),
+          normalTextureBinding: MaterialTextureBinding(
+            source: source,
+            sampler: const TextureSampler(
+              wrapS: TextureWrapMode.clampToEdge,
+              wrapT: TextureWrapMode.clampToEdge,
+            ),
+          ),
+        ),
+        textureFactory: factory,
+      );
+
+      expect(diagnostics, isEmpty);
+      // ignore: invalid_use_of_internal_member
+      expect(material.baseColorTextureSource, same(factory.createdSources[0]));
+      // ignore: invalid_use_of_internal_member
+      expect(material.normalTextureSource, same(factory.createdSources[1]));
+      expect(
+        // ignore: invalid_use_of_internal_member
+        material.baseColorTextureSource!.sampledSampler.widthAddressMode,
+        flutter_scene_internal_gpu.SamplerAddressMode.repeat,
+      );
+      expect(
+        // ignore: invalid_use_of_internal_member
+        material.normalTextureSource!.sampledSampler.widthAddressMode,
+        flutter_scene_internal_gpu.SamplerAddressMode.clampToEdge,
+      );
+    });
+
+    test('unsupported transform diagnoses before decode or byte generation',
+        () async {
+      final factory = _RecordingTextureFactory();
+      final before = Uint8List.fromList(_onePixelPng);
+      final binding = MaterialTextureBinding(
+        source: TextureSource.bytes(_onePixelPng, debugName: 'repeat-2.5'),
+        transform: TextureTransform(scale: const <double>[2.5, 2.5]),
+      );
+
+      final diagnostics = await debugLoadTextureBinding(
+        binding,
+        MaterialTextureSlot.baseColor,
+        textureContent: flutter_scene.TextureContent.color,
+        textureFactory: factory,
+      );
+
+      expect(diagnostics, hasLength(1));
+      expect(diagnostics.single.code,
+          ViewerDiagnosticCode.unsupportedMaterialFeature);
+      expect(diagnostics.single.details['limitation'],
+          'perSlotUvTransformContractMissing');
+      expect(factory.paths, isEmpty);
+      expect(_onePixelPng, before);
+    });
+  });
+
+  test('binding-only transmission and thickness require feature support', () {
+    const policy = ViewerMaterialExtensionPolicy.experimentalShaders();
+    final transmissionBinding = MaterialPatch(
+      transmissionTextureBinding: MaterialTextureBinding(
+        source: const TextureSource.asset('assets/transmission.png'),
+      ),
+    );
+    final thicknessBinding = MaterialPatch(
+      thicknessTextureBinding: MaterialTextureBinding(
+        source: const TextureSource.asset('assets/thickness.png'),
+      ),
+    );
+    final volumeOnly = MaterialExtensionSupport(
+      backendKind: MaterialExtensionBackendKind.packageLocalCandidate,
+      features: <MaterialExtensionFeature, MaterialExtensionFeatureSupport>{
+        MaterialExtensionFeature.volume:
+            MaterialExtensionFeatureSupport(available: true),
+      },
+    );
+    final transmissionOnly = MaterialExtensionSupport(
+      backendKind: MaterialExtensionBackendKind.packageLocalCandidate,
+      features: <MaterialExtensionFeature, MaterialExtensionFeatureSupport>{
+        MaterialExtensionFeature.transmission:
+            MaterialExtensionFeatureSupport(available: true),
+      },
+    );
+
+    expect(
+      debugUsesMaterialExtensionBackendFor(
+        policy,
+        transmissionBinding,
+        support: volumeOnly,
+      ),
+      isFalse,
+    );
+    expect(
+      debugUsesMaterialExtensionBackendFor(
+        policy,
+        thicknessBinding,
+        support: transmissionOnly,
+      ),
+      isFalse,
+    );
+  });
+
+  test('native capability checks binding-only transmission and thickness', () {
+    const policy = ViewerMaterialExtensionPolicy.productionShaders();
+    final support = MaterialExtensionSupport(
+      backendKind: MaterialExtensionBackendKind.rendererNative,
+      features: <MaterialExtensionFeature, MaterialExtensionFeatureSupport>{
+        MaterialExtensionFeature.ior:
+            MaterialExtensionFeatureSupport(available: true),
+        MaterialExtensionFeature.clearcoat:
+            MaterialExtensionFeatureSupport(available: true),
+      },
+    );
+
+    for (final patch in <MaterialPatch>[
+      MaterialPatch(
+        transmissionTextureBinding: MaterialTextureBinding(
+          source: const TextureSource.asset('assets/transmission.png'),
+        ),
+      ),
+      MaterialPatch(
+        thicknessTextureBinding: MaterialTextureBinding(
+          source: const TextureSource.asset('assets/thickness.png'),
+        ),
+      ),
+    ]) {
+      expect(
+        debugUsesNativeMaterialExtensionApplierFor(
+          policy,
+          patch,
+          support: support,
+        ),
+        isFalse,
+      );
+    }
+  });
+
+  test('native preflight rejects advertised extension texture bindings', () {
+    const policy = ViewerMaterialExtensionPolicy.productionShaders();
+    final support = _materialExtensionSupport(
+      MaterialExtensionBackendKind.rendererNative,
+    );
+
+    for (final patch in <MaterialPatch>[
+      MaterialPatch(
+        transmissionTextureBinding: MaterialTextureBinding(
+          source: const TextureSource.asset('assets/transmission.png'),
+        ),
+      ),
+      MaterialPatch(
+        thicknessTextureBinding: MaterialTextureBinding(
+          source: const TextureSource.asset('assets/thickness.png'),
+        ),
+      ),
+      MaterialPatch(
+        clearcoatTextureBinding: MaterialTextureBinding(
+          source: const TextureSource.asset('assets/clearcoat.png'),
+        ),
+      ),
+      MaterialPatch(
+        clearcoatRoughnessTextureBinding: MaterialTextureBinding(
+          source: const TextureSource.asset('assets/clearcoat-roughness.png'),
+        ),
+      ),
+      MaterialPatch(
+        clearcoatNormalTextureBinding: MaterialTextureBinding(
+          source: const TextureSource.asset('assets/clearcoat-normal.png'),
+        ),
+      ),
+    ]) {
+      expect(
+        debugUsesNativeMaterialExtensionApplierFor(
+          policy,
+          patch,
+          support: support,
+        ),
+        isFalse,
+      );
+    }
+  });
+
+  test('adapter rejects native specular texture intent before loading',
+      () async {
+    final factory = _RecordingTextureFactory();
+    final originalMaterial = flutter_scene.PhysicallyBasedMaterial();
+    final root = flutter_scene.Node(
+      name: 'Paint',
+      mesh: flutter_scene.Mesh(_UvStubGeometry(), originalMaterial),
+    );
+
+    final diagnostics = await debugApplyMaterialPatchToRoot(
+      root,
+      PartAddress(
+        nodePath: const <String>['Paint'],
+        primitiveIndex: 0,
+      ),
+      MaterialPatch(
+        specularTextureBinding: MaterialTextureBinding(
+          source: const TextureSource.asset('assets/specular.png'),
+        ),
+        specularColorTextureBinding: MaterialTextureBinding(
+          source: const TextureSource.asset('assets/specular-color.png'),
+        ),
+      ),
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.productionShaders(),
+      materialExtensionSupport: _materialExtensionSupport(
+        MaterialExtensionBackendKind.rendererNative,
+      ),
+      textureFactory: factory,
+    );
+
+    expect(diagnostics, hasLength(1));
+    expect(diagnostics.single.details['limitation'],
+        'rendererNativeExtensionTextureContractMissing');
+    expect(
+      diagnostics.single.details['slots'],
+      containsAll(<String>['specular', 'specularColor']),
+    );
+    expect(factory.paths, isEmpty);
+    expect(root.mesh!.primitives.single.material, same(originalMaterial));
+  });
+
+  test('adapter rejects non-native specular intent before load or mutation',
+      () async {
+    final factory = _RecordingTextureFactory();
+    final originalMaterial = flutter_scene.PhysicallyBasedMaterial();
+    final root = flutter_scene.Node(
+      name: 'Paint',
+      mesh: flutter_scene.Mesh(_UvStubGeometry(), originalMaterial),
+    );
+    final support = MaterialExtensionSupport(
+      backendKind: MaterialExtensionBackendKind.packageLocalCandidate,
+      features: <MaterialExtensionFeature, MaterialExtensionFeatureSupport>{
+        MaterialExtensionFeature.specular:
+            MaterialExtensionFeatureSupport(available: true),
+      },
+    );
+
+    final diagnostics = await debugApplyMaterialPatchToRoot(
+      root,
+      PartAddress(
+        nodePath: const <String>['Paint'],
+        primitiveIndex: 0,
+      ),
+      MaterialPatch(
+        specular: 0.6,
+        specularTextureBinding: MaterialTextureBinding(
+          source: const TextureSource.asset('assets/specular.png'),
+        ),
+      ),
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.experimentalShaders(),
+      materialExtensionSupport: support,
+      textureFactory: factory,
+    );
+
+    expect(diagnostics, hasLength(1));
+    expect(diagnostics.single.code,
+        ViewerDiagnosticCode.unsupportedMaterialFeature);
+    expect(diagnostics.single.details['limitation'],
+        'pinnedStandardPbrSpecularContractMissing');
+    expect(factory.paths, isEmpty);
+    expect(root.mesh!.primitives.single.material, same(originalMaterial));
+  });
+
+  test('adapter rejects mixed core and native extension intent atomically',
+      () async {
+    final factory = _RecordingTextureFactory();
+    final originalMaterial = flutter_scene.PhysicallyBasedMaterial();
+    final originalBaseColor = originalMaterial.baseColorFactor.clone();
+    final root = flutter_scene.Node(
+      name: 'Glass',
+      mesh: flutter_scene.Mesh(_UvStubGeometry(), originalMaterial),
+    );
+
+    final diagnostics = await debugApplyMaterialPatchToRoot(
+      root,
+      PartAddress(
+        nodePath: const <String>['Glass'],
+        primitiveIndex: 0,
+      ),
+      MaterialPatch(
+        baseColorFactor: const <double>[0.2, 0.3, 0.4, 1.0],
+        baseColorTextureBinding: MaterialTextureBinding(
+          source: const TextureSource.asset('assets/base-color.png'),
+        ),
+        transmission: 1.0,
+      ),
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.productionShaders(),
+      materialExtensionSupport: _materialExtensionSupport(
+        MaterialExtensionBackendKind.rendererNative,
+      ),
+      textureFactory: factory,
+    );
+
+    expect(diagnostics, hasLength(1));
+    expect(diagnostics.single.details['limitation'],
+        'rendererNativeMixedCoreExtensionPatchUnsupported');
+    expect(
+      diagnostics.single.details['fields'],
+      containsAll(<String>['baseColorFactor', 'baseColorTexture']),
+    );
+    expect(factory.paths, isEmpty);
+    expect(root.mesh!.primitives.single.material, same(originalMaterial));
+    expect(originalMaterial.baseColorFactor, originalBaseColor);
+  });
+
+  test('adapter forwards loaded occlusion and emissive to clearcoat config',
+      () async {
+    final factory = _RecordingTextureFactory();
+    FlutterSceneClearcoatMaterialConfig? captured;
+    final backend = FlutterSceneMaterialExtensionBackend(
+      bindFallbackTextures: false,
+      createClearcoatMaterial: (config) async {
+        captured = config;
+        return flutter_scene.ShaderMaterial(isOpaqueOverride: true);
+      },
+    );
+    final originalMaterial = flutter_scene.PhysicallyBasedMaterial();
+    final root = flutter_scene.Node(
+      name: 'Paint',
+      mesh: flutter_scene.Mesh(_UvStubGeometry(), originalMaterial),
+    );
+    const clamp = TextureSampler(
+      wrapS: TextureWrapMode.clampToEdge,
+      wrapT: TextureWrapMode.clampToEdge,
+    );
+
+    final diagnostics = await debugApplyMaterialPatchToRoot(
+      root,
+      PartAddress(nodePath: const <String>['Paint'], primitiveIndex: 0),
+      MaterialPatch(
+        clearcoat: 1.0,
+        occlusionTextureBinding: MaterialTextureBinding(
+          source: TextureSource.bytes(_onePixelPng, debugName: 'occlusion'),
+          sampler: clamp,
+        ),
+        emissiveTextureBinding: MaterialTextureBinding(
+          source: TextureSource.bytes(_onePixelPng, debugName: 'emissive'),
+        ),
+      ),
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.experimentalShaders(
+        enableClearcoat: true,
+      ),
+      materialExtensionBackend: backend,
+      textureFactory: factory,
+    );
+
+    expect(diagnostics, isEmpty);
+    expect(captured, isNotNull);
+    expect(captured!.emissiveTexture, same(factory.createdSources[0]));
+    expect(captured!.occlusionTexture, same(factory.createdSources[1]));
+    expect(
+      (captured!.emissiveTexture as flutter_scene.TextureSource)
+          .sampledSampler
+          .widthAddressMode,
+      flutter_scene_internal_gpu.SamplerAddressMode.repeat,
+    );
+    expect(
+      (captured!.occlusionTexture as flutter_scene.TextureSource)
+          .sampledSampler
+          .widthAddressMode,
+      flutter_scene_internal_gpu.SamplerAddressMode.clampToEdge,
+    );
+  });
+
+  test('candidate clearcoat applies core PBR fields after overlay succeeds',
+      () async {
+    final factory = _RecordingTextureFactory();
+    FlutterSceneClearcoatMaterialConfig? capturedConfig;
+    late final flutter_scene.ShaderMaterial overlayMaterial;
+    final backend = FlutterSceneMaterialExtensionBackend(
+      bindFallbackTextures: false,
+      createClearcoatMaterial: (config) async {
+        capturedConfig = config;
+        return overlayMaterial =
+            flutter_scene.ShaderMaterial(isOpaqueOverride: true);
+      },
+    );
+    final originalSourceNormal = _StubTextureSource(
+      const flutter_scene.TextureSampling().toSamplerOptions(),
+    );
+    final originalMaterial = flutter_scene.PhysicallyBasedMaterial()
+      ..normalTexture = originalSourceNormal
+      ..normalScale = 0.8;
+    final root = flutter_scene.Node(
+      name: 'Paint',
+      mesh: flutter_scene.Mesh(_UvStubGeometry(), originalMaterial),
+    );
+
+    MaterialTextureBinding binding(String name) => MaterialTextureBinding(
+          source: TextureSource.bytes(_onePixelPng, debugName: name),
+        );
+
+    final diagnostics = await debugApplyMaterialPatchToRoot(
+      root,
+      PartAddress(nodePath: const <String>['Paint'], primitiveIndex: 0),
+      MaterialPatch(
+        clearcoat: 0.8,
+        baseColorFactor: const <double>[0.2, 0.3, 0.4, 1.0],
+        baseColorTextureBinding: binding('baseColor'),
+        metallicRoughnessTextureBinding: binding('metallicRoughness'),
+        normalTextureBinding: binding('normal'),
+        normalScale: 0.5,
+        metallic: 0.25,
+        roughness: 0.6,
+        occlusionTextureBinding: binding('occlusion'),
+        occlusionStrength: 0.7,
+        emissiveFactor: const <double>[0.1, 0.2, 0.3],
+        emissiveTextureBinding: binding('emissive'),
+      ),
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.experimentalShaders(
+        enableClearcoat: true,
+      ),
+      materialExtensionBackend: backend,
+      textureFactory: factory,
+    );
+
+    expect(diagnostics, isEmpty);
+    expect(root.mesh!.primitives, hasLength(2));
+    final baseMaterial = root.mesh!.primitives.first.material
+        as flutter_scene.PhysicallyBasedMaterial;
+    expect(baseMaterial, same(originalMaterial));
+    expect(baseMaterial.baseColorFactor.x, closeTo(0.2, 0.0001));
+    expect(baseMaterial.baseColorFactor.y, closeTo(0.3, 0.0001));
+    expect(baseMaterial.baseColorFactor.z, closeTo(0.4, 0.0001));
+    expect(baseMaterial.baseColorTexture, same(factory.createdSources[0]));
+    expect(
+      baseMaterial.metallicRoughnessTexture,
+      same(factory.createdSources[1]),
+    );
+    // The retained source PBR consumes the incoming raw normal exactly once.
+    // The clearcoat overlay keeps its independent coat-normal input separate.
+    expect(capturedConfig!.normalTexture, same(factory.createdSources[2]));
+    expect(capturedConfig!.patch.normalScale, closeTo(0.5, 0.0001));
+    // ignore: invalid_use_of_internal_member
+    expect(baseMaterial.normalTextureSource, same(factory.createdSources[2]));
+    expect(baseMaterial.normalScale, closeTo(0.5, 0.0001));
+    final overlayParams = overlayMaterial.getUniformBlock('MaterialParams')!;
+    expect(overlayParams.getFloat32(32, Endian.host), closeTo(0.5, 0.0001));
+    expect(baseMaterial.emissiveTexture, same(factory.createdSources[3]));
+    expect(baseMaterial.occlusionTexture, same(factory.createdSources[4]));
+    expect(baseMaterial.metallicFactor, closeTo(0.25, 0.0001));
+    expect(baseMaterial.roughnessFactor, closeTo(0.6, 0.0001));
+    expect(baseMaterial.occlusionStrength, closeTo(0.7, 0.0001));
+    expect(baseMaterial.emissiveFactor.x, closeTo(0.1, 0.0001));
+    expect(baseMaterial.emissiveFactor.y, closeTo(0.2, 0.0001));
+    expect(baseMaterial.emissiveFactor.z, closeTo(0.3, 0.0001));
+    expect(factory.paths, everyElement('fromImage'));
+
+    backend.resetClearcoatPatch(
+      node: root,
+      primitive: root.mesh!.primitives.first,
+    );
+
+    expect(root.mesh!.primitives, hasLength(1));
+    expect(root.mesh!.primitives.single.material, same(originalMaterial));
+    expect(
+      // ignore: invalid_use_of_internal_member
+      originalMaterial.normalTextureSource,
+      same(factory.createdSources[2]),
+    );
+    expect(originalMaterial.normalScale, closeTo(0.5, 0.0001));
+  });
+
+  test('candidate clearcoat factor zero preserves combined core normal',
+      () async {
+    final factory = _RecordingTextureFactory();
+    final backend = FlutterSceneMaterialExtensionBackend(
+      bindFallbackTextures: false,
+      createClearcoatMaterial: (_) async =>
+          flutter_scene.ShaderMaterial(isOpaqueOverride: true),
+    );
+    final originalMaterial = flutter_scene.PhysicallyBasedMaterial();
+    final root = flutter_scene.Node(
+      name: 'Paint',
+      mesh: flutter_scene.Mesh(_UvStubGeometry(), originalMaterial),
+    );
+
+    final diagnostics = await debugApplyMaterialPatchToRoot(
+      root,
+      PartAddress(nodePath: const <String>['Paint'], primitiveIndex: 0),
+      MaterialPatch(
+        clearcoat: 0.0,
+        normalTextureBinding: MaterialTextureBinding(
+          source: TextureSource.bytes(
+            _onePixelPng,
+            debugName: 'normal',
+          ),
+        ),
+        normalScale: 0.5,
+      ),
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.experimentalShaders(
+        enableClearcoat: true,
+      ),
+      materialExtensionBackend: backend,
+      textureFactory: factory,
+    );
+
+    expect(diagnostics, isEmpty);
+    expect(
+      // ignore: invalid_use_of_internal_member
+      originalMaterial.normalTextureSource,
+      same(factory.createdSources.single),
+    );
+    expect(originalMaterial.normalScale, closeTo(0.5, 0.0001));
+  });
+
+  test('clearcoat zero retains the latest combined logical source normal',
+      () async {
+    final factory = _RecordingTextureFactory();
+    final configs = <FlutterSceneClearcoatMaterialConfig>[];
+    final backend = FlutterSceneMaterialExtensionBackend(
+      bindFallbackTextures: false,
+      createClearcoatMaterial: (config) async {
+        configs.add(config);
+        return flutter_scene.ShaderMaterial(isOpaqueOverride: true);
+      },
+    );
+    final runtimeAdapter = FlutterSceneRuntimeAdapter(
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.experimentalShaders(
+        enableClearcoat: true,
+      ),
+      materialExtensionBackend: backend,
+      textureFactory: factory,
+    );
+    final modelNormal = _StubTextureSource(
+      const flutter_scene.TextureSampling().toSamplerOptions(),
+    );
+    final material = flutter_scene.PhysicallyBasedMaterial()
+      ..normalTexture = modelNormal
+      ..normalScale = 0.8;
+    final root = flutter_scene.Node(
+      name: 'Paint',
+      mesh: flutter_scene.Mesh(_UvStubGeometry(), material),
+    );
+    final address =
+        PartAddress(nodePath: const <String>['Paint'], primitiveIndex: 0);
+
+    final combinedDiagnostics = await debugApplyMaterialPatchToRoot(
+      root,
+      address,
+      MaterialPatch(
+        clearcoat: 0.9,
+        normalTextureBinding: MaterialTextureBinding(
+          source: TextureSource.bytes(_onePixelPng, debugName: 'normal-b'),
+        ),
+        normalScale: 0.5,
+      ),
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.experimentalShaders(
+        enableClearcoat: true,
+      ),
+      materialExtensionBackend: backend,
+      textureFactory: factory,
+      runtimeAdapter: runtimeAdapter,
+    );
+    final normalB = factory.createdSources.single;
+    final zeroDiagnostics = await debugApplyMaterialPatchToRoot(
+      root,
+      address,
+      const MaterialPatch(clearcoat: 0.0),
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.experimentalShaders(
+        enableClearcoat: true,
+      ),
+      materialExtensionBackend: backend,
+      textureFactory: factory,
+      runtimeAdapter: runtimeAdapter,
+    );
+
+    expect(combinedDiagnostics, isEmpty);
+    expect(zeroDiagnostics, isEmpty);
+    // ignore: invalid_use_of_internal_member
+    expect(material.normalTextureSource, same(normalB));
+    expect(material.normalScale, closeTo(0.5, 0.0001));
+
+    final replacementDiagnostics = await debugApplyMaterialPatchToRoot(
+      root,
+      address,
+      const MaterialPatch(clearcoat: 0.6),
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.experimentalShaders(
+        enableClearcoat: true,
+      ),
+      materialExtensionBackend: backend,
+      textureFactory: factory,
+      runtimeAdapter: runtimeAdapter,
+    );
+
+    expect(replacementDiagnostics, isEmpty);
+    expect(configs, hasLength(3));
+    expect(configs.last.normalTexture, same(normalB));
+    expect(configs.last.sourceNormalTexture, same(normalB));
+    expect(configs.last.sourceNormalScale, closeTo(0.5, 0.0001));
+    // ignore: invalid_use_of_internal_member
+    expect(material.normalTextureSource, same(normalB));
+    expect(material.normalScale, closeTo(0.5, 0.0001));
+
+    final resetDiagnostics = await runtimeAdapter.resetMaterial(address);
+
+    expect(resetDiagnostics, isEmpty);
+    // Explicit adapter reset remains distinct from factor zero and restores A.
+    // ignore: invalid_use_of_internal_member
+    expect(material.normalTextureSource, same(modelNormal));
+    expect(material.normalScale, closeTo(0.8, 0.0001));
+  });
+
+  test('combined clearcoat normal without scale retains prior scale once',
+      () async {
+    final factory = _RecordingTextureFactory();
+    final configs = <FlutterSceneClearcoatMaterialConfig>[];
+    final overlays = <flutter_scene.ShaderMaterial>[];
+    final backend = FlutterSceneMaterialExtensionBackend(
+      bindFallbackTextures: false,
+      createClearcoatMaterial: (config) async {
+        configs.add(config);
+        final overlay = flutter_scene.ShaderMaterial(isOpaqueOverride: true);
+        overlays.add(overlay);
+        return overlay;
+      },
+    );
+    final modelNormal = _StubTextureSource(
+      const flutter_scene.TextureSampling().toSamplerOptions(),
+    );
+    final material = flutter_scene.PhysicallyBasedMaterial()
+      ..normalTexture = modelNormal
+      ..normalScale = 0.8;
+    final root = flutter_scene.Node(
+      name: 'Paint',
+      mesh: flutter_scene.Mesh(_UvStubGeometry(), material),
+    );
+    final address =
+        PartAddress(nodePath: const <String>['Paint'], primitiveIndex: 0);
+
+    final combinedDiagnostics = await debugApplyMaterialPatchToRoot(
+      root,
+      address,
+      MaterialPatch(
+        clearcoat: 0.9,
+        normalTextureBinding: MaterialTextureBinding(
+          source: TextureSource.bytes(_onePixelPng, debugName: 'normal-b'),
+        ),
+      ),
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.experimentalShaders(
+        enableClearcoat: true,
+      ),
+      materialExtensionBackend: backend,
+      textureFactory: factory,
+    );
+    final normalB = factory.createdSources.single;
+
+    expect(combinedDiagnostics, isEmpty);
+    expect(configs.single.sourceNormalScale, closeTo(0.8, 0.0001));
+    final overlayParams = overlays.single.getUniformBlock('MaterialParams')!;
+    expect(overlayParams.getFloat32(32, Endian.host), closeTo(0.8, 0.0001));
+    // ignore: invalid_use_of_internal_member
+    expect(material.normalTextureSource, same(normalB));
+    expect(material.normalScale, closeTo(0.8, 0.0001));
+
+    final zeroDiagnostics = await debugApplyMaterialPatchToRoot(
+      root,
+      address,
+      const MaterialPatch(clearcoat: 0.0),
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.experimentalShaders(
+        enableClearcoat: true,
+      ),
+      materialExtensionBackend: backend,
+      textureFactory: factory,
+    );
+
+    expect(zeroDiagnostics, isEmpty);
+    // ignore: invalid_use_of_internal_member
+    expect(material.normalTextureSource, same(normalB));
+    expect(material.normalScale, closeTo(0.8, 0.0001));
+  });
+
+  test('active clearcoat composes a later core-only logical normal delta',
+      () async {
+    final factory = _RecordingTextureFactory();
+    final configs = <FlutterSceneClearcoatMaterialConfig>[];
+    final overlays = <flutter_scene.ShaderMaterial>[];
+    final backend = FlutterSceneMaterialExtensionBackend(
+      bindFallbackTextures: false,
+      createClearcoatMaterial: (config) async {
+        configs.add(config);
+        final overlay = flutter_scene.ShaderMaterial(isOpaqueOverride: true);
+        overlays.add(overlay);
+        return overlay;
+      },
+    );
+    final modelNormal = _StubTextureSource(
+      const flutter_scene.TextureSampling().toSamplerOptions(),
+    );
+    final material = flutter_scene.PhysicallyBasedMaterial()
+      ..normalTexture = modelNormal
+      ..normalScale = 0.8;
+    final root = flutter_scene.Node(
+      name: 'Paint',
+      mesh: flutter_scene.Mesh(_UvStubGeometry(), material),
+    );
+    final address =
+        PartAddress(nodePath: const <String>['Paint'], primitiveIndex: 0);
+
+    final combinedDiagnostics = await debugApplyMaterialPatchToRoot(
+      root,
+      address,
+      MaterialPatch(
+        clearcoat: 0.9,
+        normalTextureBinding: MaterialTextureBinding(
+          source: TextureSource.bytes(_onePixelPng, debugName: 'normal-b'),
+        ),
+        normalScale: 0.5,
+      ),
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.experimentalShaders(
+        enableClearcoat: true,
+      ),
+      materialExtensionBackend: backend,
+      textureFactory: factory,
+    );
+    final normalB = factory.createdSources.single;
+    final coreDiagnostics = await debugApplyMaterialPatchToRoot(
+      root,
+      address,
+      MaterialPatch(
+        normalTextureBinding: MaterialTextureBinding(
+          source: TextureSource.bytes(_onePixelPng, debugName: 'normal-c'),
+        ),
+        normalScale: 0.25,
+      ),
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.experimentalShaders(
+        enableClearcoat: true,
+      ),
+      materialExtensionBackend: backend,
+      textureFactory: factory,
+    );
+    final normalC = factory.createdSources.last;
+
+    expect(combinedDiagnostics, isEmpty);
+    expect(coreDiagnostics, isEmpty);
+    expect(factory.paths, <String>['fromImage', 'fromImage']);
+    expect(normalC, isNot(same(normalB)));
+    expect(configs, hasLength(2));
+    expect(configs.last.normalTexture, same(normalC));
+    expect(configs.last.patch.clearcoat, closeTo(0.9, 0.0001));
+    expect(configs.last.patch.normalScale, closeTo(0.25, 0.0001));
+    final coreOverlayParams = overlays.last.getUniformBlock('MaterialParams')!;
+    expect(
+      coreOverlayParams.getFloat32(32, Endian.host),
+      closeTo(0.25, 0.0001),
+    );
+    // ignore: invalid_use_of_internal_member
+    expect(material.normalTextureSource, same(normalC));
+    expect(material.normalScale, closeTo(0.25, 0.0001));
+
+    final replacementDiagnostics = await debugApplyMaterialPatchToRoot(
+      root,
+      address,
+      const MaterialPatch(clearcoat: 0.6),
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.experimentalShaders(
+        enableClearcoat: true,
+      ),
+      materialExtensionBackend: backend,
+      textureFactory: factory,
+    );
+
+    expect(replacementDiagnostics, isEmpty);
+    expect(configs, hasLength(3));
+    expect(configs.last.normalTexture, same(normalC));
+    expect(configs.last.sourceNormalTexture, same(normalC));
+    expect(configs.last.sourceNormalScale, closeTo(0.25, 0.0001));
+    // ignore: invalid_use_of_internal_member
+    expect(material.normalTextureSource, same(normalC));
+    expect(material.normalScale, closeTo(0.25, 0.0001));
+
+    final zeroDiagnostics = await debugApplyMaterialPatchToRoot(
+      root,
+      address,
+      const MaterialPatch(clearcoat: 0.0),
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.experimentalShaders(
+        enableClearcoat: true,
+      ),
+      materialExtensionBackend: backend,
+      textureFactory: factory,
+    );
+
+    expect(zeroDiagnostics, isEmpty);
+    // ignore: invalid_use_of_internal_member
+    expect(material.normalTextureSource, same(normalC));
+    expect(material.normalScale, closeTo(0.25, 0.0001));
+
+    backend.resetClearcoatPatch(
+      node: root,
+      primitive: root.mesh!.primitives.first,
+    );
+    // ignore: invalid_use_of_internal_member
+    expect(material.normalTextureSource, same(normalC));
+    expect(material.normalScale, closeTo(0.25, 0.0001));
+  });
+
+  test('active clearcoat core normal without scale retains logical scale',
+      () async {
+    final factory = _RecordingTextureFactory();
+    final configs = <FlutterSceneClearcoatMaterialConfig>[];
+    final overlays = <flutter_scene.ShaderMaterial>[];
+    final backend = FlutterSceneMaterialExtensionBackend(
+      bindFallbackTextures: false,
+      createClearcoatMaterial: (config) async {
+        configs.add(config);
+        final overlay = flutter_scene.ShaderMaterial(isOpaqueOverride: true);
+        overlays.add(overlay);
+        return overlay;
+      },
+    );
+    final modelNormal = _StubTextureSource(
+      const flutter_scene.TextureSampling().toSamplerOptions(),
+    );
+    final material = flutter_scene.PhysicallyBasedMaterial()
+      ..normalTexture = modelNormal
+      ..normalScale = 0.8;
+    final root = flutter_scene.Node(
+      name: 'Paint',
+      mesh: flutter_scene.Mesh(_UvStubGeometry(), material),
+    );
+    final address =
+        PartAddress(nodePath: const <String>['Paint'], primitiveIndex: 0);
+
+    await debugApplyMaterialPatchToRoot(
+      root,
+      address,
+      MaterialPatch(
+        clearcoat: 0.9,
+        normalTextureBinding: MaterialTextureBinding(
+          source: TextureSource.bytes(_onePixelPng, debugName: 'normal-b'),
+        ),
+        normalScale: 0.5,
+      ),
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.experimentalShaders(
+        enableClearcoat: true,
+      ),
+      materialExtensionBackend: backend,
+      textureFactory: factory,
+    );
+    final normalB = factory.createdSources.single;
+    final coreDiagnostics = await debugApplyMaterialPatchToRoot(
+      root,
+      address,
+      MaterialPatch(
+        normalTextureBinding: MaterialTextureBinding(
+          source: TextureSource.bytes(_onePixelPng, debugName: 'normal-c'),
+        ),
+      ),
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.experimentalShaders(
+        enableClearcoat: true,
+      ),
+      materialExtensionBackend: backend,
+      textureFactory: factory,
+    );
+    final normalC = factory.createdSources.last;
+
+    expect(coreDiagnostics, isEmpty);
+    expect(normalC, isNot(same(normalB)));
+    expect(configs.last.sourceNormalScale, closeTo(0.5, 0.0001));
+    expect(
+      overlays.last.getUniformBlock('MaterialParams')!.getFloat32(
+            32,
+            Endian.host,
+          ),
+      closeTo(0.5, 0.0001),
+    );
+    // ignore: invalid_use_of_internal_member
+    expect(material.normalTextureSource, same(normalC));
+    expect(material.normalScale, closeTo(0.5, 0.0001));
+
+    final zeroDiagnostics = await debugApplyMaterialPatchToRoot(
+      root,
+      address,
+      const MaterialPatch(clearcoat: 0.0),
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.experimentalShaders(
+        enableClearcoat: true,
+      ),
+      materialExtensionBackend: backend,
+      textureFactory: factory,
+    );
+
+    expect(zeroDiagnostics, isEmpty);
+    // ignore: invalid_use_of_internal_member
+    expect(material.normalTextureSource, same(normalC));
+    expect(material.normalScale, closeTo(0.5, 0.0001));
+
+    final positiveDiagnostics = await debugApplyMaterialPatchToRoot(
+      root,
+      address,
+      const MaterialPatch(clearcoat: 0.6),
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.experimentalShaders(
+        enableClearcoat: true,
+      ),
+      materialExtensionBackend: backend,
+      textureFactory: factory,
+    );
+
+    expect(positiveDiagnostics, isEmpty);
+    expect(configs.last.sourceNormalTexture, same(normalC));
+    expect(configs.last.sourceNormalScale, closeTo(0.5, 0.0001));
+    // ignore: invalid_use_of_internal_member
+    expect(material.normalTextureSource, same(normalC));
+    expect(material.normalScale, closeTo(0.5, 0.0001));
+  });
+
+  test('active clearcoat core-normal reconfiguration failure stays atomic',
+      () async {
+    final factory = _RecordingTextureFactory();
+    var createCalls = 0;
+    final backend = FlutterSceneMaterialExtensionBackend(
+      bindFallbackTextures: false,
+      createClearcoatMaterial: (_) async {
+        createCalls += 1;
+        if (createCalls == 2) {
+          throw StateError('replacement unavailable');
+        }
+        return flutter_scene.ShaderMaterial(isOpaqueOverride: true);
+      },
+    );
+    final modelNormal = _StubTextureSource(
+      const flutter_scene.TextureSampling().toSamplerOptions(),
+    );
+    final material = flutter_scene.PhysicallyBasedMaterial()
+      ..normalTexture = modelNormal
+      ..normalScale = 0.8;
+    final root = flutter_scene.Node(
+      name: 'Paint',
+      mesh: flutter_scene.Mesh(_UvStubGeometry(), material),
+    );
+    final address =
+        PartAddress(nodePath: const <String>['Paint'], primitiveIndex: 0);
+
+    final combinedDiagnostics = await debugApplyMaterialPatchToRoot(
+      root,
+      address,
+      MaterialPatch(
+        clearcoat: 0.9,
+        normalTextureBinding: MaterialTextureBinding(
+          source: TextureSource.bytes(_onePixelPng, debugName: 'normal-b'),
+        ),
+        normalScale: 0.5,
+      ),
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.experimentalShaders(
+        enableClearcoat: true,
+      ),
+      materialExtensionBackend: backend,
+      textureFactory: factory,
+    );
+    final normalB = factory.createdSources.single;
+    final originalOverlay = root.mesh!.primitives.last.material;
+    final coreDiagnostics = await debugApplyMaterialPatchToRoot(
+      root,
+      address,
+      MaterialPatch(
+        normalTextureBinding: MaterialTextureBinding(
+          source: TextureSource.bytes(_onePixelPng, debugName: 'normal-c'),
+        ),
+        normalScale: 0.25,
+      ),
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.experimentalShaders(
+        enableClearcoat: true,
+      ),
+      materialExtensionBackend: backend,
+      textureFactory: factory,
+    );
+
+    expect(combinedDiagnostics, isEmpty);
+    expect(coreDiagnostics, hasLength(1));
+    expect(coreDiagnostics.single.code,
+        ViewerDiagnosticCode.unsupportedMaterialFeature);
+    expect(coreDiagnostics.single.details['feature'], 'clearcoat');
+    expect(coreDiagnostics.single.details['status'], 'shaderUnavailable');
+    expect(root.mesh!.primitives.last.material, same(originalOverlay));
+    // ignore: invalid_use_of_internal_member
+    expect(material.normalTextureSource, same(normalB));
+    expect(material.normalScale, closeTo(0.5, 0.0001));
+
+    final zeroDiagnostics = await debugApplyMaterialPatchToRoot(
+      root,
+      address,
+      const MaterialPatch(clearcoat: 0.0),
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.experimentalShaders(
+        enableClearcoat: true,
+      ),
+      materialExtensionBackend: backend,
+      textureFactory: factory,
+    );
+
+    expect(zeroDiagnostics, isEmpty);
+    // ignore: invalid_use_of_internal_member
+    expect(material.normalTextureSource, same(normalB));
+    expect(material.normalScale, closeTo(0.5, 0.0001));
+  });
+
+  test('candidate clearcoat failure does not apply core PBR fields', () async {
+    final originalMaterial = flutter_scene.PhysicallyBasedMaterial();
+    final originalBaseColor = originalMaterial.baseColorFactor.clone();
+    final root = flutter_scene.Node(
+      name: 'Paint',
+      mesh: flutter_scene.Mesh(_UvStubGeometry(), originalMaterial),
+    );
+    final backend = FlutterSceneMaterialExtensionBackend(
+      createClearcoatMaterial: (_) async => throw StateError('shader missing'),
+    );
+
+    final diagnostics = await debugApplyMaterialPatchToRoot(
+      root,
+      PartAddress(nodePath: const <String>['Paint'], primitiveIndex: 0),
+      MaterialPatch(
+        clearcoat: 0.8,
+        baseColorFactor: const <double>[0.2, 0.3, 0.4, 1.0],
+        metallic: 0.25,
+      ),
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.experimentalShaders(
+        enableClearcoat: true,
+      ),
+      materialExtensionBackend: backend,
+    );
+
+    expect(diagnostics, hasLength(1));
+    expect(root.mesh!.primitives, hasLength(1));
+    expect(root.mesh!.primitives.single.material, same(originalMaterial));
+    expect(originalMaterial.baseColorFactor, originalBaseColor);
+    expect(originalMaterial.metallicFactor, 1.0);
+  });
+
+  test('candidate transmission rejects alpha intent before texture loading',
+      () async {
+    final factory = _RecordingTextureFactory();
+    var createCalls = 0;
+    final backend = FlutterSceneMaterialExtensionBackend(
+      bindFallbackTextures: false,
+      createTransmissionMaterial: (_) async {
+        createCalls += 1;
+        return flutter_scene.ShaderMaterial(isOpaqueOverride: false);
+      },
+    );
+    final originalMaterial = flutter_scene.PhysicallyBasedMaterial()
+      ..metallicFactor = 0.0
+      ..roughnessFactor = 0.0;
+    final root = flutter_scene.Node(
+      name: 'Glass',
+      mesh: flutter_scene.Mesh(_UvStubGeometry(), originalMaterial),
+    );
+
+    final diagnostics = await debugApplyMaterialPatchToRoot(
+      root,
+      PartAddress(nodePath: const <String>['Glass'], primitiveIndex: 0),
+      MaterialPatch(
+        transmission: 1.0,
+        alphaMode: MaterialAlphaMode.mask,
+        alphaCutoff: 0.3,
+        baseColorTextureBinding: MaterialTextureBinding(
+          source: TextureSource.bytes(_onePixelPng, debugName: 'baseColor'),
+        ),
+      ),
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.experimentalShaders(),
+      materialExtensionBackend: backend,
+      materialExtensionSceneViews: <flutter_scene.RenderView>[],
+      textureFactory: factory,
+    );
+
+    expect(diagnostics, hasLength(1));
+    expect(diagnostics.single.details['limitation'],
+        'transmissionCoreInputsUnsupported');
+    expect(
+      diagnostics.single.details['fields'],
+      containsAll(<String>['alphaMode', 'alphaCutoff']),
+    );
+    expect(factory.paths, isEmpty);
+    expect(createCalls, 0);
+    expect(root.mesh!.primitives.single.material, same(originalMaterial));
+    expect(originalMaterial.alphaMode, flutter_scene.AlphaMode.opaque);
+  });
+
+  test('candidate transmission preflight rejects before any texture decode',
+      () async {
+    final cases = <({String name, MaterialPatch patch, String limitation})>[
+      (
+        name: 'iorZero',
+        patch: MaterialPatch(
+          transmission: 1.0,
+          ior: 0.0,
+          baseColorTextureBinding: MaterialTextureBinding(
+            source: TextureSource.bytes(_onePixelPng, debugName: 'base'),
+          ),
+          normalTextureBinding: MaterialTextureBinding(
+            source: TextureSource.bytes(_onePixelPng, debugName: 'normal'),
+          ),
+          transmissionTextureBinding: MaterialTextureBinding(
+            source:
+                TextureSource.bytes(_onePixelPng, debugName: 'transmission'),
+          ),
+        ),
+        limitation: 'packageLocalIorZeroCompatibilityContractMissing',
+      ),
+      (
+        name: 'positiveThickness',
+        patch: MaterialPatch(
+          transmission: 1.0,
+          thickness: 0.2,
+          baseColorTextureBinding: MaterialTextureBinding(
+            source: TextureSource.bytes(_onePixelPng, debugName: 'base'),
+          ),
+          normalTextureBinding: MaterialTextureBinding(
+            source: TextureSource.bytes(_onePixelPng, debugName: 'normal'),
+          ),
+          thicknessTextureBinding: MaterialTextureBinding(
+            source: TextureSource.bytes(_onePixelPng, debugName: 'thickness'),
+          ),
+        ),
+        limitation: 'packageLocalVolumeTransformContractMissing',
+      ),
+      (
+        name: 'transmissionTexture',
+        patch: MaterialPatch(
+          transmission: 1.0,
+          baseColorTextureBinding: MaterialTextureBinding(
+            source: TextureSource.bytes(_onePixelPng, debugName: 'base'),
+          ),
+          normalTextureBinding: MaterialTextureBinding(
+            source: TextureSource.bytes(_onePixelPng, debugName: 'normal'),
+          ),
+          transmissionTextureBinding: MaterialTextureBinding(
+            source:
+                TextureSource.bytes(_onePixelPng, debugName: 'transmission'),
+          ),
+        ),
+        limitation: 'packageLocalTransmissionTextureBasePbrContractMissing',
+      ),
+    ];
+
+    for (final entry in cases) {
+      final factory = _RecordingTextureFactory();
+      var shaderCreationCount = 0;
+      final backend = FlutterSceneMaterialExtensionBackend(
+        bindFallbackTextures: false,
+        createTransmissionMaterial: (_) async {
+          shaderCreationCount += 1;
+          return flutter_scene.ShaderMaterial(isOpaqueOverride: false);
+        },
+      );
+      final originalMaterial = flutter_scene.PhysicallyBasedMaterial()
+        ..metallicFactor = 0.0
+        ..roughnessFactor = 0.0;
+      final root = flutter_scene.Node(
+        name: 'Glass',
+        mesh: flutter_scene.Mesh(_UvStubGeometry(), originalMaterial),
+      )..layers = 0x04;
+      final sceneViews = <flutter_scene.RenderView>[];
+
+      final diagnostics = await debugApplyMaterialPatchToRoot(
+        root,
+        PartAddress(nodePath: const <String>['Glass'], primitiveIndex: 0),
+        entry.patch,
+        materialExtensionPolicy:
+            const ViewerMaterialExtensionPolicy.experimentalShaders(),
+        materialExtensionBackend: backend,
+        materialExtensionSceneViews: sceneViews,
+        textureFactory: factory,
+      );
+
+      expect(diagnostics, hasLength(1), reason: entry.name);
+      expect(diagnostics.single.code,
+          ViewerDiagnosticCode.unsupportedMaterialFeature,
+          reason: entry.name);
+      expect(diagnostics.single.details['limitation'], entry.limitation,
+          reason: entry.name);
+      expect(factory.paths, isEmpty, reason: entry.name);
+      expect(shaderCreationCount, 0, reason: entry.name);
+      expect(backend.debugActivePatchCount, 0, reason: entry.name);
+      expect(root.mesh!.primitives.single.material, same(originalMaterial),
+          reason: entry.name);
+      expect(root.layers, 0x04, reason: entry.name);
+      expect(sceneViews, isEmpty, reason: entry.name);
+    }
+  });
+
+  test('factor-zero transmission bypass applies core PBR while inactive',
+      () async {
+    final factory = _RecordingTextureFactory();
+    var shaderCreationCount = 0;
+    final backend = FlutterSceneMaterialExtensionBackend(
+      bindFallbackTextures: false,
+      createTransmissionMaterial: (_) async {
+        shaderCreationCount += 1;
+        return flutter_scene.ShaderMaterial(isOpaqueOverride: false);
+      },
+    );
+    final originalMaterial = flutter_scene.PhysicallyBasedMaterial()
+      ..metallicFactor = 0.0
+      ..roughnessFactor = 0.0;
+    final root = flutter_scene.Node(
+      name: 'Glass',
+      mesh: flutter_scene.Mesh(_UvStubGeometry(), originalMaterial),
+    )..layers = 0x08;
+    final sceneViews = <flutter_scene.RenderView>[];
+
+    final diagnostics = await debugApplyMaterialPatchToRoot(
+      root,
+      PartAddress(nodePath: const <String>['Glass'], primitiveIndex: 0),
+      MaterialPatch(
+        transmission: 0.0,
+        baseColorFactor: const <double>[0.2, 0.3, 0.4, 1.0],
+        baseColorTextureBinding: MaterialTextureBinding(
+          source: TextureSource.bytes(_onePixelPng, debugName: 'base'),
+        ),
+        normalTextureBinding: MaterialTextureBinding(
+          source: TextureSource.bytes(_onePixelPng, debugName: 'normal'),
+        ),
+        normalScale: 0.5,
+        roughness: 0.35,
+        transmissionTextureBinding: MaterialTextureBinding(
+          source: TextureSource.bytes(_onePixelPng, debugName: 'transmission'),
+        ),
+        thicknessTextureBinding: MaterialTextureBinding(
+          source: TextureSource.bytes(_onePixelPng, debugName: 'thickness'),
+        ),
+      ),
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.experimentalShaders(),
+      materialExtensionBackend: backend,
+      materialExtensionSceneViews: sceneViews,
+      textureFactory: factory,
+    );
+
+    expect(diagnostics, isEmpty);
+    expect(factory.paths, <String>['fromImage', 'fromPixels']);
+    expect(shaderCreationCount, 0);
+    expect(backend.debugActivePatchCount, 0);
+    expect(root.mesh!.primitives.single.material, same(originalMaterial));
+    expect(root.layers, 0x08);
+    expect(sceneViews, isEmpty);
+    expect(originalMaterial.baseColorFactor.x, closeTo(0.2, 0.0001));
+    expect(originalMaterial.baseColorFactor.y, closeTo(0.3, 0.0001));
+    expect(originalMaterial.baseColorFactor.z, closeTo(0.4, 0.0001));
+    // ignore: invalid_use_of_internal_member
+    expect(originalMaterial.baseColorTextureSource,
+        same(factory.createdSources[0]));
+    expect(
+        // ignore: invalid_use_of_internal_member
+        originalMaterial.normalTextureSource,
+        same(factory.createdSources[1]));
+    expect(originalMaterial.normalScale, closeTo(1.0, 0.0001));
+    expect(originalMaterial.roughnessFactor, closeTo(0.35, 0.0001));
+  });
+
+  test('factor-zero bypass ignores extension-only binding limitations',
+      () async {
+    final cases = <({String name, MaterialPatch patch})>[
+      (
+        name: 'transmissionAsymmetricSampler',
+        patch: MaterialPatch(
+          transmission: 0.0,
+          baseColorFactor: const <double>[0.2, 0.3, 0.4, 1.0],
+          baseColorTextureBinding: MaterialTextureBinding(
+            source: TextureSource.bytes(_onePixelPng, debugName: 'base'),
+          ),
+          roughness: 0.25,
+          transmissionTextureBinding: MaterialTextureBinding(
+            source: TextureSource.bytes(
+              _onePixelPng,
+              debugName: 'transmission',
+            ),
+            sampler: const TextureSampler(
+              wrapS: TextureWrapMode.repeat,
+              wrapT: TextureWrapMode.clampToEdge,
+            ),
+          ),
+        ),
+      ),
+      (
+        name: 'thicknessTransform',
+        patch: MaterialPatch(
+          transmission: 0.0,
+          baseColorFactor: const <double>[0.2, 0.3, 0.4, 1.0],
+          baseColorTextureBinding: MaterialTextureBinding(
+            source: TextureSource.bytes(_onePixelPng, debugName: 'base'),
+          ),
+          roughness: 0.25,
+          thicknessTextureBinding: MaterialTextureBinding(
+            source: TextureSource.bytes(_onePixelPng, debugName: 'thickness'),
+            transform: TextureTransform(scale: const <double>[2.0, 2.0]),
+          ),
+        ),
+      ),
+      (
+        name: 'transmissionTexCoord',
+        patch: MaterialPatch(
+          transmission: 0.0,
+          baseColorFactor: const <double>[0.2, 0.3, 0.4, 1.0],
+          baseColorTextureBinding: MaterialTextureBinding(
+            source: TextureSource.bytes(_onePixelPng, debugName: 'base'),
+          ),
+          roughness: 0.25,
+          transmissionTextureBinding: MaterialTextureBinding(
+            source: TextureSource.bytes(
+              _onePixelPng,
+              debugName: 'transmission',
+            ),
+            texCoord: 1,
+          ),
+        ),
+      ),
+    ];
+
+    for (final entry in cases) {
+      final factory = _RecordingTextureFactory();
+      var shaderCreationCount = 0;
+      final backend = FlutterSceneMaterialExtensionBackend(
+        bindFallbackTextures: false,
+        createTransmissionMaterial: (_) async {
+          shaderCreationCount += 1;
+          return flutter_scene.ShaderMaterial(isOpaqueOverride: false);
+        },
+      );
+      final originalMaterial = flutter_scene.PhysicallyBasedMaterial();
+      final root = flutter_scene.Node(
+        name: 'Glass',
+        mesh: flutter_scene.Mesh(_UvStubGeometry(), originalMaterial),
+      );
+
+      final diagnostics = await debugApplyMaterialPatchToRoot(
+        root,
+        PartAddress(
+          nodePath: const <String>['Glass'],
+          primitiveIndex: 0,
+        ),
+        entry.patch,
+        materialExtensionPolicy:
+            const ViewerMaterialExtensionPolicy.experimentalShaders(),
+        materialExtensionBackend: backend,
+        textureFactory: factory,
+      );
+
+      expect(diagnostics, isEmpty, reason: entry.name);
+      expect(factory.paths, <String>['fromImage'], reason: entry.name);
+      expect(shaderCreationCount, 0, reason: entry.name);
+      expect(backend.debugActivePatchCount, 0, reason: entry.name);
+      expect(root.mesh!.primitives.single.material, same(originalMaterial),
+          reason: entry.name);
+      expect(originalMaterial.baseColorFactor.x, closeTo(0.2, 0.0001),
+          reason: entry.name);
+      expect(originalMaterial.baseColorFactor.y, closeTo(0.3, 0.0001),
+          reason: entry.name);
+      expect(originalMaterial.baseColorFactor.z, closeTo(0.4, 0.0001),
+          reason: entry.name);
+      expect(originalMaterial.roughnessFactor, closeTo(0.25, 0.0001),
+          reason: entry.name);
+    }
+  });
+
+  test('positive transmission requires scene views before core texture load',
+      () async {
+    final factory = _RecordingTextureFactory();
+    var shaderCreationCount = 0;
+    final backend = FlutterSceneMaterialExtensionBackend(
+      bindFallbackTextures: false,
+      createTransmissionMaterial: (_) async {
+        shaderCreationCount += 1;
+        return flutter_scene.ShaderMaterial(isOpaqueOverride: false);
+      },
+    );
+    final originalMaterial = flutter_scene.PhysicallyBasedMaterial()
+      ..metallicFactor = 0.0
+      ..roughnessFactor = 0.0;
+    final originalBaseColor = originalMaterial.baseColorFactor.clone();
+    final root = flutter_scene.Node(
+      name: 'Glass',
+      mesh: flutter_scene.Mesh(_UvStubGeometry(), originalMaterial),
+    )..layers = 0x40;
+
+    final diagnostics = await debugApplyMaterialPatchToRoot(
+      root,
+      PartAddress(
+        nodePath: const <String>['Glass'],
+        primitiveIndex: 0,
+      ),
+      MaterialPatch(
+        transmission: 0.8,
+        baseColorTextureBinding: MaterialTextureBinding(
+          source: TextureSource.bytes(_onePixelPng, debugName: 'base'),
+        ),
+      ),
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.experimentalShaders(),
+      materialExtensionBackend: backend,
+      textureFactory: factory,
+    );
+
+    expect(diagnostics, hasLength(1));
+    expect(diagnostics.single.code, ViewerDiagnosticCode.adapterFailure);
+    expect(factory.paths, isEmpty);
+    expect(diagnostics.single.details['limitation'],
+        'transmissionApplySceneViewsUnavailable');
+    expect(shaderCreationCount, 0);
+    expect(backend.debugActivePatchCount, 0);
+    expect(root.mesh!.primitives.single.material, same(originalMaterial));
+    expect(root.layers, 0x40);
+    expect(originalMaterial.baseColorFactor, originalBaseColor);
+  });
+
+  test('active factor-zero reset requires scene views before core texture load',
+      () async {
+    final factory = _RecordingTextureFactory();
+    var shaderCreationCount = 0;
+    final backend = FlutterSceneMaterialExtensionBackend(
+      bindFallbackTextures: false,
+      createTransmissionMaterial: (_) async {
+        shaderCreationCount += 1;
+        return flutter_scene.ShaderMaterial(isOpaqueOverride: false);
+      },
+    );
+    final runtimeAdapter = FlutterSceneRuntimeAdapter(
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.experimentalShaders(),
+      materialExtensionBackend: backend,
+      textureFactory: factory,
+    );
+    final originalMaterial = flutter_scene.PhysicallyBasedMaterial()
+      ..metallicFactor = 0.0
+      ..roughnessFactor = 0.0;
+    final root = flutter_scene.Node(
+      name: 'Glass',
+      mesh: flutter_scene.Mesh(_UvStubGeometry(), originalMaterial),
+    )..layers = 0x80;
+    final address =
+        PartAddress(nodePath: const <String>['Glass'], primitiveIndex: 0);
+    final sceneViews = <flutter_scene.RenderView>[];
+
+    expect(
+      await debugApplyMaterialPatchToRoot(
+        root,
+        address,
+        const MaterialPatch(transmission: 0.8),
+        materialExtensionSceneViews: sceneViews,
+        runtimeAdapter: runtimeAdapter,
+      ),
+      isEmpty,
+    );
+    final activeMaterial = root.mesh!.primitives.single.material;
+    final activeView = sceneViews.single;
+    final diagnostics = await debugApplyMaterialPatchToRoot(
+      root,
+      address,
+      MaterialPatch(
+        transmission: 0.0,
+        baseColorTextureBinding: MaterialTextureBinding(
+          source: TextureSource.bytes(_onePixelPng, debugName: 'base'),
+        ),
+      ),
+      runtimeAdapter: runtimeAdapter,
+    );
+
+    expect(diagnostics, hasLength(1));
+    expect(diagnostics.single.code, ViewerDiagnosticCode.adapterFailure);
+    expect(diagnostics.single.details['limitation'],
+        'activeTransmissionSceneViewsUnavailable');
+    expect(factory.paths, isEmpty);
+    expect(shaderCreationCount, 1);
+    expect(backend.debugActivePatchCount, 1);
+    expect(root.mesh!.primitives.single.material, same(activeMaterial));
+    expect(root.layers, FlutterSceneMaterialExtensionBackend.transmissiveLayer);
+    expect(sceneViews, <flutter_scene.RenderView>[activeView]);
+  });
+
+  test('factor-zero transmission restores active state then applies core PBR',
+      () async {
+    final factory = _RecordingTextureFactory();
+    var shaderCreationCount = 0;
+    final backend = FlutterSceneMaterialExtensionBackend(
+      bindFallbackTextures: false,
+      createTransmissionMaterial: (_) async {
+        shaderCreationCount += 1;
+        return flutter_scene.ShaderMaterial(isOpaqueOverride: false);
+      },
+    );
+    final runtimeAdapter = FlutterSceneRuntimeAdapter(
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.experimentalShaders(),
+      materialExtensionBackend: backend,
+      textureFactory: factory,
+    );
+    final originalMaterial = flutter_scene.PhysicallyBasedMaterial()
+      ..metallicFactor = 0.0
+      ..roughnessFactor = 0.0;
+    final root = flutter_scene.Node(
+      name: 'Glass',
+      mesh: flutter_scene.Mesh(_UvStubGeometry(), originalMaterial),
+    )..layers = 0x10;
+    final address =
+        PartAddress(nodePath: const <String>['Glass'], primitiveIndex: 0);
+    final sceneViews = <flutter_scene.RenderView>[];
+
+    final activeDiagnostics = await debugApplyMaterialPatchToRoot(
+      root,
+      address,
+      const MaterialPatch(transmission: 0.8),
+      materialExtensionSceneViews: sceneViews,
+      runtimeAdapter: runtimeAdapter,
+    );
+    final activeMaterial = root.mesh!.primitives.single.material;
+    final activeView = sceneViews.single;
+    final zeroDiagnostics = await debugApplyMaterialPatchToRoot(
+      root,
+      address,
+      MaterialPatch(
+        transmission: 0.0,
+        baseColorFactor: const <double>[0.4, 0.3, 0.2, 1.0],
+        baseColorTextureBinding: MaterialTextureBinding(
+          source: TextureSource.bytes(_onePixelPng, debugName: 'base'),
+        ),
+        normalTextureBinding: MaterialTextureBinding(
+          source: TextureSource.bytes(_onePixelPng, debugName: 'normal'),
+        ),
+        normalScale: 0.25,
+        roughness: 0.6,
+        transmissionTextureBinding: MaterialTextureBinding(
+          source: TextureSource.bytes(_onePixelPng, debugName: 'transmission'),
+        ),
+      ),
+      materialExtensionSceneViews: sceneViews,
+      runtimeAdapter: runtimeAdapter,
+    );
+
+    expect(activeDiagnostics, isEmpty);
+    expect(activeMaterial, isNot(same(originalMaterial)));
+    expect(activeView.target, isNotNull);
+    expect(zeroDiagnostics, isEmpty);
+    expect(shaderCreationCount, 1);
+    expect(factory.paths, <String>['fromImage', 'fromPixels']);
+    expect(backend.debugActivePatchCount, 0);
+    expect(root.mesh!.primitives.single.material, same(originalMaterial));
+    expect(root.layers, 0x10);
+    expect(sceneViews, isEmpty);
+    expect(originalMaterial.baseColorFactor.x, closeTo(0.4, 0.0001));
+    // ignore: invalid_use_of_internal_member
+    expect(originalMaterial.baseColorTextureSource,
+        same(factory.createdSources[0]));
+    expect(
+        // ignore: invalid_use_of_internal_member
+        originalMaterial.normalTextureSource,
+        same(factory.createdSources[1]));
+    expect(originalMaterial.normalScale, closeTo(1.0, 0.0001));
+    expect(originalMaterial.roughnessFactor, closeTo(0.6, 0.0001));
+  });
+
+  test('failed factor-zero core load preserves active transmission atomically',
+      () async {
+    final factory = _RecordingTextureFactory(
+      assetFailure: StateError('core texture unavailable'),
+    );
+    var shaderCreationCount = 0;
+    final backend = FlutterSceneMaterialExtensionBackend(
+      bindFallbackTextures: false,
+      createTransmissionMaterial: (_) async {
+        shaderCreationCount += 1;
+        return flutter_scene.ShaderMaterial(isOpaqueOverride: false);
+      },
+    );
+    final runtimeAdapter = FlutterSceneRuntimeAdapter(
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.experimentalShaders(),
+      materialExtensionBackend: backend,
+      textureFactory: factory,
+    );
+    final originalMaterial = flutter_scene.PhysicallyBasedMaterial()
+      ..metallicFactor = 0.0
+      ..roughnessFactor = 0.0;
+    final originalBaseColor = originalMaterial.baseColorFactor.clone();
+    final root = flutter_scene.Node(
+      name: 'Glass',
+      mesh: flutter_scene.Mesh(_UvStubGeometry(), originalMaterial),
+    )..layers = 0x20;
+    final address =
+        PartAddress(nodePath: const <String>['Glass'], primitiveIndex: 0);
+    final sceneViews = <flutter_scene.RenderView>[];
+
+    expect(
+      await debugApplyMaterialPatchToRoot(
+        root,
+        address,
+        const MaterialPatch(transmission: 0.8),
+        materialExtensionSceneViews: sceneViews,
+        runtimeAdapter: runtimeAdapter,
+      ),
+      isEmpty,
+    );
+    final activeMaterial = root.mesh!.primitives.single.material;
+    final activeView = sceneViews.single;
+    final diagnostics = await debugApplyMaterialPatchToRoot(
+      root,
+      address,
+      MaterialPatch(
+        transmission: 0.0,
+        baseColorFactor: const <double>[0.2, 0.3, 0.4, 1.0],
+        baseColorTextureBinding: MaterialTextureBinding(
+          source: const TextureSource.asset('missing-core.png'),
+        ),
+      ),
+      materialExtensionSceneViews: sceneViews,
+      runtimeAdapter: runtimeAdapter,
+    );
+
+    expect(diagnostics, hasLength(1));
+    expect(diagnostics.single.code, ViewerDiagnosticCode.assetLoadFailure);
+    expect(factory.paths, <String>['fromAsset']);
+    expect(shaderCreationCount, 1);
+    expect(backend.debugActivePatchCount, 1);
+    expect(root.mesh!.primitives.single.material, same(activeMaterial));
+    expect(root.layers, FlutterSceneMaterialExtensionBackend.transmissiveLayer);
+    expect(sceneViews, <flutter_scene.RenderView>[activeView]);
+    expect(originalMaterial.baseColorFactor, originalBaseColor);
+  });
+
+  test('factor-zero transmission with IOR preserves opaque-IOR diagnostic',
+      () async {
+    final factory = _RecordingTextureFactory();
+    var shaderCreationCount = 0;
+    final backend = FlutterSceneMaterialExtensionBackend(
+      bindFallbackTextures: false,
+      createTransmissionMaterial: (_) async {
+        shaderCreationCount += 1;
+        return flutter_scene.ShaderMaterial(isOpaqueOverride: false);
+      },
+    );
+    final originalMaterial = flutter_scene.PhysicallyBasedMaterial();
+    final originalBaseColor = originalMaterial.baseColorFactor.clone();
+    final root = flutter_scene.Node(
+      name: 'Glass',
+      mesh: flutter_scene.Mesh(_UvStubGeometry(), originalMaterial),
+    );
+
+    final diagnostics = await debugApplyMaterialPatchToRoot(
+      root,
+      PartAddress(nodePath: const <String>['Glass'], primitiveIndex: 0),
+      MaterialPatch(
+        transmission: 0.0,
+        ior: 1.4,
+        baseColorFactor: const <double>[0.2, 0.3, 0.4, 1.0],
+      ),
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.experimentalShaders(),
+      materialExtensionBackend: backend,
+      textureFactory: factory,
+    );
+
+    expect(diagnostics, hasLength(1));
+    expect(diagnostics.single.details['limitation'],
+        'pinnedStandardPbrOpaqueIorContractMissing');
+    expect(diagnostics.single.details['feature'], 'opaqueIor');
+    expect(factory.paths, isEmpty);
+    expect(shaderCreationCount, 0);
+    expect(backend.debugActivePatchCount, 0);
+    expect(root.mesh!.primitives.single.material, same(originalMaterial));
+    expect(originalMaterial.baseColorFactor, originalBaseColor);
+  });
+
+  test('candidate extension visibility is rejected before mutation', () async {
+    var createCalls = 0;
+    final backend = FlutterSceneMaterialExtensionBackend(
+      bindFallbackTextures: false,
+      createClearcoatMaterial: (_) async {
+        createCalls += 1;
+        return flutter_scene.ShaderMaterial(isOpaqueOverride: true);
+      },
+    );
+    final geometry = _UvStubGeometry();
+    final originalMaterial = flutter_scene.PhysicallyBasedMaterial();
+    final root = flutter_scene.Node(
+      name: 'Paint',
+      mesh: flutter_scene.Mesh(geometry, originalMaterial),
+    );
+
+    final diagnostics = await debugApplyMaterialPatchToRoot(
+      root,
+      PartAddress(nodePath: const <String>['Paint'], primitiveIndex: 0),
+      const MaterialPatch(clearcoat: 0.8, visible: false),
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.experimentalShaders(
+        enableClearcoat: true,
+      ),
+      materialExtensionBackend: backend,
+    );
+
+    expect(diagnostics, hasLength(1));
+    expect(diagnostics.single.details['limitation'],
+        'packageLocalExtensionVisibilityUnsupported');
+    expect(createCalls, 0);
+    expect(root.mesh!.primitives, hasLength(1));
+    expect(root.mesh!.primitives.single.geometry, same(geometry));
+    expect(root.mesh!.primitives.single.material, same(originalMaterial));
+  });
+
+  test('transmission candidate rejects unconsumed core intent atomically',
+      () async {
+    final factory = _RecordingTextureFactory();
+    var createCalls = 0;
+    final backend = FlutterSceneMaterialExtensionBackend(
+      bindFallbackTextures: false,
+      createTransmissionMaterial: (_) async {
+        createCalls += 1;
+        return flutter_scene.ShaderMaterial(isOpaqueOverride: false);
+      },
+    );
+    final originalMaterial = flutter_scene.PhysicallyBasedMaterial()
+      ..metallicFactor = 0.0
+      ..roughnessFactor = 0.0;
+    final root = flutter_scene.Node(
+      name: 'Glass',
+      mesh: flutter_scene.Mesh(_UvStubGeometry(), originalMaterial),
+    );
+
+    final diagnostics = await debugApplyMaterialPatchToRoot(
+      root,
+      PartAddress(nodePath: const <String>['Glass'], primitiveIndex: 0),
+      MaterialPatch(
+        transmission: 1.0,
+        metallicRoughnessTextureBinding: MaterialTextureBinding(
+          source: TextureSource.bytes(_onePixelPng, debugName: 'orm'),
+        ),
+        occlusionTextureBinding: MaterialTextureBinding(
+          source: TextureSource.bytes(_onePixelPng, debugName: 'occlusion'),
+        ),
+        emissiveTextureBinding: MaterialTextureBinding(
+          source: TextureSource.bytes(_onePixelPng, debugName: 'emissive'),
+        ),
+      ),
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.experimentalShaders(),
+      materialExtensionBackend: backend,
+      textureFactory: factory,
+    );
+
+    expect(diagnostics, hasLength(1));
+    expect(diagnostics.single.code,
+        ViewerDiagnosticCode.unsupportedMaterialFeature);
+    expect(diagnostics.single.details['limitation'],
+        'transmissionCoreInputsUnsupported');
+    expect(
+      diagnostics.single.details['nextStep'],
+      'useRendererContractWithCombinedCoreTransmissionSupport',
+    );
+    expect(
+      diagnostics.single.details['fields'],
+      containsAll(<String>[
+        'metallicRoughnessTexture',
+        'occlusionTexture',
+        'emissiveTexture',
+      ]),
+    );
+    expect(factory.paths, isEmpty);
+    expect(createCalls, 0);
+    expect(root.mesh!.primitives.single.material, same(originalMaterial));
+  });
+
+  test('transmission candidate rejects unconsumed existing PBR state',
+      () async {
+    final sampler = const flutter_scene.TextureSampling().toSamplerOptions();
+    final texture = _StubTextureSource(sampler);
+    final cases = <({
+      String name,
+      void Function(flutter_scene.PhysicallyBasedMaterial material) configure,
+      List<String> fields,
+    })>[
+      (
+        name: 'metallicRoughness',
+        configure: (material) {
+          material
+            ..metallicFactor = 0.25
+            ..roughnessFactor = 0.4
+            ..metallicRoughnessTexture = texture;
+        },
+        fields: <String>[
+          'metallic',
+          'roughness',
+          'metallicRoughnessTexture',
+        ],
+      ),
+      (
+        name: 'occlusion',
+        configure: (material) {
+          material
+            ..occlusionTexture = texture
+            ..occlusionStrength = 0.6;
+        },
+        fields: <String>['occlusionTexture', 'occlusionStrength'],
+      ),
+      (
+        name: 'emissive',
+        configure: (material) {
+          material
+            ..emissiveFactor = vm.Vector4(0.1, 0.2, 0.3, 1.0)
+            ..emissiveTexture = texture;
+        },
+        fields: <String>['emissiveFactor', 'emissiveTexture'],
+      ),
+      (
+        name: 'alphaMask',
+        configure: (material) {
+          material
+            ..alphaMode = flutter_scene.AlphaMode.mask
+            ..alphaCutoff = 0.3;
+        },
+        fields: <String>['alphaMode', 'alphaCutoff'],
+      ),
+    ];
+
+    for (final entry in cases) {
+      var createCalls = 0;
+      final backend = FlutterSceneMaterialExtensionBackend(
+        bindFallbackTextures: false,
+        createTransmissionMaterial: (_) async {
+          createCalls += 1;
+          return flutter_scene.ShaderMaterial(isOpaqueOverride: false);
+        },
+      );
+      final originalMaterial = flutter_scene.PhysicallyBasedMaterial()
+        ..metallicFactor = 0.0
+        ..roughnessFactor = 0.0;
+      entry.configure(originalMaterial);
+      final originalMetallicRoughness =
+          originalMaterial.metallicRoughnessTexture;
+      final originalOcclusion = originalMaterial.occlusionTexture;
+      final originalEmissive = originalMaterial.emissiveTexture;
+      final originalEmissiveFactor = originalMaterial.emissiveFactor.clone();
+      final root = flutter_scene.Node(
+        name: 'Glass',
+        mesh: flutter_scene.Mesh(_UvStubGeometry(), originalMaterial),
+      );
+
+      final diagnostics = await debugApplyMaterialPatchToRoot(
+        root,
+        PartAddress(
+          nodePath: const <String>['Glass'],
+          primitiveIndex: 0,
+        ),
+        const MaterialPatch(transmission: 1.0),
+        materialExtensionPolicy:
+            const ViewerMaterialExtensionPolicy.experimentalShaders(),
+        materialExtensionBackend: backend,
+      );
+
+      expect(diagnostics, hasLength(1), reason: entry.name);
+      expect(
+        diagnostics.single.details['limitation'],
+        'transmissionCoreInputsUnsupported',
+        reason: entry.name,
+      );
+      expect(
+        diagnostics.single.details['fields'],
+        containsAll(entry.fields),
+        reason: entry.name,
+      );
+      final fieldOrigins =
+          diagnostics.single.details['fieldOrigins'] as Map<String, Object?>;
+      for (final field in entry.fields) {
+        expect(fieldOrigins[field], 'sourceMaterial', reason: entry.name);
+      }
+      expect(createCalls, 0, reason: entry.name);
+      expect(root.mesh!.primitives.single.material, same(originalMaterial));
+      expect(originalMaterial.metallicRoughnessTexture,
+          same(originalMetallicRoughness));
+      expect(originalMaterial.occlusionTexture, same(originalOcclusion));
+      expect(originalMaterial.emissiveTexture, same(originalEmissive));
+      expect(originalMaterial.emissiveFactor, originalEmissiveFactor);
+    }
+  });
+
+  test('candidate transmission loads normal raw and applies scale once',
+      () async {
+    final factory = _RecordingTextureFactory();
+    final shaderMaterial =
+        flutter_scene.ShaderMaterial(isOpaqueOverride: false);
+    final backend = FlutterSceneMaterialExtensionBackend(
+      bindFallbackTextures: false,
+      createTransmissionMaterial: (_) async => shaderMaterial,
+    );
+    final originalMaterial = flutter_scene.PhysicallyBasedMaterial()
+      ..metallicFactor = 0.0
+      ..roughnessFactor = 0.0;
+    final root = flutter_scene.Node(
+      name: 'Glass',
+      mesh: flutter_scene.Mesh(_UvStubGeometry(), originalMaterial),
+    );
+
+    final diagnostics = await debugApplyMaterialPatchToRoot(
+      root,
+      PartAddress(
+        nodePath: const <String>['Glass'],
+        primitiveIndex: 0,
+      ),
+      MaterialPatch(
+        transmission: 1.0,
+        normalTextureBinding: MaterialTextureBinding(
+          source: TextureSource.bytes(_onePixelPng, debugName: 'normal'),
+        ),
+        normalScale: 0.5,
+      ),
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.experimentalShaders(),
+      materialExtensionBackend: backend,
+      materialExtensionSceneViews: <flutter_scene.RenderView>[],
+      textureFactory: factory,
+    );
+
+    expect(diagnostics, isEmpty);
+    expect(factory.paths, <String>['fromImage']);
+    final params = shaderMaterial.getUniformBlock('MaterialParams')!;
+    expect(params.getFloat32(56, Endian.host), closeTo(0.5, 0.0001));
+  });
+
+  test('candidate transmission falls back to source normal scale once',
+      () async {
+    final sourceNormal = _StubTextureSource(
+      const flutter_scene.TextureSampling().toSamplerOptions(),
+    );
+    final shaderMaterial =
+        flutter_scene.ShaderMaterial(isOpaqueOverride: false);
+    final backend = FlutterSceneMaterialExtensionBackend(
+      bindFallbackTextures: false,
+      createTransmissionMaterial: (_) async => shaderMaterial,
+    );
+    final originalMaterial = flutter_scene.PhysicallyBasedMaterial()
+      ..metallicFactor = 0.0
+      ..roughnessFactor = 0.0
+      ..normalTexture = sourceNormal
+      ..normalScale = 0.35;
+    final root = flutter_scene.Node(
+      name: 'Glass',
+      mesh: flutter_scene.Mesh(_UvStubGeometry(), originalMaterial),
+    );
+
+    final diagnostics = await debugApplyMaterialPatchToRoot(
+      root,
+      PartAddress(
+        nodePath: const <String>['Glass'],
+        primitiveIndex: 0,
+      ),
+      const MaterialPatch(transmission: 1.0),
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.experimentalShaders(),
+      materialExtensionBackend: backend,
+      materialExtensionSceneViews: <flutter_scene.RenderView>[],
+    );
+
+    expect(diagnostics, isEmpty);
+    final params = shaderMaterial.getUniformBlock('MaterialParams')!;
+    expect(params.getFloat32(56, Endian.host), closeTo(0.35, 0.0001));
+  });
+
+  test('candidate clearcoat loads normal raw before uniform scaling', () async {
+    final factory = _RecordingTextureFactory();
+    final shaderMaterial = flutter_scene.ShaderMaterial(isOpaqueOverride: true);
+    final backend = FlutterSceneMaterialExtensionBackend(
+      bindFallbackTextures: false,
+      createClearcoatMaterial: (_) async => shaderMaterial,
+    );
+    final originalMaterial = flutter_scene.PhysicallyBasedMaterial();
+    final root = flutter_scene.Node(
+      name: 'Paint',
+      mesh: flutter_scene.Mesh(_UvStubGeometry(), originalMaterial),
+    );
+
+    final diagnostics = await debugApplyMaterialPatchToRoot(
+      root,
+      PartAddress(
+        nodePath: const <String>['Paint'],
+        primitiveIndex: 0,
+      ),
+      MaterialPatch(
+        clearcoat: 1.0,
+        normalTextureBinding: MaterialTextureBinding(
+          source: TextureSource.bytes(_onePixelPng, debugName: 'normal'),
+        ),
+        normalScale: 0.5,
+      ),
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.experimentalShaders(
+        enableClearcoat: true,
+      ),
+      materialExtensionBackend: backend,
+      textureFactory: factory,
+    );
+
+    expect(diagnostics, isEmpty);
+    expect(factory.paths, <String>['fromImage']);
+    final params = shaderMaterial.getUniformBlock('MaterialParams')!;
+    expect(params.getFloat32(32, Endian.host), closeTo(0.5, 0.0001));
+    expect(
+      // ignore: invalid_use_of_internal_member
+      originalMaterial.normalTextureSource,
+      same(factory.createdSources.single),
+    );
+    expect(originalMaterial.normalScale, closeTo(0.5, 0.0001));
+  });
+
   test('adapter maps public alpha modes to flutter_scene alpha modes', () {
     expect(
       debugFlutterSceneAlphaModeFor(MaterialAlphaMode.opaque),
@@ -40,7 +2343,32 @@ void main() {
       debugRequiresPbrFamilyReplacement(const MaterialPatch(roughness: 0.5)),
       isFalse,
     );
+    expect(
+      debugRequiresPbrFamilyReplacement(const MaterialPatch(ior: 0)),
+      isFalse,
+    );
+    expect(
+      debugRequiresPbrFamilyReplacement(const MaterialPatch(ior: 1.5)),
+      isFalse,
+    );
   });
+
+  test(
+    'renderer acceptance applies specular texture roles multiplication and opaque IOR BRDF semantics',
+    () {
+      fail(
+        'A renderer-native acceptance path must prove data/linear alpha for '
+        'specular strength, sRGB-decoded RGB for specular color, factor times '
+        'texture, dielectric energy conservation, metal isolation, and opaque '
+        'IOR including the zero compatibility mode.',
+      );
+    },
+    skip:
+        'blocked: pinned flutter_scene cd6760912fa38beb55f63e388655a1aeabd32fe4 '
+        'has no first-class KHR_materials_specular or opaque-IOR material inputs, '
+        'texture slots, importer fields, or shader contract; fixed dielectric '
+        'F0 remains 0.04.',
+  );
 
   test(
       'adapter routes only supported transmission patches to extension backend',
@@ -297,6 +2625,118 @@ void main() {
     expect(pbr.baseColorFactor.b, 0);
     expect(pbr.alphaMode, flutter_scene.AlphaMode.opaque);
   });
+}
+
+final Uint8List _onePixelPng = Uint8List.fromList(
+  base64Decode(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+  ),
+);
+
+final class _RecordingTextureFactory implements FlutterSceneTextureFactory {
+  _RecordingTextureFactory({this.assetFailure});
+
+  final Object? assetFailure;
+  final List<String> paths = <String>[];
+  final List<flutter_scene.TextureContent> contents =
+      <flutter_scene.TextureContent>[];
+  final List<flutter_scene.TextureSampling> samplings =
+      <flutter_scene.TextureSampling>[];
+  final List<flutter_scene.TextureSource> createdSources =
+      <flutter_scene.TextureSource>[];
+
+  void _record(
+    String path,
+    flutter_scene.TextureContent content,
+    flutter_scene.TextureSampling sampling,
+  ) {
+    paths.add(path);
+    contents.add(content);
+    samplings.add(sampling);
+  }
+
+  flutter_scene.TextureSource _createSource(
+    flutter_scene.TextureSampling sampling,
+  ) {
+    final source = _StubTextureSource(sampling.toSamplerOptions());
+    createdSources.add(source);
+    return source;
+  }
+
+  @override
+  Future<flutter_scene.TextureSource> fromAsset(
+    String assetPath, {
+    required flutter_scene.TextureContent content,
+    required flutter_scene.TextureSampling sampling,
+  }) async {
+    _record('fromAsset', content, sampling);
+    final failure = assetFailure;
+    if (failure != null) {
+      throw failure;
+    }
+    return _createSource(sampling);
+  }
+
+  @override
+  Future<flutter_scene.TextureSource> fromImage(
+    ui.Image image, {
+    required flutter_scene.TextureContent content,
+    required flutter_scene.TextureSampling sampling,
+  }) async {
+    _record('fromImage', content, sampling);
+    return _createSource(sampling);
+  }
+
+  @override
+  flutter_scene.TextureSource fromPixels(
+    Uint8List pixels,
+    int width,
+    int height, {
+    required flutter_scene.TextureContent content,
+    required flutter_scene.TextureSampling sampling,
+  }) {
+    _record('fromPixels', content, sampling);
+    return _createSource(sampling);
+  }
+}
+
+final class _StubTextureSource implements flutter_scene.TextureSource {
+  const _StubTextureSource(this._sampler);
+
+  final flutter_scene_internal_gpu.SamplerOptions _sampler;
+
+  @override
+  flutter_scene_internal_gpu.Texture? get sampledTexture => null;
+
+  @override
+  flutter_scene_internal_gpu.SamplerOptions get sampledSampler => _sampler;
+}
+
+final class _UvStubGeometry extends _StubGeometry {
+  @override
+  // ignore: invalid_use_of_internal_member
+  ({
+    ByteData? vertices,
+    Float32List? positions,
+    Float32List? texCoords,
+    ByteData? indices,
+    flutter_scene_internal_gpu.IndexType indexType,
+    int vertexCount,
+    int indexCount,
+  }) get cpuMeshData {
+    final vertices = ByteData(48)
+      ..setFloat32(24, 0.5, Endian.little)
+      ..setFloat32(28, 0.5, Endian.little);
+    return (
+      vertices: vertices,
+      positions: null,
+      texCoords: null,
+      indices: null,
+      indexType: flutter_scene_internal_gpu.IndexType.int16,
+      vertexCount: 1,
+      indexCount: 0,
+    );
+  }
 }
 
 MaterialExtensionSupport _materialExtensionSupport(

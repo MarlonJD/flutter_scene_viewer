@@ -1,6 +1,8 @@
 import '../diagnostics.dart';
 import '../material_extension_policy.dart';
 import '../material_patch.dart';
+import '../part_address.dart';
+import '../texture_binding.dart';
 
 /// Narrow renderer-native material interface for production extension fields.
 abstract interface class NativeMaterialExtensionMaterial {
@@ -19,20 +21,12 @@ List<ViewerDiagnostic> applyNativeMaterialExtensionPatch({
   required MaterialPatch patch,
   required MaterialExtensionSupport support,
 }) {
-  if (support.backendKind != MaterialExtensionBackendKind.rendererNative ||
-      !_supportsNativeMaterialExtensionPatch(support, patch)) {
-    return <ViewerDiagnostic>[
-      ViewerDiagnostic(
-        code: ViewerDiagnosticCode.unsupportedMaterialFeature,
-        message:
-            'Production material extension patches require renderer-native material fields.',
-        details: <String, Object?>{
-          'backendKind': support.backendKind.name,
-          'status': 'unsupported',
-          'productionBlocker': 'rendererNativeMaterialExtensionContractMissing',
-        },
-      ),
-    ];
+  final diagnostic = nativeMaterialExtensionPatchDiagnostic(
+    support: support,
+    patch: patch,
+  );
+  if (diagnostic != null) {
+    return <ViewerDiagnostic>[diagnostic];
   }
 
   final transmission = patch.transmission;
@@ -71,28 +65,178 @@ List<ViewerDiagnostic> applyNativeMaterialExtensionPatch({
   return const <ViewerDiagnostic>[];
 }
 
-bool _supportsNativeMaterialExtensionPatch(
+bool supportsNativeMaterialExtensionPatch(
   MaterialExtensionSupport support,
   MaterialPatch patch,
-) {
+) =>
+    nativeMaterialExtensionPatchDiagnostic(
+      support: support,
+      patch: patch,
+    ) ==
+    null;
+
+bool hasNativeMaterialExtensionIntent(MaterialPatch patch) =>
+    patch.hasGlassOverride ||
+    patch.hasClearcoatOverride ||
+    patch.hasSpecularOverride ||
+    patch.ior != null;
+
+ViewerDiagnostic? nativeMaterialExtensionPatchDiagnostic({
+  required MaterialExtensionSupport support,
+  required MaterialPatch patch,
+  PartAddress? address,
+}) {
+  if (support.backendKind != MaterialExtensionBackendKind.rendererNative) {
+    return _nativeMaterialExtensionUnsupportedDiagnostic(
+      support: support,
+      address: address,
+    );
+  }
+  final unsupportedTextureSlots = <String>[
+    for (final slot in const <MaterialTextureSlot>[
+      MaterialTextureSlot.transmission,
+      MaterialTextureSlot.thickness,
+      MaterialTextureSlot.clearcoat,
+      MaterialTextureSlot.clearcoatRoughness,
+      MaterialTextureSlot.clearcoatNormal,
+      MaterialTextureSlot.specular,
+      MaterialTextureSlot.specularColor,
+    ])
+      if (patch.textureBindingFor(slot) != null) slot.name,
+  ];
+  if (unsupportedTextureSlots.isNotEmpty) {
+    return ViewerDiagnostic(
+      code: ViewerDiagnosticCode.unsupportedMaterialFeature,
+      message:
+          'The renderer-native material extension contract exposes scalar fields only and cannot consume extension texture bindings.',
+      details: <String, Object?>{
+        if (address != null) 'part': address.debugPath,
+        'limitation': 'rendererNativeExtensionTextureContractMissing',
+        'slots': unsupportedTextureSlots,
+        'backendKind': support.backendKind.name,
+        'status': 'unsupported',
+        'productionBlocker':
+            'rendererNativeMaterialExtensionTextureContractMissing',
+        'nextStep': 'implementRendererNativeExtensionTextureContract',
+      },
+    );
+  }
+  final unsupportedSpecularFields = <String>[
+    if (patch.specular != null) 'specular',
+    if (patch.specularColorFactor != null) 'specularColorFactor',
+  ];
+  if (unsupportedSpecularFields.isNotEmpty) {
+    return ViewerDiagnostic(
+      code: ViewerDiagnosticCode.unsupportedMaterialFeature,
+      message:
+          'The renderer-native material extension contract does not expose specular or specular-color setters.',
+      details: <String, Object?>{
+        if (address != null) 'part': address.debugPath,
+        'feature': 'specular',
+        'limitation': 'rendererNativeSpecularContractMissing',
+        'fields': unsupportedSpecularFields,
+        'backendKind': support.backendKind.name,
+        'status': 'unsupported',
+        'productionBlocker': 'rendererNativeSpecularContractMissing',
+        'nextStep': 'implementRendererNativeSpecularContract',
+      },
+    );
+  }
+  final coreFields = _mixedCorePatchFields(patch);
+  if (coreFields.isNotEmpty && _hasNativeScalarExtensionIntent(patch)) {
+    return ViewerDiagnostic(
+      code: ViewerDiagnosticCode.unsupportedMaterialFeature,
+      message:
+          'The scalar-only renderer-native extension contract cannot apply core PBR state and extension state atomically.',
+      details: <String, Object?>{
+        if (address != null) 'part': address.debugPath,
+        'limitation': 'rendererNativeMixedCoreExtensionPatchUnsupported',
+        'fields': coreFields,
+        'backendKind': support.backendKind.name,
+        'status': 'unsupported',
+        'nextStep': 'implementCombinedRendererNativeMaterialContract',
+      },
+    );
+  }
   if (patch.hasClearcoatOverride &&
       !support.supportFor(MaterialExtensionFeature.clearcoat).available) {
-    return false;
+    return _nativeMaterialExtensionUnsupportedDiagnostic(
+      support: support,
+      address: address,
+    );
   }
-  if ((patch.transmission != null || patch.transmissionTexture != null) &&
+  if (patch.transmission != null &&
       !support.supportFor(MaterialExtensionFeature.transmission).available) {
-    return false;
+    return _nativeMaterialExtensionUnsupportedDiagnostic(
+      support: support,
+      address: address,
+    );
   }
   if (patch.ior != null &&
       !support.supportFor(MaterialExtensionFeature.ior).available) {
-    return false;
+    return _nativeMaterialExtensionUnsupportedDiagnostic(
+      support: support,
+      address: address,
+    );
   }
   if ((patch.thickness != null ||
-          patch.thicknessTexture != null ||
           patch.attenuationColor != null ||
           patch.attenuationDistance != null) &&
       !support.supportFor(MaterialExtensionFeature.volume).available) {
-    return false;
+    return _nativeMaterialExtensionUnsupportedDiagnostic(
+      support: support,
+      address: address,
+    );
   }
-  return true;
+  return null;
 }
+
+bool _hasNativeScalarExtensionIntent(MaterialPatch patch) =>
+    patch.transmission != null ||
+    patch.ior != null ||
+    patch.thickness != null ||
+    patch.attenuationColor != null ||
+    patch.attenuationDistance != null ||
+    patch.clearcoat != null ||
+    patch.clearcoatRoughness != null ||
+    patch.clearcoatNormalScale != null;
+
+List<String> _mixedCorePatchFields(MaterialPatch patch) => <String>[
+      if (patch.baseColorFactor != null) 'baseColorFactor',
+      if (patch.textureBindingFor(MaterialTextureSlot.baseColor) != null)
+        'baseColorTexture',
+      if (patch.textureBindingFor(MaterialTextureSlot.metallicRoughness) !=
+          null)
+        'metallicRoughnessTexture',
+      if (patch.textureBindingFor(MaterialTextureSlot.normal) != null)
+        'normalTexture',
+      if (patch.normalScale != null) 'normalScale',
+      if (patch.metallic != null) 'metallic',
+      if (patch.roughness != null) 'roughness',
+      if (patch.emissiveFactor != null) 'emissiveFactor',
+      if (patch.textureBindingFor(MaterialTextureSlot.emissive) != null)
+        'emissiveTexture',
+      if (patch.textureBindingFor(MaterialTextureSlot.occlusion) != null)
+        'occlusionTexture',
+      if (patch.occlusionStrength != null) 'occlusionStrength',
+      if (patch.alphaMode != null) 'alphaMode',
+      if (patch.alphaCutoff != null) 'alphaCutoff',
+      if (patch.effectMask != null) 'effectMask',
+      if (patch.visible != null) 'visible',
+    ];
+
+ViewerDiagnostic _nativeMaterialExtensionUnsupportedDiagnostic({
+  required MaterialExtensionSupport support,
+  required PartAddress? address,
+}) =>
+    ViewerDiagnostic(
+      code: ViewerDiagnosticCode.unsupportedMaterialFeature,
+      message:
+          'Production material extension patches require renderer-native material fields.',
+      details: <String, Object?>{
+        if (address != null) 'part': address.debugPath,
+        'backendKind': support.backendKind.name,
+        'status': 'unsupported',
+        'productionBlocker': 'rendererNativeMaterialExtensionContractMissing',
+      },
+    );

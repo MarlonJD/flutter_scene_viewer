@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -6,6 +7,7 @@ import 'package:flutter/services.dart';
 import '../diagnostics.dart';
 import 'glb_basisu_rewriter.dart';
 import 'glb_capability_reader.dart';
+import 'glb_decode_budget.dart';
 import 'glb_draco_rewriter.dart';
 
 const String kBasisuTextureExtension = 'KHR_texture_basisu';
@@ -42,19 +44,29 @@ abstract interface class GlbNativeDecoderProbe {
   Future<GlbNativeDecodeResult> decodeGlb({
     required Uint8List bytes,
     required Set<String> requiredExtensions,
+    required GlbDecodeBudget budget,
+    required GlbDecodeBudgetTracker budgetTracker,
     String? source,
   });
+}
+
+enum GlbNativeDecodeOutputAccounting {
+  none,
+  opaqueFinalBytes,
+  componentPayloadsAccounted,
 }
 
 /// Result of rewriting a compressed GLB into importer-ready GLB bytes.
 final class GlbNativeDecodeResult {
   const GlbNativeDecodeResult({
+    required this.outputAccounting,
     this.bytes,
     this.diagnostics = const <ViewerDiagnostic>[],
   });
 
   final Uint8List? bytes;
   final List<ViewerDiagnostic> diagnostics;
+  final GlbNativeDecodeOutputAccounting outputAccounting;
 }
 
 /// Probes the optional native Draco plugin without making it a root dependency.
@@ -220,42 +232,102 @@ final class MethodChannelGlbNativeDecoderProbe
   Future<GlbNativeDecodeResult> decodeGlb({
     required Uint8List bytes,
     required Set<String> requiredExtensions,
+    required GlbDecodeBudget budget,
+    required GlbDecodeBudgetTracker budgetTracker,
     String? source,
   }) async {
     var currentBytes = bytes;
+    var outputAccounting = GlbNativeDecodeOutputAccounting.none;
     final diagnostics = <ViewerDiagnostic>[];
-    if (requiredExtensions.contains(kDracoMeshCompressionExtension)) {
+    final deadline = _NativeDecodeDeadline(budget.decodeTimeout);
+    final needsDraco =
+        requiredExtensions.contains(kDracoMeshCompressionExtension);
+    final needsBasisu = requiredExtensions.contains(kBasisuTextureExtension);
+    if (needsDraco) {
       final result = await _decodeDracoGlb(
         bytes: currentBytes,
         requiredExtensions: requiredExtensions,
+        budget: budget,
+        budgetTracker: budgetTracker,
+        deadline: deadline,
         source: source,
       );
       diagnostics.addAll(result.diagnostics);
+      final accountingDiagnostic = _nativeStageOutputAccountingDiagnostic(
+        result,
+        extension: kDracoMeshCompressionExtension,
+        source: source,
+      );
+      if (accountingDiagnostic != null) {
+        diagnostics.add(accountingDiagnostic);
+        return GlbNativeDecodeResult(
+          outputAccounting: GlbNativeDecodeOutputAccounting.none,
+          diagnostics: List<ViewerDiagnostic>.unmodifiable(diagnostics),
+        );
+      }
       final decodedBytes = result.bytes;
       if (decodedBytes == null) {
         return GlbNativeDecodeResult(
+          outputAccounting: GlbNativeDecodeOutputAccounting.none,
           diagnostics: List<ViewerDiagnostic>.unmodifiable(diagnostics),
         );
       }
       currentBytes = decodedBytes;
+      outputAccounting = result.outputAccounting;
+      if (needsBasisu) {
+        final intermediateDiagnostic = _accountIntermediateNativeOutput(
+          bytes: currentBytes,
+          outputAccounting: outputAccounting,
+          budgetTracker: budgetTracker,
+          extension: kDracoMeshCompressionExtension,
+          source: source,
+        );
+        if (intermediateDiagnostic != null) {
+          diagnostics.add(intermediateDiagnostic);
+          return GlbNativeDecodeResult(
+            outputAccounting: GlbNativeDecodeOutputAccounting.none,
+            diagnostics: List<ViewerDiagnostic>.unmodifiable(diagnostics),
+          );
+        }
+      }
     }
-    if (requiredExtensions.contains(kBasisuTextureExtension)) {
+    if (needsBasisu) {
       final result = await _decodeBasisuGlb(
         bytes: currentBytes,
         requiredExtensions: requiredExtensions,
+        budget: budget,
+        budgetTracker: budgetTracker,
+        deadline: deadline,
         source: source,
       );
       diagnostics.addAll(result.diagnostics);
+      final accountingDiagnostic = _nativeStageOutputAccountingDiagnostic(
+        result,
+        extension: kBasisuTextureExtension,
+        source: source,
+      );
+      if (accountingDiagnostic != null) {
+        diagnostics.add(accountingDiagnostic);
+        return GlbNativeDecodeResult(
+          outputAccounting: GlbNativeDecodeOutputAccounting.none,
+          diagnostics: List<ViewerDiagnostic>.unmodifiable(diagnostics),
+        );
+      }
       final decodedBytes = result.bytes;
       if (decodedBytes == null) {
         return GlbNativeDecodeResult(
+          outputAccounting: GlbNativeDecodeOutputAccounting.none,
           diagnostics: List<ViewerDiagnostic>.unmodifiable(diagnostics),
         );
       }
       currentBytes = decodedBytes;
+      outputAccounting = result.outputAccounting;
     }
     return GlbNativeDecodeResult(
       bytes: currentBytes,
+      outputAccounting: outputAccounting == GlbNativeDecodeOutputAccounting.none
+          ? GlbNativeDecodeOutputAccounting.opaqueFinalBytes
+          : outputAccounting,
       diagnostics: List<ViewerDiagnostic>.unmodifiable(diagnostics),
     );
   }
@@ -263,25 +335,71 @@ final class MethodChannelGlbNativeDecoderProbe
   Future<GlbNativeDecodeResult> _decodeDracoGlb({
     required Uint8List bytes,
     required Set<String> requiredExtensions,
+    required GlbDecodeBudget budget,
+    required GlbDecodeBudgetTracker budgetTracker,
+    required _NativeDecodeDeadline deadline,
     String? source,
   }) async {
     try {
+      final requestRead = _dracoPrimitiveRequestsFromGlb(
+        bytes,
+        source: source,
+      );
+      final requestDiagnostic = requestRead.diagnostic;
+      if (requestDiagnostic != null) {
+        return GlbNativeDecodeResult(
+          outputAccounting: GlbNativeDecodeOutputAccounting.none,
+          diagnostics: <ViewerDiagnostic>[requestDiagnostic],
+        );
+      }
+      final remaining = deadline.remainingOrThrow();
       final result = await _dracoChannel.invokeMapMethod<String, Object?>(
         'decodeGlb',
         <String, Object?>{
           'bytes': bytes,
           'requiredExtensions': requiredExtensions.toList(growable: false),
           'source': source,
-          'dracoPrimitives': _dracoPrimitiveRequestsFromGlb(bytes),
+          'dracoPrimitives': requestRead.requests,
+          'decodeBudget': _nativeDecodeBudgetMap(budget),
+          'decodeBudgetState': _nativeDecodeBudgetStateMap(budgetTracker),
         },
-      );
+      ).timeout(remaining);
       return _decodeResultFromMethodResult(
         result,
         sourceBytes: bytes,
         source: source,
+        budget: budget,
+        budgetTracker: budgetTracker,
+      );
+    } on _NativeDecodeDeadlineExpired {
+      return GlbNativeDecodeResult(
+        outputAccounting: GlbNativeDecodeOutputAccounting.none,
+        diagnostics: <ViewerDiagnostic>[
+          _nativeDecodeTimeoutDiagnostic(
+            extension: kDracoMeshCompressionExtension,
+            decoder: 'draco',
+            source: source,
+            timeout: budget.decodeTimeout,
+            dispatched: false,
+          ),
+        ],
+      );
+    } on TimeoutException {
+      return GlbNativeDecodeResult(
+        outputAccounting: GlbNativeDecodeOutputAccounting.none,
+        diagnostics: <ViewerDiagnostic>[
+          _nativeDecodeTimeoutDiagnostic(
+            extension: kDracoMeshCompressionExtension,
+            decoder: 'draco',
+            source: source,
+            timeout: budget.decodeTimeout,
+            dispatched: true,
+          ),
+        ],
       );
     } on MissingPluginException {
       return GlbNativeDecodeResult(
+        outputAccounting: GlbNativeDecodeOutputAccounting.none,
         diagnostics: <ViewerDiagnostic>[
           _dracoUnavailableDiagnostic(
             source: source,
@@ -294,6 +412,7 @@ final class MethodChannelGlbNativeDecoderProbe
     } on PlatformException catch (error) {
       final missingPlugin = error.code == 'channel-error';
       return GlbNativeDecodeResult(
+        outputAccounting: GlbNativeDecodeOutputAccounting.none,
         diagnostics: <ViewerDiagnostic>[
           _dracoUnavailableDiagnostic(
             source: source,
@@ -309,6 +428,7 @@ final class MethodChannelGlbNativeDecoderProbe
       );
     } on Object catch (error) {
       return GlbNativeDecodeResult(
+        outputAccounting: GlbNativeDecodeOutputAccounting.none,
         diagnostics: <ViewerDiagnostic>[
           _dracoUnavailableDiagnostic(
             source: source,
@@ -324,9 +444,13 @@ final class MethodChannelGlbNativeDecoderProbe
   Future<GlbNativeDecodeResult> _decodeBasisuGlb({
     required Uint8List bytes,
     required Set<String> requiredExtensions,
+    required GlbDecodeBudget budget,
+    required GlbDecodeBudgetTracker budgetTracker,
+    required _NativeDecodeDeadline deadline,
     String? source,
   }) async {
     try {
+      final remaining = deadline.remainingOrThrow();
       final result = await _basisuChannel.invokeMapMethod<String, Object?>(
         'decodeGlb',
         <String, Object?>{
@@ -334,15 +458,46 @@ final class MethodChannelGlbNativeDecoderProbe
           'requiredExtensions': requiredExtensions.toList(growable: false),
           'source': source,
           'basisuImages': _basisuImageRequestsFromGlb(bytes),
+          'decodeBudget': _nativeDecodeBudgetMap(budget),
+          'decodeBudgetState': _nativeDecodeBudgetStateMap(budgetTracker),
         },
-      );
+      ).timeout(remaining);
       return _basisuDecodeResultFromMethodResult(
         result,
         sourceBytes: bytes,
         source: source,
+        budget: budget,
+        budgetTracker: budgetTracker,
+      );
+    } on _NativeDecodeDeadlineExpired {
+      return GlbNativeDecodeResult(
+        outputAccounting: GlbNativeDecodeOutputAccounting.none,
+        diagnostics: <ViewerDiagnostic>[
+          _nativeDecodeTimeoutDiagnostic(
+            extension: kBasisuTextureExtension,
+            decoder: 'basisu',
+            source: source,
+            timeout: budget.decodeTimeout,
+            dispatched: false,
+          ),
+        ],
+      );
+    } on TimeoutException {
+      return GlbNativeDecodeResult(
+        outputAccounting: GlbNativeDecodeOutputAccounting.none,
+        diagnostics: <ViewerDiagnostic>[
+          _nativeDecodeTimeoutDiagnostic(
+            extension: kBasisuTextureExtension,
+            decoder: 'basisu',
+            source: source,
+            timeout: budget.decodeTimeout,
+            dispatched: true,
+          ),
+        ],
       );
     } on MissingPluginException {
       return GlbNativeDecodeResult(
+        outputAccounting: GlbNativeDecodeOutputAccounting.none,
         diagnostics: <ViewerDiagnostic>[
           _basisuUnavailableDiagnostic(
             source: source,
@@ -355,6 +510,7 @@ final class MethodChannelGlbNativeDecoderProbe
     } on PlatformException catch (error) {
       final missingPlugin = error.code == 'channel-error';
       return GlbNativeDecodeResult(
+        outputAccounting: GlbNativeDecodeOutputAccounting.none,
         diagnostics: <ViewerDiagnostic>[
           _basisuUnavailableDiagnostic(
             source: source,
@@ -370,6 +526,7 @@ final class MethodChannelGlbNativeDecoderProbe
       );
     } on Object catch (error) {
       return GlbNativeDecodeResult(
+        outputAccounting: GlbNativeDecodeOutputAccounting.none,
         diagnostics: <ViewerDiagnostic>[
           _basisuUnavailableDiagnostic(
             source: source,
@@ -381,6 +538,114 @@ final class MethodChannelGlbNativeDecoderProbe
       );
     }
   }
+}
+
+final class _NativeDecodeDeadline {
+  _NativeDecodeDeadline(this.timeout) : _stopwatch = Stopwatch()..start();
+
+  final Duration timeout;
+  final Stopwatch _stopwatch;
+
+  Duration remainingOrThrow() {
+    final remainingMicroseconds =
+        timeout.inMicroseconds - _stopwatch.elapsedMicroseconds;
+    if (remainingMicroseconds <= 0) {
+      throw const _NativeDecodeDeadlineExpired();
+    }
+    return Duration(microseconds: remainingMicroseconds);
+  }
+}
+
+final class _NativeDecodeDeadlineExpired implements Exception {
+  const _NativeDecodeDeadlineExpired();
+}
+
+ViewerDiagnostic _nativeDecodeTimeoutDiagnostic({
+  required String extension,
+  required String decoder,
+  required String? source,
+  required Duration timeout,
+  required bool dispatched,
+}) {
+  return ViewerDiagnostic(
+    code: ViewerDiagnosticCode.modelLoadTimeout,
+    message: 'Native $decoder decoding exceeded the configured decode timeout.',
+    details: <String, Object?>{
+      'source': source,
+      'extension': extension,
+      'decoder': decoder,
+      'required': true,
+      'stage': 'nativeDecodeMethodChannel',
+      'limitation': 'nativeDecodeDeadline',
+      'status': 'timedOut',
+      'timeoutMilliseconds': timeout.inMilliseconds,
+      'nativeDispatch': dispatched ? 'started' : 'notStarted',
+      'nativeResourceRelease': dispatched ? 'notGuaranteed' : 'notApplicable',
+      'lateResult': dispatched ? 'discardedByDart' : 'notApplicable',
+      'fallback': 'diagnosticOnly',
+    },
+  );
+}
+
+ViewerDiagnostic? _nativeStageOutputAccountingDiagnostic(
+  GlbNativeDecodeResult result, {
+  required String extension,
+  required String? source,
+}) {
+  final hasBytes = result.bytes != null;
+  final hasAccounting =
+      result.outputAccounting != GlbNativeDecodeOutputAccounting.none;
+  if (hasBytes == hasAccounting) {
+    return null;
+  }
+  return _nativeOutputAccountingDiagnostic(
+    extension: extension,
+    source: source,
+    outputAccounting: result.outputAccounting,
+    stage: 'nativeDecodedGlbOutput',
+    hasBytes: hasBytes,
+  );
+}
+
+ViewerDiagnostic? _accountIntermediateNativeOutput({
+  required Uint8List bytes,
+  required GlbNativeDecodeOutputAccounting outputAccounting,
+  required GlbDecodeBudgetTracker budgetTracker,
+  required String extension,
+  required String? source,
+}) {
+  if (outputAccounting == GlbNativeDecodeOutputAccounting.none) {
+    return _nativeOutputAccountingDiagnostic(
+      extension: extension,
+      source: source,
+      outputAccounting: outputAccounting,
+      stage: 'nativeDecodedGlbIntermediateOutput',
+      hasBytes: true,
+    );
+  }
+  try {
+    switch (outputAccounting) {
+      case GlbNativeDecodeOutputAccounting.none:
+        break;
+      case GlbNativeDecodeOutputAccounting.opaqueFinalBytes:
+        budgetTracker.reserveNativeOutputBytes(
+          bytes.lengthInBytes,
+          stage: 'nativeDecodedGlbIntermediateOutput',
+        );
+      case GlbNativeDecodeOutputAccounting.componentPayloadsAccounted:
+        budgetTracker.checkNativeOutputBytes(
+          bytes.lengthInBytes,
+          stage: 'nativeDecodedGlbIntermediateOutput',
+        );
+    }
+  } on GlbDecodeBudgetExceeded catch (error) {
+    return _nativeOutputBudgetDiagnostic(
+      error,
+      extension: extension,
+      source: source,
+    );
+  }
+  return null;
 }
 
 GlbNativeDecoderAvailability _mergeAvailabilities(
@@ -396,6 +661,63 @@ GlbNativeDecoderAvailability _mergeAvailabilities(
     capabilities: capabilities,
     diagnosticsByExtension:
         Map<String, ViewerDiagnostic>.unmodifiable(diagnosticsByExtension),
+  );
+}
+
+ViewerDiagnostic _nativeOutputAccountingDiagnostic({
+  required String extension,
+  required String? source,
+  required GlbNativeDecodeOutputAccounting outputAccounting,
+  required String stage,
+  required bool hasBytes,
+}) {
+  return ViewerDiagnostic(
+    code: ViewerDiagnosticCode.unsupportedModelFeature,
+    message: 'Native decoder returned inconsistent output accounting.',
+    details: <String, Object?>{
+      'source': source,
+      'extension': extension,
+      'decoder':
+          extension == kDracoMeshCompressionExtension ? 'draco' : 'basisu',
+      'required': true,
+      'limitation': 'nativeDecodeOutputAccounting',
+      'status': 'malformedOutput',
+      'stage': stage,
+      'field': 'outputAccounting',
+      'limit':
+          hasBytes ? 'opaqueFinalBytes or componentPayloadsAccounted' : 'none',
+      'actual': outputAccounting.name,
+      'bytesPresent': hasBytes,
+    },
+  );
+}
+
+ViewerDiagnostic _nativeOutputBudgetDiagnostic(
+  GlbDecodeBudgetExceeded error, {
+  required String extension,
+  required String? source,
+}) {
+  return ViewerDiagnostic(
+    code: ViewerDiagnosticCode.unsupportedModelFeature,
+    message: 'Native decoded GLB exceeded the configured decode budget.',
+    details: <String, Object?>{
+      'source': source,
+      'extension': extension,
+      'decoder':
+          extension == kDracoMeshCompressionExtension ? 'draco' : 'basisu',
+      'required': true,
+      'limitation': 'decodeBudget',
+      'status': error.status,
+      'stage': error.stage,
+      'field': error.field,
+      'limit': error.limit,
+      'actual': error.actual,
+      'actualExact': error.actualExact,
+      'actualExceedsMaxSafeInteger': error.actualExceedsMaxSafeInteger,
+      if (error.actualLowerBound != null)
+        'actualLowerBound': error.actualLowerBound,
+      if (error.operands.isNotEmpty) 'operands': error.operands,
+    },
   );
 }
 
@@ -471,6 +793,8 @@ GlbNativeDecodeResult _decodeResultFromMethodResult(
   Map<String, Object?>? result, {
   required Uint8List sourceBytes,
   required String? source,
+  required GlbDecodeBudget budget,
+  required GlbDecodeBudgetTracker budgetTracker,
 }) {
   final diagnostics = <ViewerDiagnostic>[];
   final rawDiagnostics = result?['diagnostics'];
@@ -486,6 +810,7 @@ GlbNativeDecodeResult _decodeResultFromMethodResult(
   if (bytes != null) {
     return GlbNativeDecodeResult(
       bytes: bytes,
+      outputAccounting: GlbNativeDecodeOutputAccounting.opaqueFinalBytes,
       diagnostics: List<ViewerDiagnostic>.unmodifiable(diagnostics),
     );
   }
@@ -497,9 +822,14 @@ GlbNativeDecodeResult _decodeResultFromMethodResult(
       sourceBytes,
       decodedPrimitives: decodedPrimitives,
       debugName: source,
+      budget: budget,
+      budgetTracker: budgetTracker,
     );
     return GlbNativeDecodeResult(
       bytes: rewrite.bytes,
+      outputAccounting: rewrite.bytes == null
+          ? GlbNativeDecodeOutputAccounting.none
+          : GlbNativeDecodeOutputAccounting.componentPayloadsAccounted,
       diagnostics: List<ViewerDiagnostic>.unmodifiable(<ViewerDiagnostic>[
         ...diagnostics,
         ...rewrite.diagnostics,
@@ -516,6 +846,7 @@ GlbNativeDecodeResult _decodeResultFromMethodResult(
     );
   }
   return GlbNativeDecodeResult(
+    outputAccounting: GlbNativeDecodeOutputAccounting.none,
     diagnostics: List<ViewerDiagnostic>.unmodifiable(diagnostics),
   );
 }
@@ -524,6 +855,8 @@ GlbNativeDecodeResult _basisuDecodeResultFromMethodResult(
   Map<String, Object?>? result, {
   required Uint8List sourceBytes,
   required String? source,
+  required GlbDecodeBudget budget,
+  required GlbDecodeBudgetTracker budgetTracker,
 }) {
   final diagnostics = <ViewerDiagnostic>[];
   final rawDiagnostics = result?['diagnostics'];
@@ -539,6 +872,7 @@ GlbNativeDecodeResult _basisuDecodeResultFromMethodResult(
   if (bytes != null) {
     return GlbNativeDecodeResult(
       bytes: bytes,
+      outputAccounting: GlbNativeDecodeOutputAccounting.opaqueFinalBytes,
       diagnostics: List<ViewerDiagnostic>.unmodifiable(diagnostics),
     );
   }
@@ -550,9 +884,14 @@ GlbNativeDecodeResult _basisuDecodeResultFromMethodResult(
       sourceBytes,
       decodedImages: decodedImages,
       debugName: source,
+      budget: budget,
+      budgetTracker: budgetTracker,
     );
     return GlbNativeDecodeResult(
       bytes: rewrite.bytes,
+      outputAccounting: rewrite.bytes == null
+          ? GlbNativeDecodeOutputAccounting.none
+          : GlbNativeDecodeOutputAccounting.componentPayloadsAccounted,
       diagnostics: List<ViewerDiagnostic>.unmodifiable(<ViewerDiagnostic>[
         ...diagnostics,
         ...rewrite.diagnostics,
@@ -570,6 +909,7 @@ GlbNativeDecodeResult _basisuDecodeResultFromMethodResult(
     );
   }
   return GlbNativeDecodeResult(
+    outputAccounting: GlbNativeDecodeOutputAccounting.none,
     diagnostics: List<ViewerDiagnostic>.unmodifiable(diagnostics),
   );
 }
@@ -669,12 +1009,16 @@ List<GlbDecodedBasisuImage> _decodedBasisuImagesFromValue(Object? value) {
     }
     final imageIndex = rawImage['imageIndex'];
     final mimeType = rawImage['mimeType'];
+    final width = rawImage['width'];
+    final height = rawImage['height'];
     final bytes = _bytesFromValue(rawImage['bytes']);
-    if (imageIndex is int && mimeType is String && bytes != null) {
+    if (bytes != null) {
       decoded.add(
         GlbDecodedBasisuImage(
-          imageIndex: imageIndex,
-          mimeType: mimeType,
+          imageIndex: imageIndex is int ? imageIndex : -1,
+          mimeType: mimeType is String ? mimeType : '',
+          width: width is int ? width : -1,
+          height: height is int ? height : -1,
           bytes: bytes,
         ),
       );
@@ -693,18 +1037,21 @@ Map<String, Object?> _objectMap(Object? value) {
   };
 }
 
-List<Object?> _dracoPrimitiveRequestsFromGlb(Uint8List bytes) {
+_DracoNativeRequestReadResult _dracoPrimitiveRequestsFromGlb(
+  Uint8List bytes, {
+  required String? source,
+}) {
   final glb = _readGlbForNativeDecode(bytes);
   final json = glb?.json;
   final bin = glb?.bin;
   if (json == null || bin == null) {
-    return const <Object?>[];
+    return const _DracoNativeRequestReadResult();
   }
   final bufferViews = _list(json['bufferViews']);
   final accessors = _list(json['accessors']);
   final meshes = _list(json['meshes']);
   if (bufferViews == null || accessors == null || meshes == null) {
-    return const <Object?>[];
+    return const _DracoNativeRequestReadResult();
   }
 
   final requests = <Object?>[];
@@ -721,6 +1068,17 @@ List<Object?> _dracoPrimitiveRequestsFromGlb(Uint8List bytes) {
           _map(_map(primitive?['extensions'])?[kDracoMeshCompressionExtension]);
       if (primitive == null || draco == null) {
         continue;
+      }
+      final authoredMode = primitive['mode'];
+      if (authoredMode != null && authoredMode != 4) {
+        return _DracoNativeRequestReadResult(
+          diagnostic: _dracoNativePrimitiveModeDiagnostic(
+            source: source,
+            json: json,
+            field: 'meshes[$meshIndex].primitives[$primitiveIndex].mode',
+            actual: authoredMode,
+          ),
+        );
       }
       final bufferViewIndex = _intValue(draco['bufferView']);
       final compressedBytes = _bufferViewBytes(
@@ -741,17 +1099,94 @@ List<Object?> _dracoPrimitiveRequestsFromGlb(Uint8List bytes) {
       for (final entry in compressedAttributes.entries) {
         final name = entry.key;
         final dracoAttributeId = _intValue(entry.value);
-        if (dracoAttributeId == null) {
-          continue;
+        if (dracoAttributeId == null ||
+            dracoAttributeId < 0 ||
+            dracoAttributeId > 0xffffffff) {
+          return _DracoNativeRequestReadResult(
+            diagnostic: _dracoNativeRequestDiagnostic(
+              source: source,
+              json: json,
+              field:
+                  'meshes[$meshIndex].primitives[$primitiveIndex].extensions.$kDracoMeshCompressionExtension.attributes.$name',
+              actual: entry.value,
+              attribute: name,
+            ),
+          );
         }
         attributes[name] = dracoAttributeId;
-        final accessorSchema = _accessorDecodeSchema(
-          accessors,
-          _intValue(primitiveAttributes[name]),
-        );
-        if (accessorSchema != null) {
-          attributeAccessors[name] = accessorSchema;
+      }
+      int? vertexAccessorIndex;
+      for (final entry in primitiveAttributes.entries) {
+        final accessorIndex = _intValue(entry.value);
+        if (accessorIndex == null ||
+            accessorIndex < 0 ||
+            accessorIndex >= accessors.length) {
+          return _DracoNativeRequestReadResult(
+            diagnostic: _dracoNativeRequestDiagnostic(
+              source: source,
+              json: json,
+              field:
+                  'meshes[$meshIndex].primitives[$primitiveIndex].attributes.${entry.key}',
+              actual: entry.value,
+              attribute: entry.key,
+            ),
+          );
         }
+        final accessorRead = _nativeDracoAccessorSchema(
+          accessors[accessorIndex],
+          accessorIndex: accessorIndex,
+          indices: false,
+        );
+        if (accessorRead.schema == null) {
+          return _DracoNativeRequestReadResult(
+            diagnostic: _dracoNativeRequestDiagnostic(
+              source: source,
+              json: json,
+              field: accessorRead.field!,
+              actual: accessorRead.actual,
+              accessorIndex: accessorIndex,
+              attribute: entry.key,
+            ),
+          );
+        }
+        attributeAccessors[entry.key] = accessorRead.schema;
+        if (vertexAccessorIndex == null || entry.key == 'POSITION') {
+          vertexAccessorIndex = accessorIndex;
+        }
+      }
+
+      Map<String, Object?>? indicesAccessor;
+      if (primitive.containsKey('indices')) {
+        final accessorIndex = _intValue(primitive['indices']);
+        if (accessorIndex == null ||
+            accessorIndex < 0 ||
+            accessorIndex >= accessors.length) {
+          return _DracoNativeRequestReadResult(
+            diagnostic: _dracoNativeRequestDiagnostic(
+              source: source,
+              json: json,
+              field: 'meshes[$meshIndex].primitives[$primitiveIndex].indices',
+              actual: primitive['indices'],
+            ),
+          );
+        }
+        final accessorRead = _nativeDracoAccessorSchema(
+          accessors[accessorIndex],
+          accessorIndex: accessorIndex,
+          indices: true,
+        );
+        if (accessorRead.schema == null) {
+          return _DracoNativeRequestReadResult(
+            diagnostic: _dracoNativeRequestDiagnostic(
+              source: source,
+              json: json,
+              field: accessorRead.field!,
+              actual: accessorRead.actual,
+              accessorIndex: accessorIndex,
+            ),
+          );
+        }
+        indicesAccessor = accessorRead.schema;
       }
 
       requests.add(<String, Object?>{
@@ -761,14 +1196,65 @@ List<Object?> _dracoPrimitiveRequestsFromGlb(Uint8List bytes) {
         'compressedBytes': compressedBytes,
         'attributes': attributes,
         'attributeAccessors': attributeAccessors,
-        'indicesAccessor': _accessorDecodeSchema(
-          accessors,
-          _intValue(primitive['indices']),
-        ),
+        'vertexAccessorIndex': vertexAccessorIndex,
+        'indicesAccessor': indicesAccessor,
       });
     }
   }
-  return List<Object?>.unmodifiable(requests);
+  return _DracoNativeRequestReadResult(
+    requests: List<Object?>.unmodifiable(requests),
+  );
+}
+
+ViewerDiagnostic _dracoNativePrimitiveModeDiagnostic({
+  required String? source,
+  required Map<String, Object?> json,
+  required String field,
+  required Object actual,
+}) {
+  final requiredExtensions = _list(json['extensionsRequired']);
+  return ViewerDiagnostic(
+    code: ViewerDiagnosticCode.unsupportedModelFeature,
+    message: 'The native Draco bridge only preserves TRIANGLES topology.',
+    details: <String, Object?>{
+      'source': source,
+      'extension': kDracoMeshCompressionExtension,
+      'decoder': 'draco',
+      'required':
+          requiredExtensions?.contains(kDracoMeshCompressionExtension) ?? true,
+      'limitation': 'dracoPrimitiveMode',
+      'status': 'unsupportedLayout',
+      'stage': 'dracoNativeRequestPreflight',
+      'field': field,
+      'limit': 4,
+      'actual': actual,
+    },
+  );
+}
+
+Map<String, Object?> _nativeDecodeBudgetMap(GlbDecodeBudget budget) {
+  return <String, Object?>{
+    'maxJsonBytes': budget.maxJsonBytes,
+    'maxTotalDecodedBytes': budget.maxTotalDecodedBytes,
+    'maxAccessors': budget.maxAccessors,
+    'maxVertices': budget.maxVertices,
+    'maxIndices': budget.maxIndices,
+    'maxTexturePixels': budget.maxTexturePixels,
+    'maxNativeOutputBytes': budget.maxNativeOutputBytes,
+  };
+}
+
+Map<String, Object?> _nativeDecodeBudgetStateMap(
+  GlbDecodeBudgetTracker tracker,
+) {
+  return <String, Object?>{
+    'totalDecodedBytes': tracker.totalDecodedBytes,
+    'nativeOutputBytes': tracker.nativeOutputBytes,
+    'accessors': tracker.accessors,
+    'vertices': tracker.vertices,
+    'indices': tracker.indices,
+    'texturePixels': tracker.texturePixels,
+  };
 }
 
 List<Object?> _basisuImageRequestsFromGlb(Uint8List bytes) {
@@ -785,7 +1271,114 @@ List<Object?> _basisuImageRequestsFromGlb(Uint8List bytes) {
     return const <Object?>[];
   }
 
+  const redChannel = 1;
+  const greenChannel = 2;
+  const blueChannel = 4;
+  const alphaChannel = 8;
+  const rgbChannels = redChannel | greenChannel | blueChannel;
+  final textureColorChannels = List<int>.filled(textures.length, 0);
+  final textureNonColorChannels = List<int>.filled(textures.length, 0);
+  void addTextureInfoChannels(
+    Object? rawTextureInfo, {
+    int colorChannels = 0,
+    int nonColorChannels = 0,
+  }) {
+    final textureInfo = _map(rawTextureInfo);
+    final textureIndex = _intValue(textureInfo?['index']);
+    if (textureIndex == null ||
+        textureIndex < 0 ||
+        textureIndex >= textureColorChannels.length) {
+      return;
+    }
+    textureColorChannels[textureIndex] |= colorChannels;
+    textureNonColorChannels[textureIndex] |= nonColorChannels;
+  }
+
+  for (final rawMaterial in _list(json['materials']) ?? const <Object?>[]) {
+    final material = _map(rawMaterial);
+    if (material == null) {
+      continue;
+    }
+    final pbr = _map(material['pbrMetallicRoughness']);
+    final alphaMode = material['alphaMode'];
+    final baseColorUsesAlpha = alphaMode == 'MASK' || alphaMode == 'BLEND';
+    addTextureInfoChannels(
+      pbr?['baseColorTexture'],
+      colorChannels: rgbChannels,
+      nonColorChannels: baseColorUsesAlpha ? alphaChannel : 0,
+    );
+    addTextureInfoChannels(
+      pbr?['metallicRoughnessTexture'],
+      nonColorChannels: greenChannel | blueChannel,
+    );
+    addTextureInfoChannels(
+      material['emissiveTexture'],
+      colorChannels: rgbChannels,
+    );
+    addTextureInfoChannels(
+      material['normalTexture'],
+      nonColorChannels: rgbChannels,
+    );
+    addTextureInfoChannels(
+      material['occlusionTexture'],
+      nonColorChannels: redChannel,
+    );
+
+    final extensions = _map(material['extensions']);
+    final specular = _map(extensions?['KHR_materials_specular']);
+    addTextureInfoChannels(
+      specular?['specularColorTexture'],
+      colorChannels: rgbChannels,
+    );
+    addTextureInfoChannels(
+      specular?['specularTexture'],
+      nonColorChannels: alphaChannel,
+    );
+    final clearcoat = _map(extensions?['KHR_materials_clearcoat']);
+    addTextureInfoChannels(
+      clearcoat?['clearcoatTexture'],
+      nonColorChannels: rgbChannels,
+    );
+    addTextureInfoChannels(
+      clearcoat?['clearcoatRoughnessTexture'],
+      nonColorChannels: rgbChannels,
+    );
+    addTextureInfoChannels(
+      clearcoat?['clearcoatNormalTexture'],
+      nonColorChannels: rgbChannels,
+    );
+    final transmission = _map(extensions?['KHR_materials_transmission']);
+    addTextureInfoChannels(
+      transmission?['transmissionTexture'],
+      nonColorChannels: redChannel,
+    );
+    final volume = _map(extensions?['KHR_materials_volume']);
+    addTextureInfoChannels(
+      volume?['thicknessTexture'],
+      nonColorChannels: greenChannel,
+    );
+  }
+
+  final imageColorChannels = <int, int>{};
+  final imageNonColorChannels = <int, int>{};
+  for (var textureIndex = 0;
+      textureIndex < textures.length;
+      textureIndex += 1) {
+    final texture = _map(textures[textureIndex]);
+    final basisu = _map(_map(texture?['extensions'])?[kBasisuTextureExtension]);
+    final imageIndex = _intValue(basisu?['source']);
+    if (imageIndex == null || imageIndex < 0 || imageIndex >= images.length) {
+      continue;
+    }
+    imageColorChannels[imageIndex] = (imageColorChannels[imageIndex] ?? 0) |
+        textureColorChannels[textureIndex];
+    imageNonColorChannels[imageIndex] =
+        (imageNonColorChannels[imageIndex] ?? 0) |
+            textureNonColorChannels[textureIndex];
+  }
+
   final requests = <Object?>[];
+  final requestedImageIndices = <int>{};
   for (var textureIndex = 0;
       textureIndex < textures.length;
       textureIndex += 1) {
@@ -798,15 +1391,37 @@ List<Object?> _basisuImageRequestsFromGlb(Uint8List bytes) {
     if (imageIndex == null || imageIndex < 0 || imageIndex >= images.length) {
       continue;
     }
+    if (!requestedImageIndices.add(imageIndex)) {
+      continue;
+    }
     final image = _map(images[imageIndex]);
     final bufferViewIndex = _intValue(image?['bufferView']);
     final imageBytes = _bufferViewBytes(bufferViews, bin, bufferViewIndex);
     if (imageBytes == null) {
       continue;
     }
+    final colorChannels = imageColorChannels[imageIndex] ?? 0;
+    final nonColorChannels = imageNonColorChannels[imageIndex] ?? 0;
+    final sampledChannels = colorChannels | nonColorChannels;
     requests.add(<String, Object?>{
       'textureIndex': textureIndex,
       'imageIndex': imageIndex,
+      'usageRole': colorChannels != 0 && (nonColorChannels & rgbChannels) != 0
+          ? 'ambiguous'
+          : colorChannels != 0
+              ? 'color'
+              : nonColorChannels != 0
+                  ? 'nonColor'
+                  : 'structuralOnly',
+      'channelLayout': sampledChannels & alphaChannel != 0
+          ? 'rgba'
+          : sampledChannels & blueChannel != 0
+              ? 'rgb'
+              : sampledChannels & greenChannel != 0
+                  ? 'rg'
+                  : sampledChannels & redChannel != 0
+                      ? 'r'
+                      : 'structuralOnly',
       'bufferView': bufferViewIndex,
       'mimeType': image?['mimeType'],
       'uri': image?['uri'],
@@ -816,29 +1431,105 @@ List<Object?> _basisuImageRequestsFromGlb(Uint8List bytes) {
   return List<Object?>.unmodifiable(requests);
 }
 
-Map<String, Object?>? _accessorDecodeSchema(
-  List<Object?> accessors,
-  int? accessorIndex,
-) {
-  if (accessorIndex == null ||
-      accessorIndex < 0 ||
-      accessorIndex >= accessors.length) {
-    return null;
+_NativeDracoAccessorRead _nativeDracoAccessorSchema(
+  Object? rawAccessor, {
+  required int accessorIndex,
+  required bool indices,
+}) {
+  final accessor = _map(rawAccessor);
+  if (accessor == null) {
+    return _NativeDracoAccessorRead.invalid(
+      field: 'accessors[$accessorIndex]',
+      actual: rawAccessor,
+    );
   }
-  final accessor = _map(accessors[accessorIndex]);
-  final componentType = _intValue(accessor?['componentType']);
-  final count = _intValue(accessor?['count']);
-  final type = accessor?['type'];
-  if (componentType == null || count == null || type is! String) {
-    return null;
+  final rawComponentType = accessor['componentType'];
+  final componentType = _intValue(rawComponentType);
+  final componentBytes = switch (componentType) {
+    5120 || 5121 => 1,
+    5122 || 5123 => 2,
+    5125 || 5126 => 4,
+    _ => null,
+  };
+  if (componentBytes == null ||
+      (indices &&
+          componentType != 5121 &&
+          componentType != 5123 &&
+          componentType != 5125)) {
+    return _NativeDracoAccessorRead.invalid(
+      field: 'accessors[$accessorIndex].componentType',
+      actual: rawComponentType,
+    );
   }
-  return <String, Object?>{
+  final type = accessor['type'];
+  final componentCount = switch (type) {
+    'SCALAR' => 1,
+    'VEC2' => 2,
+    'VEC3' => 3,
+    'VEC4' => 4,
+    _ => null,
+  };
+  if (componentCount == null || (indices && type != 'SCALAR')) {
+    return _NativeDracoAccessorRead.invalid(
+      field: 'accessors[$accessorIndex].type',
+      actual: type,
+    );
+  }
+  final rawCount = accessor['count'];
+  final count = _intValue(rawCount);
+  final bytesPerElement = componentBytes * componentCount;
+  if (count == null ||
+      count <= 0 ||
+      count > kGlbMaxSafeInteger ||
+      count > kGlbMaxSafeInteger ~/ bytesPerElement) {
+    return _NativeDracoAccessorRead.invalid(
+      field: 'accessors[$accessorIndex].count',
+      actual: rawCount,
+    );
+  }
+  final normalized = accessor['normalized'];
+  if (normalized != null && normalized is! bool) {
+    return _NativeDracoAccessorRead.invalid(
+      field: 'accessors[$accessorIndex].normalized',
+      actual: normalized,
+    );
+  }
+  return _NativeDracoAccessorRead(<String, Object?>{
     'accessorIndex': accessorIndex,
     'componentType': componentType,
     'type': type,
     'count': count,
-    'normalized': accessor?['normalized'] == true,
-  };
+    'normalized': normalized == true,
+  });
+}
+
+ViewerDiagnostic _dracoNativeRequestDiagnostic({
+  required String? source,
+  required Map<String, Object?> json,
+  required String field,
+  required Object? actual,
+  int? accessorIndex,
+  String? attribute,
+}) {
+  final requiredExtensions = _list(json['extensionsRequired']);
+  return ViewerDiagnostic(
+    code: ViewerDiagnosticCode.unsupportedModelFeature,
+    message: 'Could not build the native Draco decode request.',
+    details: <String, Object?>{
+      'source': source,
+      'extension': kDracoMeshCompressionExtension,
+      'decoder': 'draco',
+      'required':
+          requiredExtensions?.contains(kDracoMeshCompressionExtension) ?? true,
+      'limitation': 'dracoAccessorSchema',
+      'status': 'invalidMetadata',
+      'stage': 'dracoNativeRequestPreflight',
+      'field': field,
+      if (accessorIndex != null) 'accessorIndex': accessorIndex,
+      if (attribute != null) 'attribute': attribute,
+      'actual': actual,
+    },
+  );
 }
 
 Uint8List? _bufferViewBytes(
@@ -940,6 +1631,30 @@ final class _NativeDecodeGlb {
 
   final Map<String, Object?> json;
   final Uint8List? bin;
+}
+
+final class _DracoNativeRequestReadResult {
+  const _DracoNativeRequestReadResult({
+    this.requests = const <Object?>[],
+    this.diagnostic,
+  });
+
+  final List<Object?> requests;
+  final ViewerDiagnostic? diagnostic;
+}
+
+final class _NativeDracoAccessorRead {
+  const _NativeDracoAccessorRead(this.schema)
+      : field = null,
+        actual = null;
+  const _NativeDracoAccessorRead.invalid({
+    required this.field,
+    required this.actual,
+  }) : schema = null;
+
+  final Map<String, Object?>? schema;
+  final String? field;
+  final Object? actual;
 }
 
 ViewerDiagnostic _dracoUnavailableDiagnostic({

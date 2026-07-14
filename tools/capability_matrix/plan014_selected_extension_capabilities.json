@@ -1,0 +1,620 @@
+{
+  "schemaVersion": 1,
+  "scope": "Plan 014 current evidence only; historical candidate runs are context, not current target evidence.",
+  "featureSet": [
+    "KHR_texture_transform",
+    "KHR_materials_specular",
+    "KHR_materials_ior",
+    "KHR_materials_clearcoat",
+    "KHR_materials_transmission",
+    "KHR_materials_volume",
+    "KHR_draco_mesh_compression",
+    "EXT_meshopt_compression",
+    "KHR_texture_basisu"
+  ],
+  "targetSet": [
+    "ios_simulator",
+    "ios_physical",
+    "android",
+    "web"
+  ],
+  "historicalContext": [
+    {
+      "feature": "KHR_draco_mesh_compression",
+      "target": "ios_simulator",
+      "evidenceStatus": "verified locally",
+      "evidenceDate": "2026-07-04",
+      "scope": "historical Plan 013 iPhone 17 Simulator candidate run",
+      "source": "docs/exec-plans/completed/013_v2_production_glb_pipeline.md",
+      "artifactDurability": "not durable",
+      "currentPlan014TargetEvidence": "not run",
+      "releaseMaturity": "candidate-only"
+    },
+    {
+      "feature": "KHR_texture_basisu",
+      "target": "ios_simulator",
+      "evidenceStatus": "verified locally",
+      "evidenceDate": "2026-07-05",
+      "scope": "historical Plan 013 iPhone 17 Simulator candidate run",
+      "source": "docs/exec-plans/completed/013_v2_production_glb_pipeline.md",
+      "artifactDurability": "not durable",
+      "currentPlan014TargetEvidence": "not run",
+      "releaseMaturity": "candidate-only"
+    }
+  ],
+  "decoderControlBoundaries": [
+    {
+      "feature": "EXT_meshopt_compression",
+      "implementation": "synchronous pure-Dart EXT-v0 decode and GLB rewrite",
+      "allocationControl": "declared-output and aggregate rewrite budgets use atomic commit outside the decoder loop",
+      "timeoutControl": "cooperative Dart deadline checkpoints are enforced across claimed modes and filters",
+      "cancellationControl": "not enforced",
+      "resourceRelease": "timed-out decode buffers become garbage-collectible after stack unwind; deterministic collection is not guaranteed",
+      "blockingApi": "synchronous decode accepts an internal deadline control but no external cancellation signal",
+      "bridgeContract": "not applicable; Meshopt has no native MethodChannel bridge",
+      "evidenceSources": [
+        "lib/src/internal/meshopt_decoder.dart",
+        "lib/src/internal/glb_meshopt_rewriter.dart",
+        "lib/src/internal/glb_decode_budget.dart"
+      ],
+      "evidenceSha256": {
+        "lib/src/internal/meshopt_decoder.dart": "86e0ff6038636ca0cbd17cebfa36a65b6ac4c8691f30c6733037650aca4a4f72",
+        "lib/src/internal/glb_meshopt_rewriter.dart": "5c87b90b33103f37dac736fe145b78908b88c42c4a958357aa467f8dab056f1c",
+        "lib/src/internal/glb_decode_budget.dart": "a14c1a1aaf6aa33884812e63440c14469fb40cc23b2411d1d904b5afbee0f2f3"
+      }
+    },
+    {
+      "feature": "KHR_draco_mesh_compression",
+      "implementation": "synchronous pinned Google Draco 1.5.7 native decode",
+      "allocationControl": "bridge preflight and output budgets do not bound allocations inside Decoder::DecodeMeshFromBuffer",
+      "timeoutControl": "Dart deadline enforced; native work is not stopped",
+      "cancellationControl": "not enforced",
+      "resourceRelease": "bridge-owned RAII scopes unwind after synchronous decode returns; deadline or cancellation release is not established",
+      "blockingApi": "draco::Decoder::DecodeMeshFromBuffer(DecoderBuffer*) exposes no deadline, cancellation callback, or allocator budget",
+      "bridgeContract": "decodeGlb is one MethodChannel request and response; Dart discards a late response, but no deadline or cancellation signal enters native code",
+      "evidenceSources": [
+        "packages/flutter_scene_viewer_draco/third_party/draco/src/draco/compression/decode.h",
+        "packages/flutter_scene_viewer_draco/android/src/main/cpp/fsv_draco_bridge.cc",
+        "packages/flutter_scene_viewer_draco/android/src/main/cpp/flutter_scene_viewer_draco_jni.cc",
+        "packages/flutter_scene_viewer_draco/android/src/main/java/com/marlonjd/flutter_scene_viewer_draco/FlutterSceneViewerDracoPlugin.java",
+        "packages/flutter_scene_viewer_draco/ios/Classes/fsv_draco_bridge.cc",
+        "packages/flutter_scene_viewer_draco/ios/Classes/FlutterSceneViewerDracoPlugin.mm",
+        "lib/src/internal/glb_native_decoder_probe.dart"
+      ],
+      "evidenceSha256": {
+        "packages/flutter_scene_viewer_draco/third_party/draco/src/draco/compression/decode.h": "ea23e1dfabf34d11260f51f4f4e160f89480b2ac53d919e354a12266a05c00c1",
+        "packages/flutter_scene_viewer_draco/android/src/main/cpp/fsv_draco_bridge.cc": "fc962ca317150853ef19829d9c8b602d6972f8069508c336f123705885b9a6a6",
+        "packages/flutter_scene_viewer_draco/android/src/main/cpp/flutter_scene_viewer_draco_jni.cc": "5a74f2990ab35fbe465b026985a8db552e6262540c4435bce3b45bfb82c1c606",
+        "packages/flutter_scene_viewer_draco/android/src/main/java/com/marlonjd/flutter_scene_viewer_draco/FlutterSceneViewerDracoPlugin.java": "776159773789c82024c8e93a77c45169e5216d0b6a72808a17b94efba53d47cc",
+        "packages/flutter_scene_viewer_draco/ios/Classes/fsv_draco_bridge.cc": "fc962ca317150853ef19829d9c8b602d6972f8069508c336f123705885b9a6a6",
+        "packages/flutter_scene_viewer_draco/ios/Classes/FlutterSceneViewerDracoPlugin.mm": "3b202a7bb9839f24e29c2793d2690d97f5eee9d9fa9aff3d962b9a08dce88cb5",
+        "lib/src/internal/glb_native_decoder_probe.dart": "d785e2ad34d7eff2bfdd0590b6b567794e5afd38ec351ab5d634e06afbd9e301"
+      }
+    },
+    {
+      "feature": "KHR_texture_basisu",
+      "implementation": "synchronous pinned Basis Universal KTX2 native transcode",
+      "allocationControl": "bridge preflight and output budgets do not bound allocations inside init, start_transcoding, or transcode_image_level",
+      "timeoutControl": "Dart deadline enforced; native work is not stopped",
+      "cancellationControl": "not enforced",
+      "resourceRelease": "bridge-owned RAII scopes unwind after synchronous transcode returns; deadline or cancellation release is not established",
+      "blockingApi": "ktx2_transcoder init, start_transcoding, and transcode_image_level expose no deadline, cancellation callback, or allocator budget",
+      "bridgeContract": "decodeGlb is one MethodChannel request and response; Dart discards a late response, but no deadline or cancellation signal enters native code",
+      "evidenceSources": [
+        "packages/flutter_scene_viewer_basisu/third_party/basis_universal/transcoder/basisu_transcoder.h",
+        "packages/flutter_scene_viewer_basisu/android/src/main/cpp/fsv_basisu_bridge.cc",
+        "packages/flutter_scene_viewer_basisu/android/src/main/cpp/flutter_scene_viewer_basisu_jni.cc",
+        "packages/flutter_scene_viewer_basisu/android/src/main/java/com/marlonjd/flutter_scene_viewer_basisu/FlutterSceneViewerBasisuPlugin.java",
+        "packages/flutter_scene_viewer_basisu/ios/Classes/fsv_basisu_bridge.cc",
+        "packages/flutter_scene_viewer_basisu/ios/Classes/FlutterSceneViewerBasisuPlugin.mm",
+        "lib/src/internal/glb_native_decoder_probe.dart"
+      ],
+      "evidenceSha256": {
+        "packages/flutter_scene_viewer_basisu/third_party/basis_universal/transcoder/basisu_transcoder.h": "7e8d9949364cb72dc8532004357f1585e5e9abea3bc76ae9964abe9fd2e4af09",
+        "packages/flutter_scene_viewer_basisu/android/src/main/cpp/fsv_basisu_bridge.cc": "f61da352239f699fb44f02e93127102d37881f2d90d75a74c79aca35182b8703",
+        "packages/flutter_scene_viewer_basisu/android/src/main/cpp/flutter_scene_viewer_basisu_jni.cc": "8cde1d37d7104f4d3ed7447f14d30612f13e593efa49dc7eb4dc498561731780",
+        "packages/flutter_scene_viewer_basisu/android/src/main/java/com/marlonjd/flutter_scene_viewer_basisu/FlutterSceneViewerBasisuPlugin.java": "1187dd42cb8df81d4ad3a792fd8cec45ab750754d8c06fc476fc88c5d7ae3cae",
+        "packages/flutter_scene_viewer_basisu/ios/Classes/fsv_basisu_bridge.cc": "f61da352239f699fb44f02e93127102d37881f2d90d75a74c79aca35182b8703",
+        "packages/flutter_scene_viewer_basisu/ios/Classes/FlutterSceneViewerBasisuPlugin.mm": "f8a0a714e4ea13649da50ddb74a460b6bb4481390195d99beec0ac821587fbb1",
+        "lib/src/internal/glb_native_decoder_probe.dart": "d785e2ad34d7eff2bfdd0590b6b567794e5afd38ec351ab5d634e06afbd9e301"
+      }
+    }
+  ],
+  "features": [
+    {
+      "id": "KHR_texture_transform",
+      "displayName": "Texture transform",
+      "hostStages": {
+        "parsed": {
+          "status": "verified locally",
+          "scope": "host CPU reader",
+          "evidence": "shared texture binding tests cover offset, rotation, scale, texCoord, and sampler intent"
+        },
+        "preserved": {
+          "status": "verified locally",
+          "scope": "wrapper binding intent",
+          "evidence": "slot-aware immutable bindings preserve transform and original encoded image bytes"
+        },
+        "decoded": {
+          "status": "not applicable",
+          "scope": "transform metadata has no codec stage",
+          "evidence": "image decoding remains renderer-owned"
+        }
+      },
+      "targets": {
+        "ios_simulator": {
+          "applied": "blocked",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "diagnostic-only",
+          "releaseMaturity": "diagnostic-only",
+          "targetEvidence": "not run",
+          "blocker": "pinned flutter_scene has no standard-material per-slot transform contract; Glorvia evidence is unavailable"
+        },
+        "ios_physical": {
+          "applied": "blocked",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "diagnostic-only",
+          "releaseMaturity": "diagnostic-only",
+          "targetEvidence": "not run",
+          "blocker": "pinned flutter_scene has no standard-material per-slot transform contract; no physical-device run"
+        },
+        "android": {
+          "applied": "blocked",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "diagnostic-only",
+          "releaseMaturity": "diagnostic-only",
+          "targetEvidence": "not run",
+          "blocker": "pinned flutter_scene has no standard-material per-slot transform contract; no Android runtime run"
+        },
+        "web": {
+          "applied": "blocked",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "diagnostic-only",
+          "releaseMaturity": "diagnostic-only",
+          "targetEvidence": "not run",
+          "blocker": "pinned flutter_scene has no standard-material per-slot transform contract; no Web runtime run"
+        }
+      }
+    },
+    {
+      "id": "KHR_materials_specular",
+      "displayName": "Specular",
+      "hostStages": {
+        "parsed": {
+          "status": "verified locally",
+          "scope": "host CPU reader and validation",
+          "evidence": "factor, color factor, texture roles, defaults, and malformed-group isolation are tested"
+        },
+        "preserved": {
+          "status": "verified locally",
+          "scope": "serializable wrapper intent",
+          "evidence": "factors and texture bindings survive without metallic or clearcoat substitution"
+        },
+        "decoded": {
+          "status": "not applicable",
+          "scope": "wrapper intent boundary",
+          "evidence": "encoded texture bytes are preserved and renderer decoding is not claimed"
+        }
+      },
+      "targets": {
+        "ios_simulator": {
+          "applied": "blocked",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "diagnostic-only",
+          "releaseMaturity": "diagnostic-only",
+          "targetEvidence": "not run",
+          "blocker": "pinned flutter_scene exposes no specular fields, slots, importer mapping, or shader inputs"
+        },
+        "ios_physical": {
+          "applied": "blocked",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "diagnostic-only",
+          "releaseMaturity": "diagnostic-only",
+          "targetEvidence": "not run",
+          "blocker": "pinned flutter_scene exposes no specular renderer contract; no physical-device run"
+        },
+        "android": {
+          "applied": "blocked",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "diagnostic-only",
+          "releaseMaturity": "diagnostic-only",
+          "targetEvidence": "not run",
+          "blocker": "pinned flutter_scene exposes no specular renderer contract; no Android runtime run"
+        },
+        "web": {
+          "applied": "blocked",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "diagnostic-only",
+          "releaseMaturity": "diagnostic-only",
+          "targetEvidence": "not run",
+          "blocker": "pinned flutter_scene exposes no specular renderer contract; no Web runtime run"
+        }
+      }
+    },
+    {
+      "id": "KHR_materials_ior",
+      "displayName": "Opaque IOR",
+      "hostStages": {
+        "parsed": {
+          "status": "verified locally",
+          "scope": "host CPU reader and validation",
+          "evidence": "defaults, finite range, ior zero compatibility, and opaque classification are tested"
+        },
+        "preserved": {
+          "status": "verified locally",
+          "scope": "serializable wrapper intent",
+          "evidence": "opaque IOR remains distinct from metallic and clearcoat intent"
+        },
+        "decoded": {
+          "status": "not applicable",
+          "scope": "scalar extension has no codec stage",
+          "evidence": "no texture or compressed payload is defined by KHR_materials_ior"
+        }
+      },
+      "targets": {
+        "ios_simulator": {
+          "applied": "blocked",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "diagnostic-only",
+          "releaseMaturity": "diagnostic-only",
+          "targetEvidence": "not run",
+          "blocker": "pinned flutter_scene fixes dielectric F0 at 0.04 and has no opaque-IOR input"
+        },
+        "ios_physical": {
+          "applied": "blocked",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "diagnostic-only",
+          "releaseMaturity": "diagnostic-only",
+          "targetEvidence": "not run",
+          "blocker": "pinned flutter_scene has no opaque-IOR renderer contract; no physical-device run"
+        },
+        "android": {
+          "applied": "blocked",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "diagnostic-only",
+          "releaseMaturity": "diagnostic-only",
+          "targetEvidence": "not run",
+          "blocker": "pinned flutter_scene has no opaque-IOR renderer contract; no Android runtime run"
+        },
+        "web": {
+          "applied": "blocked",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "diagnostic-only",
+          "releaseMaturity": "diagnostic-only",
+          "targetEvidence": "not run",
+          "blocker": "pinned flutter_scene has no opaque-IOR renderer contract; no Web runtime run"
+        }
+      }
+    },
+    {
+      "id": "KHR_materials_clearcoat",
+      "displayName": "Clearcoat",
+      "hostStages": {
+        "parsed": {
+          "status": "verified locally",
+          "scope": "host CPU reader and validation",
+          "evidence": "factor, roughness, texture roles, normal semantics, and authored-group isolation are tested"
+        },
+        "preserved": {
+          "status": "verified locally",
+          "scope": "wrapper patch and candidate backend intent",
+          "evidence": "authored clearcoat values and texture bytes remain distinct from the base material"
+        },
+        "decoded": {
+          "status": "not applicable",
+          "scope": "wrapper intent boundary",
+          "evidence": "encoded images remain renderer-owned; no wrapper texture baking occurs"
+        }
+      },
+      "targets": {
+        "ios_simulator": {
+          "applied": "not run",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "candidate-only availability",
+          "releaseMaturity": "candidate-only",
+          "targetEvidence": "not run",
+          "blocker": "current Plan 014 target run is absent; renderer-native integration is deferred to Plan 015"
+        },
+        "ios_physical": {
+          "applied": "not run",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "candidate-only availability",
+          "releaseMaturity": "candidate-only",
+          "targetEvidence": "not run",
+          "blocker": "no physical-iOS candidate-backend or renderer-native run; follow-up is Plan 015"
+        },
+        "android": {
+          "applied": "not run",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "candidate-only availability",
+          "releaseMaturity": "candidate-only",
+          "targetEvidence": "not run",
+          "blocker": "no Android candidate-backend or renderer-native runtime run; follow-up is Plan 015"
+        },
+        "web": {
+          "applied": "not run",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "candidate-only availability",
+          "releaseMaturity": "candidate-only",
+          "targetEvidence": "not run",
+          "blocker": "no Web candidate-backend or renderer-native runtime run; follow-up is Plan 015"
+        }
+      }
+    },
+    {
+      "id": "KHR_materials_transmission",
+      "displayName": "Transmission",
+      "hostStages": {
+        "parsed": {
+          "status": "verified locally",
+          "scope": "host CPU reader and validation",
+          "evidence": "factor, red-channel texture role, required UV, and authored-group isolation are tested"
+        },
+        "preserved": {
+          "status": "verified locally",
+          "scope": "wrapper patch and candidate backend intent",
+          "evidence": "transmission remains distinct from alpha blending and encoded bytes are unchanged"
+        },
+        "decoded": {
+          "status": "not applicable",
+          "scope": "wrapper intent boundary",
+          "evidence": "encoded images remain renderer-owned; no wrapper texture baking occurs"
+        }
+      },
+      "targets": {
+        "ios_simulator": {
+          "applied": "not run",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "candidate-only availability",
+          "releaseMaturity": "candidate-only",
+          "targetEvidence": "not run",
+          "blocker": "current Plan 014 target run is absent; renderer-native glass is deferred to Plan 016"
+        },
+        "ios_physical": {
+          "applied": "not run",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "candidate-only availability",
+          "releaseMaturity": "candidate-only",
+          "targetEvidence": "not run",
+          "blocker": "no physical-iOS candidate-backend or renderer-native glass run; follow-up is Plan 016"
+        },
+        "android": {
+          "applied": "not run",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "candidate-only availability",
+          "releaseMaturity": "candidate-only",
+          "targetEvidence": "not run",
+          "blocker": "no Android candidate-backend or renderer-native glass run; follow-up is Plan 016"
+        },
+        "web": {
+          "applied": "not run",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "candidate-only availability",
+          "releaseMaturity": "candidate-only",
+          "targetEvidence": "not run",
+          "blocker": "no Web candidate-backend or renderer-native glass run; follow-up is Plan 016"
+        }
+      }
+    },
+    {
+      "id": "KHR_materials_volume",
+      "displayName": "Volume",
+      "hostStages": {
+        "parsed": {
+          "status": "verified locally",
+          "scope": "host CPU reader and validation",
+          "evidence": "thickness, green-channel texture role, attenuation distance/color, and isolation are tested"
+        },
+        "preserved": {
+          "status": "verified locally",
+          "scope": "wrapper patch and candidate backend intent",
+          "evidence": "volume remains coupled to authored transmission intent without alpha substitution"
+        },
+        "decoded": {
+          "status": "not applicable",
+          "scope": "wrapper intent boundary",
+          "evidence": "encoded images remain renderer-owned; no wrapper texture baking occurs"
+        }
+      },
+      "targets": {
+        "ios_simulator": {
+          "applied": "not run",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "candidate-only availability",
+          "releaseMaturity": "candidate-only",
+          "targetEvidence": "not run",
+          "blocker": "current Plan 014 target run is absent; full volume transport is deferred to Plan 016"
+        },
+        "ios_physical": {
+          "applied": "not run",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "candidate-only availability",
+          "releaseMaturity": "candidate-only",
+          "targetEvidence": "not run",
+          "blocker": "no physical-iOS volume run; renderer-native follow-up is Plan 016"
+        },
+        "android": {
+          "applied": "not run",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "candidate-only availability",
+          "releaseMaturity": "candidate-only",
+          "targetEvidence": "not run",
+          "blocker": "no Android volume run; renderer-native follow-up is Plan 016"
+        },
+        "web": {
+          "applied": "not run",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "candidate-only availability",
+          "releaseMaturity": "candidate-only",
+          "targetEvidence": "not run",
+          "blocker": "no Web volume run; renderer-native follow-up is Plan 016"
+        }
+      }
+    },
+    {
+      "id": "KHR_draco_mesh_compression",
+      "displayName": "Draco",
+      "hostStages": {
+        "parsed": {
+          "status": "verified locally",
+          "scope": "host GLB preflight",
+          "evidence": "requiredness, primitive manifests, accessor schemas, budgets, and malformed streams are tested"
+        },
+        "preserved": {
+          "status": "verified locally",
+          "scope": "pre-decode intent and post-decode GLB rewrite",
+          "evidence": "attribute addressing and untouched authored accessors survive the rewrite boundary"
+        },
+        "decoded": {
+          "status": "verified locally",
+          "scope": "host direct codec, bridge, rewrite, and validator",
+          "evidence": "pinned Draco 1.5.7 matches the official Box payload; rewritten GLB has zero errors and warnings"
+        }
+      },
+      "targets": {
+        "ios_simulator": {
+          "applied": "not run",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "candidate-only native plugin",
+          "releaseMaturity": "candidate-only",
+          "targetEvidence": "not run",
+          "blocker": "no current Plan 014 iOS Simulator runtime, render, or packaging run"
+        },
+        "ios_physical": {
+          "applied": "not run",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "candidate-only native plugin",
+          "releaseMaturity": "candidate-only",
+          "targetEvidence": "not run",
+          "blocker": "no physical-iOS runtime, render, or release-packaging run"
+        },
+        "android": {
+          "applied": "not run",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "candidate-only native plugin",
+          "releaseMaturity": "candidate-only",
+          "targetEvidence": "not run",
+          "blocker": "Android bridge/native sources compile on the host, but no Android app runtime or packaging run exists"
+        },
+        "web": {
+          "applied": "unsupported",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "unsupported",
+          "releaseMaturity": "diagnostic-only",
+          "targetEvidence": "not run",
+          "blocker": "the optional Draco decoder is native-only; no Web decoder is provided"
+        }
+      }
+    },
+    {
+      "id": "EXT_meshopt_compression",
+      "displayName": "Meshopt",
+      "hostStages": {
+        "parsed": {
+          "status": "verified locally",
+          "scope": "host GLB preflight",
+          "evidence": "EXT-v0 modes, filters, quantization interaction, budgets, and malformed metadata are tested"
+        },
+        "preserved": {
+          "status": "verified locally",
+          "scope": "pre-decode intent and post-decode GLB rewrite",
+          "evidence": "accessor and bufferView addressing survive the pure-Dart rewrite boundary"
+        },
+        "decoded": {
+          "status": "verified locally",
+          "scope": "host direct codec, rewrite, and validator",
+          "evidence": "official EXT-v0 bytes rewrite to GLB SHA-256 676271e5... and validate with zero issues"
+        }
+      },
+      "targets": {
+        "ios_simulator": {
+          "applied": "not run",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "candidate-only pure-Dart rewrite",
+          "releaseMaturity": "candidate-only",
+          "targetEvidence": "not run",
+          "blocker": "host validator green is not an iOS Simulator import/render capture"
+        },
+        "ios_physical": {
+          "applied": "not run",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "candidate-only pure-Dart rewrite",
+          "releaseMaturity": "candidate-only",
+          "targetEvidence": "not run",
+          "blocker": "no physical-iOS import/render or release-packaging run"
+        },
+        "android": {
+          "applied": "not run",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "candidate-only pure-Dart rewrite",
+          "releaseMaturity": "candidate-only",
+          "targetEvidence": "not run",
+          "blocker": "no Android app import/render or release-packaging run"
+        },
+        "web": {
+          "applied": "not run",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "candidate-only pure-Dart rewrite",
+          "releaseMaturity": "candidate-only",
+          "targetEvidence": "not run",
+          "blocker": "Chrome unit tests cover arithmetic only; no Web app import/render capture exists"
+        }
+      }
+    },
+    {
+      "id": "KHR_texture_basisu",
+      "displayName": "BasisU/KTX2",
+      "hostStages": {
+        "parsed": {
+          "status": "verified locally",
+          "scope": "host GLB and bounded KTX2 preflight",
+          "evidence": "texture roles, DFD/KVD profile, dimensions, channels, budgets, and malformed layouts are tested"
+        },
+        "preserved": {
+          "status": "verified locally",
+          "scope": "pre-transcode intent and post-transcode GLB rewrite",
+          "evidence": "slot roles remain explicit and source KTX2 bytes are not mutated"
+        },
+        "decoded": {
+          "status": "verified locally",
+          "scope": "host direct codec, bridge, rewrite, and validator",
+          "evidence": "pinned CTS payloads match the direct transcoder; actual PNG rewrite validates with zero errors and warnings"
+        }
+      },
+      "targets": {
+        "ios_simulator": {
+          "applied": "not run",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "candidate-only native plugin",
+          "releaseMaturity": "candidate-only",
+          "targetEvidence": "not run",
+          "blocker": "no current Plan 014 iOS Simulator transcode/import/render or packaging run"
+        },
+        "ios_physical": {
+          "applied": "not run",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "candidate-only native plugin",
+          "releaseMaturity": "candidate-only",
+          "targetEvidence": "not run",
+          "blocker": "no physical-iOS transcode/import/render or release-packaging run"
+        },
+        "android": {
+          "applied": "not run",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "candidate-only native plugin",
+          "releaseMaturity": "candidate-only",
+          "targetEvidence": "not run",
+          "blocker": "Android bridge/native sources compile on the host, but no Android app runtime or packaging run exists"
+        },
+        "web": {
+          "applied": "unsupported",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "unsupported",
+          "releaseMaturity": "diagnostic-only",
+          "targetEvidence": "not run",
+          "blocker": "the optional BasisU transcoder is native-only; no Web transcoder is provided"
+        }
+      }
+    }
+  ]
+}

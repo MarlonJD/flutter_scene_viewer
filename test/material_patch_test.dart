@@ -215,6 +215,191 @@ void main() {
     );
   });
 
+  test('MaterialPatch accepts normative specular and opaque IOR domains', () {
+    final support = _specularAndIorSupport();
+    final address = PartAddress(
+      nodePath: const <String>['Root', 'Fabric'],
+      primitiveIndex: 0,
+    );
+
+    for (final specularFactor in <double>[0, 0.5, 1]) {
+      for (final ior in <double>[0, 1, 1.5, 2.42]) {
+        final patch = MaterialPatch(
+          specular: specularFactor,
+          specularColorFactor: const <double>[0, 1.5, 4],
+          ior: ior,
+        );
+
+        expect(
+          patch.validate(address, support: support),
+          isEmpty,
+          reason: 'specularFactor=$specularFactor, ior=$ior',
+        );
+        expect(patch.hasGlassOverride, isFalse, reason: '$ior');
+        expect(patch.hasOpaqueIorOverride, isTrue, reason: '$ior');
+      }
+    }
+  });
+
+  test('MaterialPatch rejects specular factors outside the unit interval', () {
+    final support = _specularAndIorSupport();
+    final address = PartAddress(
+      nodePath: const <String>['Root', 'Fabric'],
+      primitiveIndex: 0,
+    );
+
+    for (final factor in <double>[-0.01, 1.01, double.nan, double.infinity]) {
+      final diagnostics =
+          MaterialPatch(specular: factor).validate(address, support: support);
+
+      expect(diagnostics, hasLength(1), reason: '$factor');
+      expect(diagnostics.single.code,
+          ViewerDiagnosticCode.invalidMaterialOverride);
+      expect(diagnostics.single.details['field'], 'specular');
+    }
+  });
+
+  test('MaterialPatch rejects invalid specular color factors with diagnostics',
+      () {
+    final support = _specularAndIorSupport();
+    final address = PartAddress(
+      nodePath: const <String>['Root', 'Fabric'],
+      primitiveIndex: 0,
+    );
+    final invalidFactors = <List<double>>[
+      <double>[1, 1],
+      <double>[-0.01, 1, 1],
+      <double>[double.nan, 1, 1],
+      <double>[double.infinity, 1, 1],
+    ];
+
+    for (final factor in invalidFactors) {
+      final diagnostics = MaterialPatch(
+        specularColorFactor: factor,
+      ).validate(address, support: support);
+
+      expect(diagnostics, hasLength(1), reason: '$factor');
+      expect(
+        diagnostics.single.code,
+        ViewerDiagnosticCode.invalidMaterialOverride,
+        reason: '$factor',
+      );
+      expect(
+        diagnostics.single.details['field'],
+        'specularColorFactor',
+        reason: '$factor',
+      );
+    }
+  });
+
+  test('MaterialPatch rejects invalid opaque IOR values with diagnostics', () {
+    final support = _specularAndIorSupport();
+    final address = PartAddress(
+      nodePath: const <String>['Root', 'Fabric'],
+      primitiveIndex: 0,
+    );
+
+    for (final ior in <double>[-1, 0.5, double.nan, double.infinity]) {
+      final diagnostics =
+          MaterialPatch(ior: ior).validate(address, support: support);
+
+      expect(diagnostics, hasLength(1), reason: '$ior');
+      expect(
+        diagnostics.single.code,
+        ViewerDiagnosticCode.invalidMaterialOverride,
+        reason: '$ior',
+      );
+      expect(diagnostics.single.details['field'], 'ior', reason: '$ior');
+    }
+  });
+
+  test('intrinsic specular and IOR errors precede unavailable capability', () {
+    final address = PartAddress(
+      nodePath: const <String>['Root', 'Fabric'],
+      primitiveIndex: 0,
+    );
+    final cases = <(MaterialPatch, String)>[
+      (const MaterialPatch(specular: 1.01), 'specular'),
+      (
+        const MaterialPatch(specularColorFactor: <double>[1, -0.01, 1]),
+        'specularColorFactor',
+      ),
+      (const MaterialPatch(ior: 0.5), 'ior'),
+    ];
+
+    for (final entry in cases) {
+      for (final diagnostics in <List<ViewerDiagnostic>>[
+        entry.$1.validate(address),
+        entry.$1.validate(
+          address,
+          support: MaterialExtensionSupport.unsupported,
+        ),
+      ]) {
+        expect(diagnostics, hasLength(1), reason: entry.$2);
+        expect(
+          diagnostics.single.code,
+          ViewerDiagnosticCode.invalidMaterialOverride,
+          reason: entry.$2,
+        );
+        expect(diagnostics.single.details['field'], entry.$2);
+      }
+    }
+  });
+
+  test('deserialized intrinsic extension errors precede unavailable capability',
+      () {
+    final address = PartAddress(
+      nodePath: const <String>['Root', 'Fabric'],
+      primitiveIndex: 0,
+    );
+    final cases = <(Map<String, Object?>, String)>[
+      (<String, Object?>{'specular': -0.01}, 'specular'),
+      (
+        <String, Object?>{
+          'specularColorFactor': <Object?>[1, 1],
+        },
+        'specularColorFactor',
+      ),
+      (<String, Object?>{'ior': double.infinity}, 'ior'),
+    ];
+
+    for (final entry in cases) {
+      final diagnostics = MaterialPatch.fromJson(entry.$1).validate(address);
+
+      expect(diagnostics, hasLength(1), reason: entry.$2);
+      expect(
+        diagnostics.single.code,
+        ViewerDiagnosticCode.invalidMaterialOverride,
+        reason: entry.$2,
+      );
+      expect(diagnostics.single.details['field'], entry.$2);
+    }
+  });
+
+  test('valid unsupported opaque IOR remains a capability diagnostic', () {
+    final diagnostics = const MaterialPatch(ior: 1.45).validate(
+      PartAddress(
+        nodePath: const <String>['Root', 'Fabric'],
+        primitiveIndex: 0,
+      ),
+    );
+
+    expect(diagnostics, hasLength(1));
+    expect(
+      diagnostics.single.code,
+      ViewerDiagnosticCode.unsupportedMaterialFeature,
+    );
+    final diagnostic = diagnostics.single;
+    expect(diagnostic.message, contains('Opaque IOR'));
+    expect(diagnostic.message, isNot(contains('Transmission/glass')));
+    expect(diagnostic.details['feature'], 'opaqueIor');
+    expect(
+      diagnostic.details['limitation'],
+      'pinnedStandardPbrOpaqueIorContractMissing',
+    );
+    expect(diagnostic.details['extensions'], contains('KHR_materials_ior'));
+  });
+
   test('MaterialPatch merges clearcoat fields', () {
     const first = MaterialPatch(
       clearcoat: 0.4,
@@ -478,4 +663,16 @@ void main() {
     expect(bytes.encodedBytes, <int>[1, 2, 3]);
     expect(bytes.debugName, 'sample.png');
   });
+}
+
+MaterialExtensionSupport _specularAndIorSupport() {
+  return MaterialExtensionSupport(
+    backendKind: MaterialExtensionBackendKind.rendererNative,
+    features: <MaterialExtensionFeature, MaterialExtensionFeatureSupport>{
+      MaterialExtensionFeature.specular:
+          MaterialExtensionFeatureSupport(available: true),
+      MaterialExtensionFeature.ior:
+          MaterialExtensionFeatureSupport(available: true),
+    },
+  );
 }

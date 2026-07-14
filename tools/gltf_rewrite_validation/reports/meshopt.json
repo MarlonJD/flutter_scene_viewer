@@ -1,0 +1,19 @@
+{
+  "validator": {
+    "package": "gltf-validator",
+    "version": "2.0.0-dev.3.10",
+    "sourceCommit": "bcd52cc4ba5f333b2999a58f67cc05ddf28b4fb1",
+    "license": "Apache-2.0"
+  },
+  "asset": {
+    "label": "meshopt",
+    "sha256": "676271e50ce235f349c01749613e7bfade4f5720cff72d7803a272f8ef41e549"
+  },
+  "issues": {
+    "errors": 0,
+    "warnings": 0,
+    "infos": 0,
+    "hints": 0,
+    "messages": []
+  }
+}

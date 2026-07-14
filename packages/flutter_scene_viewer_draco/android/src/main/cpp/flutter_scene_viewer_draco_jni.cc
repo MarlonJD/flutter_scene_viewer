@@ -27,6 +27,12 @@ jobject NewInteger(JNIEnv* env, int value) {
   return env->NewObject(integer_class, constructor, value);
 }
 
+jobject NewLong(JNIEnv* env, int64_t value) {
+  jclass long_class = FindClass(env, "java/lang/Long");
+  jmethodID constructor = env->GetMethodID(long_class, "<init>", "(J)V");
+  return env->NewObject(long_class, constructor, static_cast<jlong>(value));
+}
+
 jobject NewBoolean(JNIEnv* env, bool value) {
   jclass boolean_class = FindClass(env, "java/lang/Boolean");
   jmethodID constructor =
@@ -68,6 +74,10 @@ void MapPutString(JNIEnv* env,
 
 void MapPutInt(JNIEnv* env, jobject map, const char* key, int value) {
   MapPutObject(env, map, key, NewInteger(env, value));
+}
+
+void MapPutLong(JNIEnv* env, jobject map, const char* key, uint64_t value) {
+  MapPutObject(env, map, key, NewLong(env, static_cast<int64_t>(value)));
 }
 
 void MapPutBool(JNIEnv* env, jobject map, const char* key, bool value) {
@@ -123,6 +133,63 @@ int IntValue(JNIEnv* env, jobject value) {
   return env->CallIntMethod(value, int_value);
 }
 
+int64_t LongValue(JNIEnv* env, jobject value) {
+  if (value == nullptr) {
+    return 0;
+  }
+  jclass number_class = FindClass(env, "java/lang/Number");
+  jmethodID long_value = env->GetMethodID(number_class, "longValue", "()J");
+  return static_cast<int64_t>(env->CallLongMethod(value, long_value));
+}
+
+FsvDracoBudgetNumber BudgetNumber(JNIEnv* env, jobject map, const char* key) {
+  jobject value = MapGet(env, map, key);
+  if (value == nullptr) {
+    return FsvDracoBudgetNumber();
+  }
+  if (!IsInstance(env, value, "java/lang/Integer") &&
+      !IsInstance(env, value, "java/lang/Long")) {
+    return FsvDracoBudgetNumber::Invalid();
+  }
+  return FsvDracoBudgetNumber::Integer(LongValue(env, value));
+}
+
+int64_t IntegralLongValueOr(JNIEnv* env, jobject value, int64_t fallback) {
+  if (!IsInstance(env, value, "java/lang/Integer") &&
+      !IsInstance(env, value, "java/lang/Long")) {
+    return fallback;
+  }
+  return LongValue(env, value);
+}
+
+FsvDracoDecodeBudgetMetadata DecodeBudget(JNIEnv* env, jobject value) {
+  FsvDracoDecodeBudgetMetadata budget;
+  if (!IsInstance(env, value, "java/util/Map")) {
+    return budget;
+  }
+  budget.max_total_decoded_bytes =
+      BudgetNumber(env, value, "maxTotalDecodedBytes");
+  budget.max_accessors = BudgetNumber(env, value, "maxAccessors");
+  budget.max_vertices = BudgetNumber(env, value, "maxVertices");
+  budget.max_indices = BudgetNumber(env, value, "maxIndices");
+  budget.max_native_output_bytes =
+      BudgetNumber(env, value, "maxNativeOutputBytes");
+  return budget;
+}
+
+FsvDracoDecodeBudgetState DecodeBudgetState(JNIEnv* env, jobject value) {
+  FsvDracoDecodeBudgetState state;
+  if (!IsInstance(env, value, "java/util/Map")) {
+    return state;
+  }
+  state.total_decoded_bytes = BudgetNumber(env, value, "totalDecodedBytes");
+  state.accessors = BudgetNumber(env, value, "accessors");
+  state.vertices = BudgetNumber(env, value, "vertices");
+  state.indices = BudgetNumber(env, value, "indices");
+  state.native_output_bytes = BudgetNumber(env, value, "nativeOutputBytes");
+  return state;
+}
+
 bool BoolValue(JNIEnv* env, jobject value) {
   if (value == nullptr) {
     return false;
@@ -176,10 +243,11 @@ FsvDracoAccessorSchema AccessorSchema(JNIEnv* env, jobject value) {
   if (!IsInstance(env, value, "java/util/Map")) {
     return schema;
   }
-  schema.accessor_index = IntValue(env, MapGet(env, value, "accessorIndex"));
-  schema.component_type = IntValue(env, MapGet(env, value, "componentType"));
+  schema.accessor_index =
+      IntegralLongValueOr(env, MapGet(env, value, "accessorIndex"), -1);
+  schema.component_type = BudgetNumber(env, value, "componentType");
   schema.type = StringValue(env, MapGet(env, value, "type"));
-  schema.count = IntValue(env, MapGet(env, value, "count"));
+  schema.count = IntegralLongValueOr(env, MapGet(env, value, "count"), -1);
   schema.normalized = BoolValue(env, MapGet(env, value, "normalized"));
   return schema;
 }
@@ -233,9 +301,12 @@ std::vector<FsvDracoPrimitiveRequest> PrimitiveRequests(JNIEnv* env,
     request.mesh_index = IntValue(env, MapGet(env, raw, "meshIndex"));
     request.primitive_index = IntValue(env, MapGet(env, raw, "primitiveIndex"));
     request.compressed_bytes = ByteVector(env, MapGet(env, raw, "compressedBytes"));
+    request.vertex_accessor_index = IntegralLongValueOr(
+        env, MapGet(env, raw, "vertexAccessorIndex"), -1);
 
     for (const auto& entry : MapEntries(env, MapGet(env, raw, "attributes"))) {
-      request.attributes[entry.first] = IntValue(env, entry.second);
+      request.attributes[entry.first] =
+          IntegralLongValueOr(env, entry.second, -1);
     }
     for (const auto& entry :
          MapEntries(env, MapGet(env, raw, "attributeAccessors"))) {
@@ -260,6 +331,21 @@ jobject Diagnostic(JNIEnv* env,
   MapPutString(env, details, "decoder", "draco");
   MapPutBool(env, details, "required", true);
   MapPutString(env, details, "status", diagnostic.status);
+  if (!diagnostic.stage.empty()) {
+    MapPutString(env, details, "stage", diagnostic.stage);
+  }
+  if (!diagnostic.field.empty()) {
+    MapPutString(env, details, "field", diagnostic.field);
+    MapPutString(env, details, "limitation",
+                 diagnostic.status == "budgetExceeded" ? "decodeBudget"
+                                                        : "dracoNativeBoundary");
+  }
+  if (diagnostic.has_limit) {
+    MapPutLong(env, details, "limit", diagnostic.limit);
+  }
+  if (diagnostic.has_actual) {
+    MapPutLong(env, details, "actual", diagnostic.actual);
+  }
   MapPutString(env, details, "pluginPackage", "flutter_scene_viewer_draco");
   MapPutString(env, details, "configurationKey", kInfoPlistKey);
   MapPutString(env, details, "androidManifestKey", kAndroidManifestKey);
@@ -327,9 +413,16 @@ Java_com_marlonjd_flutter_1scene_1viewer_1draco_FlutterSceneViewerDracoPlugin_na
 
 extern "C" JNIEXPORT jobject JNICALL
 Java_com_marlonjd_flutter_1scene_1viewer_1draco_FlutterSceneViewerDracoPlugin_nativeDecodePrimitives(
-    JNIEnv* env, jclass clazz, jobject raw_primitives, jstring source) {
+    JNIEnv* env,
+    jclass clazz,
+    jobject raw_primitives,
+    jobject raw_budget,
+    jobject raw_budget_state,
+    jstring source) {
   FsvDracoDecodeResult decode_result =
-      FsvDracoDecodePrimitives(PrimitiveRequests(env, raw_primitives));
+      FsvDracoDecodePrimitives(PrimitiveRequests(env, raw_primitives),
+                               DecodeBudget(env, raw_budget),
+                               DecodeBudgetState(env, raw_budget_state));
   jobject response = NewHashMap(env);
   MapPutObject(env, response, "decodedPrimitives",
                DecodedPrimitives(env, decode_result));

@@ -33,6 +33,50 @@ NSString *Source(id arguments) {
   return [source isKindOfClass:[NSString class]] ? source : nil;
 }
 
+NSDictionary *DictionaryArgument(id arguments, NSString *key) {
+  if (![arguments isKindOfClass:[NSDictionary class]]) {
+    return nil;
+  }
+  id value = arguments[key];
+  return [value isKindOfClass:[NSDictionary class]] ? value : nil;
+}
+
+FsvBasisuBudgetNumber BudgetNumber(NSDictionary *values, NSString *key) {
+  if (values == nil) {
+    return FsvBasisuBudgetNumber();
+  }
+  id value = values[key];
+  if (value == nil) {
+    return FsvBasisuBudgetNumber();
+  }
+  if (![value isKindOfClass:[NSNumber class]] ||
+      CFGetTypeID((__bridge CFTypeRef)value) == CFBooleanGetTypeID() ||
+      CFNumberIsFloatType((__bridge CFNumberRef)value)) {
+    return FsvBasisuBudgetNumber::Invalid();
+  }
+  return FsvBasisuBudgetNumber::Integer([value longLongValue]);
+}
+
+FsvBasisuDecodeBudgetMetadata DecodeBudget(id arguments) {
+  NSDictionary *values = DictionaryArgument(arguments, @"decodeBudget");
+  FsvBasisuDecodeBudgetMetadata budget;
+  budget.max_total_decoded_bytes =
+      BudgetNumber(values, @"maxTotalDecodedBytes");
+  budget.max_texture_pixels = BudgetNumber(values, @"maxTexturePixels");
+  budget.max_native_output_bytes =
+      BudgetNumber(values, @"maxNativeOutputBytes");
+  return budget;
+}
+
+FsvBasisuDecodeBudgetState DecodeBudgetState(id arguments) {
+  NSDictionary *values = DictionaryArgument(arguments, @"decodeBudgetState");
+  FsvBasisuDecodeBudgetState state;
+  state.total_decoded_bytes = BudgetNumber(values, @"totalDecodedBytes");
+  state.texture_pixels = BudgetNumber(values, @"texturePixels");
+  state.native_output_bytes = BudgetNumber(values, @"nativeOutputBytes");
+  return state;
+}
+
 FlutterStandardTypedData *Bytes(id arguments) {
   if (![arguments isKindOfClass:[NSDictionary class]]) {
     return nil;
@@ -83,11 +127,14 @@ std::vector<FsvBasisuImageRequest> RequestsFromNSArray(NSArray *images) {
   }
   requests.reserve([images count]);
   for (id rawImage in images) {
+    FsvBasisuImageRequest request;
     if (![rawImage isKindOfClass:[NSDictionary class]]) {
+      request.metadata_valid = false;
+      request.metadata_field = "basisuImages";
+      requests.push_back(std::move(request));
       continue;
     }
     NSDictionary *image = rawImage;
-    FsvBasisuImageRequest request;
     id textureIndex = image[@"textureIndex"];
     if ([textureIndex respondsToSelector:@selector(intValue)]) {
       request.texture_index = [textureIndex intValue];
@@ -95,6 +142,20 @@ std::vector<FsvBasisuImageRequest> RequestsFromNSArray(NSArray *images) {
     id imageIndex = image[@"imageIndex"];
     if ([imageIndex respondsToSelector:@selector(intValue)]) {
       request.image_index = [imageIndex intValue];
+    }
+    id usageRole = image[@"usageRole"];
+    if (![usageRole isKindOfClass:[NSString class]] ||
+        !FsvBasisuUsageRoleFromString(StringFromNSString(usageRole),
+                                      &request.usage_role)) {
+      request.metadata_valid = false;
+      request.metadata_field = "basisuImages.usageRole";
+    }
+    id channelLayout = image[@"channelLayout"];
+    if (![channelLayout isKindOfClass:[NSString class]] ||
+        !FsvBasisuChannelLayoutFromString(StringFromNSString(channelLayout),
+                                          &request.channel_layout)) {
+      request.metadata_valid = false;
+      request.metadata_field = "basisuImages.channelLayout";
     }
     id mimeType = image[@"mimeType"];
     if ([mimeType isKindOfClass:[NSString class]]) {
@@ -106,6 +167,9 @@ std::vector<FsvBasisuImageRequest> RequestsFromNSArray(NSArray *images) {
       request.bytes.assign(static_cast<const uint8_t *>([data bytes]),
                            static_cast<const uint8_t *>([data bytes]) +
                                [data length]);
+    } else {
+      request.metadata_valid = false;
+      request.metadata_field = "basisuImages.bytes";
     }
     requests.push_back(std::move(request));
   }
@@ -119,6 +183,11 @@ NSDictionary *DiagnosticFromNative(const FsvBasisuDiagnostic &diagnostic,
     @"decoder" : @"basisu",
     @"required" : @YES,
     @"status" : [NSString stringWithUTF8String:diagnostic.status.c_str()],
+    @"stage" : [NSString stringWithUTF8String:diagnostic.stage.c_str()],
+    @"field" : [NSString stringWithUTF8String:diagnostic.field.c_str()],
+    @"limitation" : diagnostic.status == "budgetExceeded"
+        ? @"decodeBudget"
+        : @"decodedPayloadSchema",
     @"pluginPackage" : @"flutter_scene_viewer_basisu",
     @"configurationKey" : kInfoPlistKey,
     @"androidManifestKey" : kAndroidManifestKey,
@@ -128,6 +197,12 @@ NSDictionary *DiagnosticFromNative(const FsvBasisuDiagnostic &diagnostic,
   }
   if (diagnostic.image_index >= 0) {
     details[@"imageIndex"] = @(diagnostic.image_index);
+  }
+  if (diagnostic.has_limit) {
+    details[@"limit"] = @(diagnostic.limit);
+  }
+  if (diagnostic.has_actual) {
+    details[@"actual"] = @(diagnostic.actual);
   }
   if (source != nil) {
     details[@"source"] = source;
@@ -148,6 +223,8 @@ NSDictionary *ResponseFromNative(const FsvBasisuTranscodeResult &nativeResult,
     [decodedImages addObject:@{
       @"imageIndex" : @(image.image_index),
       @"mimeType" : [NSString stringWithUTF8String:image.mime_type.c_str()],
+      @"width" : @(image.width),
+      @"height" : @(image.height),
       @"bytes" : [FlutterStandardTypedData typedDataWithBytes:data],
     }];
   }
@@ -228,7 +305,9 @@ NSDictionary *ResponseFromNative(const FsvBasisuTranscodeResult &nativeResult,
       return;
     }
     FsvBasisuTranscodeResult nativeResult =
-        FsvBasisuTranscodeImages(RequestsFromNSArray(images));
+        FsvBasisuTranscodeImages(RequestsFromNSArray(images),
+                                 DecodeBudget(call.arguments),
+                                 DecodeBudgetState(call.arguments));
     NSMutableArray *mergedDiagnostics = [diagnostics mutableCopy];
     NSDictionary *response = ResponseFromNative(nativeResult, source);
     [mergedDiagnostics addObjectsFromArray:response[@"diagnostics"]];

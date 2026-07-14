@@ -16,6 +16,8 @@ void main() {
         'textureIndex': 0,
         'imageIndex': 0,
         'mimeType': 'image/ktx2',
+        'usageRole': 'color',
+        'channelLayout': 'rgba',
         'bytes': Uint8List.fromList(<int>[7, 8, 9]),
       },
     ];
@@ -29,6 +31,16 @@ void main() {
       expect(arguments['requiredExtensions'], <String>['KHR_texture_basisu']);
       expect(arguments['source'], 'basisu.glb');
       expect(arguments['basisuImages'], basisuImages);
+      expect(arguments['decodeBudget'], <String, Object?>{
+        'maxTotalDecodedBytes': 100,
+        'maxTexturePixels': 200,
+        'maxNativeOutputBytes': 300,
+      });
+      expect(arguments['decodeBudgetState'], <String, Object?>{
+        'totalDecodedBytes': 10,
+        'texturePixels': 20,
+        'nativeOutputBytes': 30,
+      });
       return <String, Object?>{
         'bytes': decodedBytes,
         'diagnostics': <Object?>[],
@@ -38,6 +50,16 @@ void main() {
     final result = await FlutterSceneViewerBasisu.decodeGlb(
       bytes: sourceBytes,
       requiredExtensions: const <String>['KHR_texture_basisu'],
+      decodeBudget: const <String, Object?>{
+        'maxTotalDecodedBytes': 100,
+        'maxTexturePixels': 200,
+        'maxNativeOutputBytes': 300,
+      },
+      decodeBudgetState: const <String, Object?>{
+        'totalDecodedBytes': 10,
+        'texturePixels': 20,
+        'nativeOutputBytes': 30,
+      },
       source: 'basisu.glb',
       basisuImages: basisuImages,
     );

@@ -19581,7 +19581,9 @@ namespace basist
 			return false;
 		}
 
-		// Sanity check the dimensions
+		// FSV LOCAL MODIFICATION (Apache-2.0 section 4(b)):
+		// Reject oversized KTX2 dimensions before dependent size calculations.
+		// See ../FSV_LOCAL_MODIFICATIONS.md.
 		if ((m_header.m_pixel_width > BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION) || (m_header.m_pixel_height > BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION))
 		{
 			BASISU_DEVEL_ERROR("ktx2_transcoder::init: Texture is too large\n");

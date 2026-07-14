@@ -27,6 +27,7 @@ add_library(
   flutter_scene_viewer_draco
   SHARED
   src/main/cpp/flutter_scene_viewer_draco_jni.cc
+  src/main/cpp/fsv_draco_budget.cc
   src/main/cpp/fsv_draco_bridge.cc
 )
 

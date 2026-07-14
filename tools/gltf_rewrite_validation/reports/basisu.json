@@ -1,0 +1,26 @@
+{
+  "validator": {
+    "package": "gltf-validator",
+    "version": "2.0.0-dev.3.10",
+    "sourceCommit": "bcd52cc4ba5f333b2999a58f67cc05ddf28b4fb1",
+    "license": "Apache-2.0"
+  },
+  "asset": {
+    "label": "basisu",
+    "sha256": "3bbea2f9c2e67bd5cfc34df2c775675780d5c1c4d48b72cc46cc210453dc0ffb"
+  },
+  "issues": {
+    "errors": 0,
+    "warnings": 0,
+    "infos": 1,
+    "hints": 0,
+    "messages": [
+      {
+        "severity": 2,
+        "code": "UNUSED_OBJECT",
+        "message": "This object may be unused.",
+        "pointer": "/bufferViews/2"
+      }
+    ]
+  }
+}

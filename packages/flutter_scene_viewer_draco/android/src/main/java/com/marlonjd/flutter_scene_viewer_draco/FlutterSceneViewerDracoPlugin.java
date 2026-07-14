@@ -42,7 +42,10 @@ public final class FlutterSceneViewerDracoPlugin
   private static native boolean nativePrimitiveDecodeAvailable();
 
   private static native Map<String, Object> nativeDecodePrimitives(
-      Object dracoPrimitives, String source);
+      Object dracoPrimitives,
+      Object decodeBudget,
+      Object decodeBudgetState,
+      String source);
 
   @Override
   public void onAttachedToEngine(FlutterPluginBinding binding) {
@@ -153,7 +156,12 @@ public final class FlutterSceneViewerDracoPlugin
                 source));
       } else {
         try {
-          Map<String, Object> response = nativeDecodePrimitives(primitives, source);
+          Map<String, Object> response =
+              nativeDecodePrimitives(
+                  primitives,
+                  call.argument("decodeBudget"),
+                  call.argument("decodeBudgetState"),
+                  source);
           if (response != null) {
             return response;
           }

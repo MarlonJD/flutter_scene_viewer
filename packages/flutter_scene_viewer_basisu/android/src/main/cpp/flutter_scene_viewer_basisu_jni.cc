@@ -28,6 +28,13 @@ jobject IntegerValue(JNIEnv* env, jint value) {
   return env->CallStaticObjectMethod(integer_class, value_of, value);
 }
 
+jobject LongValue(JNIEnv* env, jlong value) {
+  jclass long_class = env->FindClass("java/lang/Long");
+  jmethodID value_of = env->GetStaticMethodID(
+      long_class, "valueOf", "(J)Ljava/lang/Long;");
+  return env->CallStaticObjectMethod(long_class, value_of, value);
+}
+
 jobject BooleanValue(JNIEnv* env, bool value) {
   jclass boolean_class = env->FindClass("java/lang/Boolean");
   jmethodID value_of = env->GetStaticMethodID(
@@ -63,6 +70,12 @@ void MapPutInt(JNIEnv* env, jobject map, const char* key, int value) {
   jobject integer_value = IntegerValue(env, static_cast<jint>(value));
   MapPut(env, map, key, integer_value);
   env->DeleteLocalRef(integer_value);
+}
+
+void MapPutLong(JNIEnv* env, jobject map, const char* key, uint64_t value) {
+  jobject long_value = LongValue(env, static_cast<jlong>(value));
+  MapPut(env, map, key, long_value);
+  env->DeleteLocalRef(long_value);
 }
 
 void MapPutBool(JNIEnv* env, jobject map, const char* key, bool value) {
@@ -105,6 +118,55 @@ int IntFromNumber(JNIEnv* env, jobject value, int fallback) {
   return env->CallIntMethod(value, int_value);
 }
 
+FsvBasisuBudgetNumber BudgetNumberFromMap(JNIEnv* env,
+                                         jobject map,
+                                         const char* key) {
+  if (map == nullptr) {
+    return FsvBasisuBudgetNumber();
+  }
+  jclass map_class = env->FindClass("java/util/Map");
+  if (!env->IsInstanceOf(map, map_class)) {
+    return FsvBasisuBudgetNumber::Invalid();
+  }
+  jobject value = MapGet(env, map, key);
+  if (value == nullptr) {
+    return FsvBasisuBudgetNumber();
+  }
+  jclass integer_class = env->FindClass("java/lang/Integer");
+  jclass long_class = env->FindClass("java/lang/Long");
+  if (!env->IsInstanceOf(value, integer_class) &&
+      !env->IsInstanceOf(value, long_class)) {
+    env->DeleteLocalRef(value);
+    return FsvBasisuBudgetNumber::Invalid();
+  }
+  jclass number_class = env->FindClass("java/lang/Number");
+  jmethodID long_value = env->GetMethodID(number_class, "longValue", "()J");
+  const jlong parsed = env->CallLongMethod(value, long_value);
+  env->DeleteLocalRef(value);
+  return FsvBasisuBudgetNumber::Integer(static_cast<int64_t>(parsed));
+}
+
+FsvBasisuDecodeBudgetMetadata BudgetFromJavaMap(JNIEnv* env, jobject map) {
+  FsvBasisuDecodeBudgetMetadata budget;
+  budget.max_total_decoded_bytes =
+      BudgetNumberFromMap(env, map, "maxTotalDecodedBytes");
+  budget.max_texture_pixels =
+      BudgetNumberFromMap(env, map, "maxTexturePixels");
+  budget.max_native_output_bytes =
+      BudgetNumberFromMap(env, map, "maxNativeOutputBytes");
+  return budget;
+}
+
+FsvBasisuDecodeBudgetState StateFromJavaMap(JNIEnv* env, jobject map) {
+  FsvBasisuDecodeBudgetState state;
+  state.total_decoded_bytes =
+      BudgetNumberFromMap(env, map, "totalDecodedBytes");
+  state.texture_pixels = BudgetNumberFromMap(env, map, "texturePixels");
+  state.native_output_bytes =
+      BudgetNumberFromMap(env, map, "nativeOutputBytes");
+  return state;
+}
+
 std::string StringFromValue(JNIEnv* env, jobject value) {
   if (value == nullptr) {
     return "";
@@ -123,18 +185,25 @@ std::string StringFromValue(JNIEnv* env, jobject value) {
   return result;
 }
 
-std::vector<uint8_t> BytesFromValue(JNIEnv* env, jobject value) {
+bool BytesFromValue(JNIEnv* env,
+                    jobject value,
+                    std::vector<uint8_t>* bytes) {
   if (value == nullptr) {
-    return {};
+    return false;
+  }
+  jclass byte_array_class = env->FindClass("[B");
+  if (!env->IsInstanceOf(value, byte_array_class)) {
+    return false;
   }
   jsize length = env->GetArrayLength(static_cast<jarray>(value));
   if (length <= 0) {
-    return {};
+    bytes->clear();
+    return true;
   }
-  std::vector<uint8_t> bytes(static_cast<size_t>(length));
+  bytes->resize(static_cast<size_t>(length));
   env->GetByteArrayRegion(static_cast<jbyteArray>(value), 0, length,
-                          reinterpret_cast<jbyte*>(bytes.data()));
-  return bytes;
+                          reinterpret_cast<jbyte*>(bytes->data()));
+  return true;
 }
 
 std::vector<FsvBasisuImageRequest> RequestsFromJavaList(JNIEnv* env,
@@ -150,20 +219,62 @@ std::vector<FsvBasisuImageRequest> RequestsFromJavaList(JNIEnv* env,
   jmethodID size_method = env->GetMethodID(list_class, "size", "()I");
   jmethodID get_method =
       env->GetMethodID(list_class, "get", "(I)Ljava/lang/Object;");
+  jclass map_class = env->FindClass("java/util/Map");
   const jint size = env->CallIntMethod(images, size_method);
   requests.reserve(static_cast<size_t>(size));
   for (jint index = 0; index < size; index += 1) {
     jobject image = env->CallObjectMethod(images, get_method, index);
-    if (image == nullptr) {
+    FsvBasisuImageRequest request;
+    if (image == nullptr || !env->IsInstanceOf(image, map_class)) {
+      request.metadata_valid = false;
+      request.metadata_field = "basisuImages";
+      requests.push_back(std::move(request));
+      if (image != nullptr) {
+        env->DeleteLocalRef(image);
+      }
       continue;
     }
-    FsvBasisuImageRequest request;
-    request.texture_index =
-        IntFromNumber(env, MapGet(env, image, "textureIndex"), -1);
-    request.image_index = IntFromNumber(env, MapGet(env, image, "imageIndex"),
-                                        -1);
-    request.mime_type = StringFromValue(env, MapGet(env, image, "mimeType"));
-    request.bytes = BytesFromValue(env, MapGet(env, image, "bytes"));
+    jobject texture_index = MapGet(env, image, "textureIndex");
+    request.texture_index = IntFromNumber(env, texture_index, -1);
+    if (texture_index != nullptr) {
+      env->DeleteLocalRef(texture_index);
+    }
+    jobject image_index = MapGet(env, image, "imageIndex");
+    request.image_index = IntFromNumber(env, image_index, -1);
+    if (image_index != nullptr) {
+      env->DeleteLocalRef(image_index);
+    }
+    jobject usage_role = MapGet(env, image, "usageRole");
+    if (!FsvBasisuUsageRoleFromString(StringFromValue(env, usage_role),
+                                      &request.usage_role)) {
+      request.metadata_valid = false;
+      request.metadata_field = "basisuImages.usageRole";
+    }
+    if (usage_role != nullptr) {
+      env->DeleteLocalRef(usage_role);
+    }
+    jobject channel_layout = MapGet(env, image, "channelLayout");
+    if (!FsvBasisuChannelLayoutFromString(
+            StringFromValue(env, channel_layout), &request.channel_layout)) {
+      request.metadata_valid = false;
+      request.metadata_field = "basisuImages.channelLayout";
+    }
+    if (channel_layout != nullptr) {
+      env->DeleteLocalRef(channel_layout);
+    }
+    jobject mime_type = MapGet(env, image, "mimeType");
+    request.mime_type = StringFromValue(env, mime_type);
+    if (mime_type != nullptr) {
+      env->DeleteLocalRef(mime_type);
+    }
+    jobject bytes = MapGet(env, image, "bytes");
+    if (!BytesFromValue(env, bytes, &request.bytes)) {
+      request.metadata_valid = false;
+      request.metadata_field = "basisuImages.bytes";
+    }
+    if (bytes != nullptr) {
+      env->DeleteLocalRef(bytes);
+    }
     requests.push_back(std::move(request));
     env->DeleteLocalRef(image);
   }
@@ -177,6 +288,11 @@ jobject DiagnosticToJava(JNIEnv* env, const FsvBasisuDiagnostic& diagnostic,
   MapPutString(env, details, "decoder", "basisu");
   MapPutBool(env, details, "required", true);
   MapPutString(env, details, "status", diagnostic.status);
+  MapPutString(env, details, "stage", diagnostic.stage);
+  MapPutString(env, details, "field", diagnostic.field);
+  MapPutString(env, details, "limitation",
+               diagnostic.status == "budgetExceeded" ? "decodeBudget"
+                                                        : "decodedPayloadSchema");
   MapPutString(env, details, "pluginPackage", "flutter_scene_viewer_basisu");
   MapPutString(env, details, "configurationKey",
                "FlutterSceneViewerBasisuEnabled");
@@ -187,6 +303,12 @@ jobject DiagnosticToJava(JNIEnv* env, const FsvBasisuDiagnostic& diagnostic,
   }
   if (diagnostic.image_index >= 0) {
     MapPutInt(env, details, "imageIndex", diagnostic.image_index);
+  }
+  if (diagnostic.has_limit) {
+    MapPutLong(env, details, "limit", diagnostic.limit);
+  }
+  if (diagnostic.has_actual) {
+    MapPutLong(env, details, "actual", diagnostic.actual);
   }
   if (!source.empty()) {
     MapPutString(env, details, "source", source);
@@ -207,6 +329,8 @@ jobject ResultToJava(JNIEnv* env, const FsvBasisuTranscodeResult& result,
     jobject image_map = NewHashMap(env);
     MapPutInt(env, image_map, "imageIndex", image.image_index);
     MapPutString(env, image_map, "mimeType", image.mime_type);
+    MapPutLong(env, image_map, "width", image.width);
+    MapPutLong(env, image_map, "height", image.height);
     MapPutBytes(env, image_map, "bytes", image.bytes);
     ListAdd(env, decoded_images, image_map);
     env->DeleteLocalRef(image_map);
@@ -251,11 +375,15 @@ Java_com_marlonjd_flutter_1scene_1viewer_1basisu_FlutterSceneViewerBasisuPlugin_
     JNIEnv* env,
     jclass clazz,
     jobject basisu_images,
+    jobject decode_budget,
+    jobject decode_budget_state,
     jstring source) {
   (void)clazz;
   const std::string source_string = StringFromValue(env, source);
   return ResultToJava(env,
                       FsvBasisuTranscodeImages(
-                          RequestsFromJavaList(env, basisu_images)),
+                          RequestsFromJavaList(env, basisu_images),
+                          BudgetFromJavaMap(env, decode_budget),
+                          StateFromJavaMap(env, decode_budget_state)),
                       source_string);
 }

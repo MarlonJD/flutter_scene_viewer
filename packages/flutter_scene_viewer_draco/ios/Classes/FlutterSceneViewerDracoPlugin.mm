@@ -67,6 +67,8 @@ NSDictionary *Diagnostic(NSString *status,
   };
 }
 
+FsvDracoBudgetNumber BudgetNumber(id value);
+
 FsvDracoAccessorSchema AccessorSchema(id value) {
   FsvDracoAccessorSchema schema;
   if (![value isKindOfClass:[NSDictionary class]]) {
@@ -74,23 +76,74 @@ FsvDracoAccessorSchema AccessorSchema(id value) {
   }
   NSDictionary *dictionary = value;
   id accessorIndex = dictionary[@"accessorIndex"];
-  id componentType = dictionary[@"componentType"];
   id type = dictionary[@"type"];
   id count = dictionary[@"count"];
-  if ([accessorIndex respondsToSelector:@selector(intValue)]) {
-    schema.accessor_index = [accessorIndex intValue];
+  if ([accessorIndex isKindOfClass:[NSNumber class]] &&
+      CFGetTypeID((__bridge CFTypeRef)accessorIndex) != CFBooleanGetTypeID() &&
+      !CFNumberIsFloatType((__bridge CFNumberRef)accessorIndex)) {
+    schema.accessor_index = [accessorIndex longLongValue];
   }
-  if ([componentType respondsToSelector:@selector(intValue)]) {
-    schema.component_type = [componentType intValue];
-  }
+  schema.component_type = BudgetNumber(dictionary[@"componentType"]);
   if ([type isKindOfClass:[NSString class]]) {
     schema.type = [type UTF8String];
   }
-  if ([count respondsToSelector:@selector(intValue)]) {
-    schema.count = [count intValue];
+  if ([count isKindOfClass:[NSNumber class]] &&
+      CFGetTypeID((__bridge CFTypeRef)count) != CFBooleanGetTypeID() &&
+      !CFNumberIsFloatType((__bridge CFNumberRef)count)) {
+    schema.count = [count longLongValue];
   }
   schema.normalized = [dictionary[@"normalized"] boolValue];
   return schema;
+}
+
+FsvDracoBudgetNumber BudgetNumber(id value) {
+  if (value == nil) {
+    return FsvDracoBudgetNumber();
+  }
+  if (![value isKindOfClass:[NSNumber class]] ||
+      CFGetTypeID((__bridge CFTypeRef)value) == CFBooleanGetTypeID() ||
+      CFNumberIsFloatType((__bridge CFNumberRef)value)) {
+    return FsvDracoBudgetNumber::Invalid();
+  }
+  return FsvDracoBudgetNumber::Integer([value longLongValue]);
+}
+
+FsvDracoDecodeBudgetMetadata DecodeBudget(id arguments) {
+  FsvDracoDecodeBudgetMetadata budget;
+  if (![arguments isKindOfClass:[NSDictionary class]]) {
+    return budget;
+  }
+  id value = arguments[@"decodeBudget"];
+  if (![value isKindOfClass:[NSDictionary class]]) {
+    return budget;
+  }
+  NSDictionary *dictionary = value;
+  budget.max_total_decoded_bytes =
+      BudgetNumber(dictionary[@"maxTotalDecodedBytes"]);
+  budget.max_accessors = BudgetNumber(dictionary[@"maxAccessors"]);
+  budget.max_vertices = BudgetNumber(dictionary[@"maxVertices"]);
+  budget.max_indices = BudgetNumber(dictionary[@"maxIndices"]);
+  budget.max_native_output_bytes =
+      BudgetNumber(dictionary[@"maxNativeOutputBytes"]);
+  return budget;
+}
+
+FsvDracoDecodeBudgetState DecodeBudgetState(id arguments) {
+  FsvDracoDecodeBudgetState state;
+  if (![arguments isKindOfClass:[NSDictionary class]]) {
+    return state;
+  }
+  id value = arguments[@"decodeBudgetState"];
+  if (![value isKindOfClass:[NSDictionary class]]) {
+    return state;
+  }
+  NSDictionary *dictionary = value;
+  state.total_decoded_bytes = BudgetNumber(dictionary[@"totalDecodedBytes"]);
+  state.accessors = BudgetNumber(dictionary[@"accessors"]);
+  state.vertices = BudgetNumber(dictionary[@"vertices"]);
+  state.indices = BudgetNumber(dictionary[@"indices"]);
+  state.native_output_bytes = BudgetNumber(dictionary[@"nativeOutputBytes"]);
+  return state;
 }
 
 std::vector<uint8_t> BytesVector(id value) {
@@ -120,6 +173,13 @@ std::vector<FsvDracoPrimitiveRequest> DracoPrimitiveRequests(id arguments) {
     request.mesh_index = [dictionary[@"meshIndex"] intValue];
     request.primitive_index = [dictionary[@"primitiveIndex"] intValue];
     request.compressed_bytes = BytesVector(dictionary[@"compressedBytes"]);
+    id vertexAccessorIndex = dictionary[@"vertexAccessorIndex"];
+    if ([vertexAccessorIndex isKindOfClass:[NSNumber class]] &&
+        CFGetTypeID((__bridge CFTypeRef)vertexAccessorIndex) !=
+            CFBooleanGetTypeID() &&
+        !CFNumberIsFloatType((__bridge CFNumberRef)vertexAccessorIndex)) {
+      request.vertex_accessor_index = [vertexAccessorIndex longLongValue];
+    }
 
     NSDictionary *attributes = dictionary[@"attributes"];
     if ([attributes isKindOfClass:[NSDictionary class]]) {
@@ -128,8 +188,10 @@ std::vector<FsvDracoPrimitiveRequest> DracoPrimitiveRequests(id arguments) {
           continue;
         }
         id value = attributes[key];
-        if ([value respondsToSelector:@selector(intValue)]) {
-          request.attributes[[key UTF8String]] = [value intValue];
+        if ([value isKindOfClass:[NSNumber class]] &&
+            CFGetTypeID((__bridge CFTypeRef)value) != CFBooleanGetTypeID() &&
+            !CFNumberIsFloatType((__bridge CFNumberRef)value)) {
+          request.attributes[[key UTF8String]] = [value longLongValue];
         }
       }
     }
@@ -192,6 +254,21 @@ NSArray *BridgeDiagnostics(const FsvDracoDecodeResult &decodeResult,
     } mutableCopy];
     if (!diagnostic.attribute.empty()) {
       details[@"attribute"] = StringFromStd(diagnostic.attribute);
+    }
+    if (!diagnostic.stage.empty()) {
+      details[@"stage"] = StringFromStd(diagnostic.stage);
+    }
+    if (!diagnostic.field.empty()) {
+      details[@"field"] = StringFromStd(diagnostic.field);
+      details[@"limitation"] = diagnostic.status == "budgetExceeded"
+                                    ? @"decodeBudget"
+                                    : @"dracoNativeBoundary";
+    }
+    if (diagnostic.has_limit) {
+      details[@"limit"] = @(diagnostic.limit);
+    }
+    if (diagnostic.has_actual) {
+      details[@"actual"] = @(diagnostic.actual);
     }
     [diagnostics addObject:Diagnostic(StringFromStd(diagnostic.status),
                                       StringFromStd(diagnostic.message),
@@ -266,7 +343,9 @@ NSArray *BridgeDiagnostics(const FsvDracoDecodeResult &decodeResult,
         });
         return;
       }
-      FsvDracoDecodeResult decodeResult = FsvDracoDecodePrimitives(requests);
+      FsvDracoDecodeResult decodeResult = FsvDracoDecodePrimitives(
+          requests, DecodeBudget(call.arguments),
+          DecodeBudgetState(call.arguments));
       [diagnostics addObjectsFromArray:BridgeDiagnostics(decodeResult, source)];
       if (diagnostics.count > 0) {
         result(@{

@@ -32,3 +32,16 @@ Boundaries:
 
 Third-party notices for the vendored Basis Universal and Zstd sources are kept
 under `third_party/basis_universal/`.
+
+The upstream base commit is
+`882abb5320400ab650c1be33f9152e4955e83af3`; it is not the exact identity of
+the locally modified vendored source. The upstream/vendored source hashes,
+local guard hunk, purpose, and Apache-2.0 modification notice are recorded in
+`third_party/basis_universal/FSV_LOCAL_MODIFICATIONS.md`. Separately, the
+deterministic `third_party/basis_universal/VENDORED_SOURCES.sha256` manifest
+pins the exact local state of all 28 files in the compiled transcoder/Zstd
+source set. Verify that manifest from the third-party directory with:
+
+```sh
+shasum -a 256 -c VENDORED_SOURCES.sha256
+```

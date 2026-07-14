@@ -2,22 +2,27 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import '../diagnostics.dart';
+import 'glb_decode_budget.dart';
 
 const int _glbMagic = 0x46546C67;
 const int _jsonChunkType = 0x4E4F534A;
 const int _binChunkType = 0x004E4942;
-const int _maxJsonChunkBytes = 8 * 1024 * 1024;
+const int _maxGlbUint32 = 0xffffffff;
 const String _basisuExtension = 'KHR_texture_basisu';
 
 final class GlbDecodedBasisuImage {
   const GlbDecodedBasisuImage({
     required this.imageIndex,
     required this.mimeType,
+    required this.width,
+    required this.height,
     required this.bytes,
   });
 
   final int imageIndex;
   final String mimeType;
+  final int width;
+  final int height;
   final Uint8List bytes;
 }
 
@@ -35,8 +40,16 @@ GlbBasisuRewriteResult rewriteBasisuTexturesInGlb(
   Uint8List bytes, {
   required List<GlbDecodedBasisuImage> decodedImages,
   String? debugName,
+  GlbDecodeBudget budget = const GlbDecodeBudget(),
+  GlbDecodeBudgetTracker? budgetTracker,
+  void Function(Uint8List bytes)? debugAfterOutputBuilt,
 }) {
-  final readResult = _readGlb(bytes, debugName: debugName);
+  final tracker = budgetTracker ?? GlbDecodeBudgetTracker(budget);
+  final readResult = _readGlb(
+    bytes,
+    debugName: debugName,
+    budgetTracker: tracker,
+  );
   final readDiagnostic = readResult.diagnostic;
   if (readDiagnostic != null) {
     return GlbBasisuRewriteResult(
@@ -48,67 +61,60 @@ GlbBasisuRewriteResult rewriteBasisuTexturesInGlb(
     return const GlbBasisuRewriteResult(bytes: null);
   }
 
-  final decodedByImageIndex = <int, GlbDecodedBasisuImage>{
-    for (final image in decodedImages) image.imageIndex: image,
-  };
   final diagnostics = <ViewerDiagnostic>[];
-  final basisuImageIndices = _basisuImageIndices(json, diagnostics, debugName);
-  for (final imageIndex in basisuImageIndices) {
-    final decoded = decodedByImageIndex[imageIndex];
-    if (decoded == null) {
-      diagnostics.add(
-        _rewriteFailure(
-          debugName,
-          'Native BasisU decoder did not return every referenced image.',
-          details: <String, Object?>{'imageIndex': imageIndex},
-        ),
-      );
-      continue;
-    }
-    if (!_isSupportedDecodedMimeType(decoded.mimeType)) {
-      diagnostics.add(
-        _rewriteFailure(
-          debugName,
-          'Native BasisU decoder returned an unsupported decoded image MIME type.',
-          details: <String, Object?>{
-            'imageIndex': imageIndex,
-            'mimeType': decoded.mimeType,
-          },
-        ),
-      );
-    }
-    if (decoded.bytes.isEmpty) {
-      diagnostics.add(
-        _rewriteFailure(
-          debugName,
-          'Native BasisU decoder returned an empty decoded image payload.',
-          details: <String, Object?>{'imageIndex': imageIndex},
-        ),
-      );
-    }
-  }
-  if (diagnostics.isNotEmpty) {
+  final sourceBin = readResult.bin ?? Uint8List(0);
+  final rawBuffers = json['buffers'];
+  final buffers = _list(rawBuffers);
+  if (rawBuffers != null && buffers == null) {
     return GlbBasisuRewriteResult(
-      diagnostics: List<ViewerDiagnostic>.unmodifiable(diagnostics),
+      diagnostics: <ViewerDiagnostic>[
+        _typedFailure(
+          debugName,
+          json,
+          'BasisU GLB buffers metadata must be an array.',
+          limitation: 'basisuAssetSchema',
+          status: 'malformedAsset',
+          field: 'buffers',
+          limit: 'array',
+          actual: rawBuffers.runtimeType.toString(),
+        ),
+      ],
     );
   }
-
-  var bin = Uint8List.fromList(readResult.bin ?? const <int>[]);
-  final buffers = _ensureList(json, 'buffers');
-  if (buffers.isEmpty) {
-    buffers.add(<String, Object?>{'byteLength': 0});
-  }
-  final firstBuffer = _map(buffers[0]);
-  if (firstBuffer == null || firstBuffer['uri'] != null) {
+  final rawFirstBuffer = buffers?.isNotEmpty ?? false ? buffers![0] : null;
+  final firstBuffer = _map(rawFirstBuffer);
+  if ((buffers?.isNotEmpty ?? false) &&
+      (firstBuffer == null || firstBuffer['uri'] != null)) {
     return GlbBasisuRewriteResult(
       diagnostics: <ViewerDiagnostic>[
         _rewriteFailure(
           debugName,
           'BasisU GLB rewrite requires an embedded BIN buffer at buffers[0].',
+          json: json,
         ),
       ],
     );
   }
+
+  final declaredBinLengthValue = firstBuffer?['byteLength'];
+  final declaredBinLength = _intValue(declaredBinLengthValue);
+  if ((declaredBinLengthValue != null && declaredBinLength == null) ||
+      (declaredBinLength != null &&
+          (declaredBinLength < 0 ||
+              declaredBinLength > kGlbMaxSafeInteger ||
+              declaredBinLength > sourceBin.lengthInBytes))) {
+    return GlbBasisuRewriteResult(
+      diagnostics: <ViewerDiagnostic>[
+        _embeddedBinLengthFailure(
+          debugName,
+          json,
+          declaredBinLengthValue,
+          sourceBin.lengthInBytes,
+        ),
+      ],
+    );
+  }
+
   final images = _list(json['images']);
   if (images == null) {
     return GlbBasisuRewriteResult(
@@ -116,51 +122,223 @@ GlbBasisuRewriteResult rewriteBasisuTexturesInGlb(
         _rewriteFailure(
           debugName,
           'BasisU GLB rewrite requires an images array.',
+          json: json,
         ),
       ],
     );
   }
-  final bufferViews = _ensureList(json, 'bufferViews');
-  var logicalBinLength = _intValue(firstBuffer['byteLength']) ?? bin.length;
-  if (logicalBinLength > bin.length) {
-    bin = _appendPadding(bin, logicalBinLength - bin.length);
+  final rawBufferViews = json['bufferViews'];
+  if (rawBufferViews != null && _list(rawBufferViews) == null) {
+    return GlbBasisuRewriteResult(
+      diagnostics: <ViewerDiagnostic>[
+        _typedFailure(
+          debugName,
+          json,
+          'BasisU GLB bufferViews metadata must be an array.',
+          limitation: 'basisuAssetSchema',
+          status: 'malformedAsset',
+          field: 'bufferViews',
+          limit: 'array',
+          actual: rawBufferViews.runtimeType.toString(),
+        ),
+      ],
+    );
   }
 
-  for (final imageIndex in basisuImageIndices) {
-    final decoded = decodedByImageIndex[imageIndex]!;
-    if (imageIndex < 0 || imageIndex >= images.length) {
-      diagnostics.add(
-        _rewriteFailure(
-          debugName,
-          'Decoded BasisU image target is outside the images array.',
-          details: <String, Object?>{'imageIndex': imageIndex},
-        ),
-      );
-      continue;
-    }
-    final image = _map(images[imageIndex]);
-    if (image == null) {
-      diagnostics.add(
-        _rewriteFailure(
-          debugName,
-          'Decoded BasisU image target is not an image object.',
-          details: <String, Object?>{'imageIndex': imageIndex},
-        ),
-      );
-      continue;
-    }
-    final write = _appendBufferView(
-      bin,
-      logicalBinLength,
-      bufferViews,
-      decoded.bytes,
+  final basisuImageIndices = _basisuImageIndices(
+    json,
+    imageCount: images.length,
+    diagnostics: diagnostics,
+    debugName: debugName,
+  );
+  if (diagnostics.isNotEmpty) {
+    return GlbBasisuRewriteResult(
+      diagnostics: List<ViewerDiagnostic>.unmodifiable(diagnostics),
     );
-    bin = write.bin;
-    logicalBinLength = write.logicalLength;
-    image
-      ..remove('uri')
-      ..['mimeType'] = decoded.mimeType
-      ..['bufferView'] = write.bufferViewIndex;
+  }
+  final decodedByImageIndex = <int, GlbDecodedBasisuImage>{};
+  for (var decodedIndex = 0;
+      decodedIndex < decodedImages.length;
+      decodedIndex += 1) {
+    final decoded = decodedImages[decodedIndex];
+    if (decodedByImageIndex.containsKey(decoded.imageIndex)) {
+      diagnostics.add(
+        _typedFailure(
+          debugName,
+          json,
+          'Native BasisU decoder returned one image target more than once.',
+          limitation: 'decodedPayloadSchema',
+          status: 'malformedOutput',
+          field: 'decodedImages',
+          limit: 'unique imageIndex values',
+          actual: decoded.imageIndex,
+          details: <String, Object?>{
+            'decodedImageIndex': decodedIndex,
+            'imageIndex': decoded.imageIndex,
+          },
+        ),
+      );
+      continue;
+    }
+    decodedByImageIndex[decoded.imageIndex] = decoded;
+    if (decoded.imageIndex < 0 || decoded.imageIndex >= images.length) {
+      diagnostics.add(
+        _typedFailure(
+          debugName,
+          json,
+          'Decoded BasisU image target is outside the images array.',
+          limitation: 'decodedPayloadSchema',
+          status: 'malformedOutput',
+          field: 'decodedImages[$decodedIndex].imageIndex',
+          limit: images.isEmpty ? 'no images' : images.length - 1,
+          actual: decoded.imageIndex,
+          details: <String, Object?>{
+            'decodedImageIndex': decodedIndex,
+            'imageIndex': decoded.imageIndex,
+          },
+        ),
+      );
+      continue;
+    }
+    if (_map(images[decoded.imageIndex]) == null) {
+      diagnostics.add(
+        _typedFailure(
+          debugName,
+          json,
+          'Decoded BasisU image target is not an image object.',
+          limitation: 'basisuAssetSchema',
+          status: 'malformedAsset',
+          field: 'images[${decoded.imageIndex}]',
+          limit: 'object',
+          actual: images[decoded.imageIndex].runtimeType.toString(),
+          details: <String, Object?>{'imageIndex': decoded.imageIndex},
+        ),
+      );
+    }
+    if (!basisuImageIndices.contains(decoded.imageIndex)) {
+      diagnostics.add(
+        _typedFailure(
+          debugName,
+          json,
+          'Native BasisU decoder returned an image not referenced by a BasisU texture.',
+          limitation: 'decodedPayloadSchema',
+          status: 'malformedOutput',
+          field: 'decodedImages[$decodedIndex].imageIndex',
+          limit: 'referenced by KHR_texture_basisu',
+          actual: decoded.imageIndex,
+          details: <String, Object?>{
+            'decodedImageIndex': decodedIndex,
+            'imageIndex': decoded.imageIndex,
+          },
+        ),
+      );
+      continue;
+    }
+    if (!_isSupportedDecodedMimeType(decoded.mimeType)) {
+      diagnostics.add(
+        _typedFailure(
+          debugName,
+          json,
+          'Native BasisU decoder returned an unsupported decoded image MIME type.',
+          limitation: 'decodedPayloadSchema',
+          status: 'malformedOutput',
+          field: 'decodedImages[$decodedIndex].mimeType',
+          limit: 'image/png',
+          actual: decoded.mimeType,
+          details: <String, Object?>{
+            'imageIndex': decoded.imageIndex,
+            'mimeType': decoded.mimeType,
+          },
+        ),
+      );
+    }
+    if (decoded.bytes.isEmpty) {
+      diagnostics.add(
+        _typedFailure(
+          debugName,
+          json,
+          'Native BasisU decoder returned an empty decoded image payload.',
+          limitation: 'decodedPayloadSchema',
+          status: 'malformedOutput',
+          field: 'decodedImages[$decodedIndex].bytes',
+          limit: 'non-empty payload',
+          actual: decoded.bytes.lengthInBytes,
+          details: <String, Object?>{'imageIndex': decoded.imageIndex},
+        ),
+      );
+    }
+    if (decoded.width <= 0 || decoded.width > kGlbMaxSafeInteger) {
+      diagnostics.add(
+        _typedFailure(
+          debugName,
+          json,
+          'Native BasisU decoder returned an invalid decoded image width.',
+          limitation: 'decodedPayloadSchema',
+          status: 'malformedOutput',
+          field: 'decodedImages[$decodedIndex].width',
+          limit: 'positive web-safe integer',
+          actual: decoded.width,
+          details: <String, Object?>{'imageIndex': decoded.imageIndex},
+        ),
+      );
+    }
+    if (decoded.height <= 0 || decoded.height > kGlbMaxSafeInteger) {
+      diagnostics.add(
+        _typedFailure(
+          debugName,
+          json,
+          'Native BasisU decoder returned an invalid decoded image height.',
+          limitation: 'decodedPayloadSchema',
+          status: 'malformedOutput',
+          field: 'decodedImages[$decodedIndex].height',
+          limit: 'positive web-safe integer',
+          actual: decoded.height,
+          details: <String, Object?>{'imageIndex': decoded.imageIndex},
+        ),
+      );
+    }
+    final pngDimensions = _readPngDimensions(decoded.bytes);
+    if (decoded.mimeType == 'image/png' &&
+        decoded.bytes.isNotEmpty &&
+        decoded.width > 0 &&
+        decoded.height > 0 &&
+        (pngDimensions == null ||
+            pngDimensions.$1 != decoded.width ||
+            pngDimensions.$2 != decoded.height)) {
+      diagnostics.add(
+        _typedFailure(
+          debugName,
+          json,
+          'Native BasisU PNG metadata does not match its PNG IHDR.',
+          limitation: 'decodedPayloadSchema',
+          status: 'malformedOutput',
+          field: 'decodedImages[$decodedIndex].bytes.IHDR',
+          limit: <String, Object?>{
+            'width': decoded.width,
+            'height': decoded.height,
+          },
+          actual: pngDimensions == null
+              ? 'valid PNG signature and IHDR'
+              : <String, Object?>{
+                  'width': pngDimensions.$1,
+                  'height': pngDimensions.$2,
+                },
+          details: <String, Object?>{'imageIndex': decoded.imageIndex},
+        ),
+      );
+    }
+  }
+  for (final imageIndex in basisuImageIndices) {
+    if (!decodedByImageIndex.containsKey(imageIndex)) {
+      diagnostics.add(
+        _rewriteFailure(
+          debugName,
+          'Native BasisU decoder did not return every referenced image.',
+          json: json,
+          details: <String, Object?>{'imageIndex': imageIndex},
+        ),
+      );
+    }
   }
   if (diagnostics.isNotEmpty) {
     return GlbBasisuRewriteResult(
@@ -168,27 +346,158 @@ GlbBasisuRewriteResult rewriteBasisuTexturesInGlb(
     );
   }
 
-  _rewriteBasisuTextureReferences(json);
-  if (!_hasBasisuTexture(json)) {
-    _removeTopLevelExtension(json, 'extensionsUsed');
-    _removeTopLevelExtension(json, 'extensionsRequired');
+  final plans = <_BasisuImageWrite>[];
+  var logicalBinLength = declaredBinLength ?? sourceBin.lengthInBytes;
+  for (final imageIndex in basisuImageIndices) {
+    final decoded = decodedByImageIndex[imageIndex]!;
+    final offset = _alignedLength(logicalBinLength);
+    final end = offset == null
+        ? null
+        : _checkedLengthSum(offset, decoded.bytes.lengthInBytes);
+    if (offset == null || end == null) {
+      return GlbBasisuRewriteResult(
+        diagnostics: <ViewerDiagnostic>[
+          _typedFailure(
+            debugName,
+            json,
+            'BasisU decoded image output exceeds the GLB length range.',
+            limitation: 'glbOutputSize',
+            status: 'rewriteFailed',
+            stage: 'basisuPreflight',
+            field: 'buffers[0].byteLength',
+            limit: _maxGlbUint32,
+            actual: '$logicalBinLength + ${decoded.bytes.lengthInBytes}',
+            details: <String, Object?>{'imageIndex': imageIndex},
+          ),
+        ],
+      );
+    }
+    plans.add(
+      _BasisuImageWrite(
+        imageIndex: imageIndex,
+        decoded: decoded,
+        byteOffset: offset,
+      ),
+    );
+    logicalBinLength = end;
+  }
+  final paddedBinLength = _alignedLength(logicalBinLength);
+  if (paddedBinLength == null) {
+    return GlbBasisuRewriteResult(
+      diagnostics: <ViewerDiagnostic>[
+        _typedFailure(
+          debugName,
+          json,
+          'BasisU decoded image output exceeds the GLB length range.',
+          limitation: 'glbOutputSize',
+          status: 'rewriteFailed',
+          stage: 'basisuPreflight',
+          field: 'buffers[0].byteLength',
+          limit: _maxGlbUint32,
+          actual: logicalBinLength,
+        ),
+      ],
+    );
   }
 
-  final paddedBinLength = _align4(logicalBinLength);
-  if (bin.length < paddedBinLength) {
-    bin = _appendPadding(bin, paddedBinLength - bin.length);
-  } else if (bin.length > paddedBinLength) {
-    bin = Uint8List.sublistView(bin, 0, paddedBinLength);
+  final shadow = GlbDecodeBudgetTracker(tracker.budget);
+  try {
+    _copyBasisuBudgetReservations(tracker, shadow);
+    for (final plan in plans) {
+      shadow.reserveTexturePixels(
+        width: plan.decoded.width,
+        height: plan.decoded.height,
+        stage: 'basisuDecodedImage',
+      );
+      shadow.reserveNativeOutputBytes(
+        plan.decoded.bytes.lengthInBytes,
+        stage: 'basisuDecodedOutput',
+      );
+    }
+  } on GlbDecodeBudgetExceeded catch (error) {
+    return GlbBasisuRewriteResult(
+      diagnostics: <ViewerDiagnostic>[_budgetFailure(debugName, json, error)],
+    );
   }
-  firstBuffer['byteLength'] = paddedBinLength;
-  return GlbBasisuRewriteResult(bytes: _writeGlb(json, bin));
+  final payloadByteLength =
+      shadow.nativeOutputBytes - tracker.nativeOutputBytes;
+  final payloadTexturePixels = shadow.texturePixels - tracker.texturePixels;
+
+  Uint8List rewrittenBytes;
+  try {
+    final bin = Uint8List(paddedBinLength);
+    bin.setRange(
+      0,
+      sourceBin.lengthInBytes.clamp(0, bin.lengthInBytes),
+      sourceBin,
+    );
+    for (final plan in plans) {
+      bin.setRange(
+        plan.byteOffset,
+        plan.byteOffset + plan.decoded.bytes.lengthInBytes,
+        plan.decoded.bytes,
+      );
+    }
+
+    final mutableBuffers = _ensureList(json, 'buffers');
+    if (mutableBuffers.isEmpty) {
+      mutableBuffers.add(<String, Object?>{'byteLength': 0});
+    }
+    final mutableFirstBuffer = _map(mutableBuffers[0])!;
+    final bufferViews = _ensureList(json, 'bufferViews');
+    for (final plan in plans) {
+      final bufferViewIndex = bufferViews.length;
+      bufferViews.add(<String, Object?>{
+        'buffer': 0,
+        'byteOffset': plan.byteOffset,
+        'byteLength': plan.decoded.bytes.lengthInBytes,
+      });
+      final image = _map(images[plan.imageIndex])!;
+      image
+        ..remove('uri')
+        ..['mimeType'] = plan.decoded.mimeType
+        ..['bufferView'] = bufferViewIndex;
+    }
+    _rewriteBasisuTextureReferences(json);
+    if (!_hasBasisuTexture(json)) {
+      _removeTopLevelExtension(json, 'extensionsUsed');
+      _removeTopLevelExtension(json, 'extensionsRequired');
+    }
+    mutableFirstBuffer['byteLength'] = paddedBinLength;
+    rewrittenBytes = _writeGlb(json, bin);
+    debugAfterOutputBuilt?.call(rewrittenBytes);
+  } on Object catch (error) {
+    return GlbBasisuRewriteResult(
+      diagnostics: <ViewerDiagnostic>[_outputFailure(debugName, json, error)],
+    );
+  }
+
+  try {
+    if (payloadTexturePixels != 0) {
+      tracker.reserveTexturePixels(
+        width: payloadTexturePixels,
+        height: 1,
+        stage: 'basisuDecodedImage',
+      );
+    }
+    tracker.reserveNativeOutputBytes(
+      payloadByteLength,
+      stage: 'basisuDecodedOutput',
+    );
+  } on GlbDecodeBudgetExceeded catch (error) {
+    return GlbBasisuRewriteResult(
+      diagnostics: <ViewerDiagnostic>[_budgetFailure(debugName, json, error)],
+    );
+  }
+  return GlbBasisuRewriteResult(bytes: rewrittenBytes);
 }
 
 Set<int> _basisuImageIndices(
-  Map<String, Object?> json,
-  List<ViewerDiagnostic> diagnostics,
-  String? debugName,
-) {
+  Map<String, Object?> json, {
+  required int imageCount,
+  required List<ViewerDiagnostic> diagnostics,
+  required String? debugName,
+}) {
   final textures = _list(json['textures']);
   if (textures == null) {
     return const <int>{};
@@ -203,11 +512,17 @@ Set<int> _basisuImageIndices(
       continue;
     }
     final imageIndex = _intValue(basisu['source']);
-    if (imageIndex == null) {
+    if (imageIndex == null || imageIndex < 0 || imageIndex >= imageCount) {
       diagnostics.add(
-        _rewriteFailure(
+        _typedFailure(
           debugName,
-          'BasisU texture extension does not reference an image source.',
+          json,
+          'BasisU texture extension does not reference an in-range image source.',
+          limitation: 'basisuAssetSchema',
+          status: 'malformedAsset',
+          field: 'textures[$textureIndex].extensions.KHR_texture_basisu.source',
+          limit: imageCount == 0 ? 'no images' : imageCount - 1,
+          actual: basisu['source'],
           details: <String, Object?>{'textureIndex': textureIndex},
         ),
       );
@@ -256,31 +571,96 @@ bool _hasBasisuTexture(Map<String, Object?> json) {
 }
 
 bool _isSupportedDecodedMimeType(String mimeType) {
-  return mimeType == 'image/png' || mimeType == 'image/jpeg';
+  return mimeType == 'image/png';
 }
 
-_BufferWrite _appendBufferView(
-  Uint8List bin,
-  int logicalLength,
-  List<Object?> bufferViews,
-  Uint8List payload,
+(int, int)? _readPngDimensions(Uint8List bytes) {
+  const signature = <int>[0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+  if (bytes.lengthInBytes < 24) {
+    return null;
+  }
+  for (var index = 0; index < signature.length; index += 1) {
+    if (bytes[index] != signature[index]) {
+      return null;
+    }
+  }
+  final data = ByteData.sublistView(bytes);
+  if (data.getUint32(8) != 13 || data.getUint32(12) != 0x49484452) {
+    return null;
+  }
+  final width = data.getUint32(16);
+  final height = data.getUint32(20);
+  if (width == 0 || height == 0) {
+    return null;
+  }
+  return (width, height);
+}
+
+void _copyBasisuBudgetReservations(
+  GlbDecodeBudgetTracker source,
+  GlbDecodeBudgetTracker destination,
 ) {
-  final offset = _align4(logicalLength);
-  final paddedEnd = _align4(offset + payload.length);
-  final next = Uint8List(paddedEnd);
-  next.setRange(0, bin.length.clamp(0, next.length), bin);
-  next.setRange(offset, offset + payload.length, payload);
-  final bufferViewIndex = bufferViews.length;
-  bufferViews.add(<String, Object?>{
-    'buffer': 0,
-    'byteOffset': offset,
-    'byteLength': payload.length,
-  });
-  return _BufferWrite(
-    bin: next,
-    logicalLength: offset + payload.length,
-    bufferViewIndex: bufferViewIndex,
-  );
+  final nonNativeDecodedBytes =
+      source.totalDecodedBytes - source.nativeOutputBytes;
+  if (nonNativeDecodedBytes < 0) {
+    throw StateError(
+      'Native output accounting exceeds total decoded-byte accounting.',
+    );
+  }
+  if (nonNativeDecodedBytes != 0) {
+    destination.reserveDecodedBytes(
+      nonNativeDecodedBytes,
+      stage: 'basisuBudgetSnapshot',
+    );
+  }
+  if (source.nativeOutputBytes != 0) {
+    destination.reserveNativeOutputBytes(
+      source.nativeOutputBytes,
+      stage: 'basisuBudgetSnapshot',
+    );
+  }
+  if (source.accessors != 0) {
+    destination.reserveAccessors(
+      source.accessors,
+      stage: 'basisuBudgetSnapshot',
+    );
+  }
+  if (source.vertices != 0) {
+    destination.reserveVertices(
+      source.vertices,
+      stage: 'basisuBudgetSnapshot',
+    );
+  }
+  if (source.indices != 0) {
+    destination.reserveIndices(
+      source.indices,
+      stage: 'basisuBudgetSnapshot',
+    );
+  }
+  if (source.texturePixels != 0) {
+    destination.reserveTexturePixels(
+      width: source.texturePixels,
+      height: 1,
+      stage: 'basisuBudgetSnapshot',
+    );
+  }
+}
+
+int? _alignedLength(int value) {
+  if (value < 0 || value > _maxGlbUint32 - 3) {
+    return null;
+  }
+  return (value + 3) & ~3;
+}
+
+int? _checkedLengthSum(int left, int right) {
+  if (left < 0 ||
+      right < 0 ||
+      left > _maxGlbUint32 ||
+      right > _maxGlbUint32 - left) {
+    return null;
+  }
+  return left + right;
 }
 
 void _removeTopLevelExtension(Map<String, Object?> json, String field) {
@@ -297,6 +677,7 @@ void _removeTopLevelExtension(Map<String, Object?> json, String field) {
 _GlbReadResult _readGlb(
   Uint8List bytes, {
   required String? debugName,
+  required GlbDecodeBudgetTracker budgetTracker,
 }) {
   if (bytes.lengthInBytes < 12) {
     return _GlbReadResult.diagnostic(
@@ -328,10 +709,18 @@ _GlbReadResult _readGlb(
     final chunkLength = data.getUint32(offset, Endian.little);
     final chunkType = data.getUint32(offset + 4, Endian.little);
     offset += 8;
-    if (chunkLength > _maxJsonChunkBytes && chunkType == _jsonChunkType) {
-      return _GlbReadResult.diagnostic(
-        _rewriteFailure(debugName, 'GLB JSON chunk exceeds the reader limit.'),
-      );
+    if (chunkType == _jsonChunkType) {
+      try {
+        budgetTracker.checkJsonBytes(chunkLength, stage: 'glbJsonRead');
+      } on GlbDecodeBudgetExceeded catch (error) {
+        return _GlbReadResult.diagnostic(
+          _budgetFailure(
+            debugName,
+            const <String, Object?>{},
+            error,
+          ),
+        );
+      }
     }
     if (offset + chunkLength > declaredLength) {
       return _GlbReadResult.diagnostic(
@@ -382,9 +771,17 @@ _GlbReadResult _readGlb(
 
 Uint8List _writeGlb(Map<String, Object?> json, Uint8List bin) {
   final jsonBytes = utf8.encode(jsonEncode(json));
-  final paddedJsonLength = _align4(jsonBytes.length);
-  final paddedBinLength = _align4(bin.length);
-  final totalLength = 12 + 8 + paddedJsonLength + 8 + paddedBinLength;
+  final paddedJsonLength = _alignedLength(jsonBytes.length);
+  final paddedBinLength = _alignedLength(bin.length);
+  if (paddedJsonLength == null || paddedBinLength == null) {
+    throw const FormatException('GLB chunk length exceeds uint32.');
+  }
+  final chunkLengths = _checkedLengthSum(paddedJsonLength, paddedBinLength);
+  final totalLength =
+      chunkLengths == null ? null : _checkedLengthSum(28, chunkLengths);
+  if (totalLength == null) {
+    throw const FormatException('GLB total length exceeds uint32.');
+  }
   final bytes = Uint8List(totalLength);
   final data = ByteData.sublistView(bytes);
   data
@@ -421,20 +818,13 @@ List<Object?> _ensureList(Map<String, Object?> owner, String field) {
   return created;
 }
 
-Uint8List _appendPadding(Uint8List bytes, int length) {
-  if (length <= 0) {
-    return bytes;
-  }
-  final next = Uint8List(bytes.length + length);
-  next.setRange(0, bytes.length, bytes);
-  return next;
-}
-
 ViewerDiagnostic _rewriteFailure(
   String? debugName,
   String reason, {
+  Map<String, Object?> json = const <String, Object?>{},
   Map<String, Object?> details = const <String, Object?>{},
 }) {
+  final extensionsRequired = _list(json['extensionsRequired']);
   return ViewerDiagnostic(
     code: ViewerDiagnosticCode.unsupportedModelFeature,
     message: 'Could not rewrite BasisU/KTX2 textures in GLB.',
@@ -442,11 +832,120 @@ ViewerDiagnostic _rewriteFailure(
       'source': debugName,
       'extension': _basisuExtension,
       'decoder': 'basisu',
-      'required': true,
+      'required': extensionsRequired?.contains(_basisuExtension) ?? true,
       'status': 'rewriteFailed',
       'reason': reason,
       ...details,
     },
+  );
+}
+
+ViewerDiagnostic _typedFailure(
+  String? debugName,
+  Map<String, Object?> json,
+  String reason, {
+  required String limitation,
+  required String status,
+  required String field,
+  required Object? limit,
+  required Object? actual,
+  String stage = 'basisuPreflight',
+  Map<String, Object?> details = const <String, Object?>{},
+}) {
+  final extensionsRequired = _list(json['extensionsRequired']);
+  return ViewerDiagnostic(
+    code: ViewerDiagnosticCode.unsupportedModelFeature,
+    message: 'Could not rewrite BasisU/KTX2 textures in GLB.',
+    details: <String, Object?>{
+      'source': debugName,
+      'extension': _basisuExtension,
+      'decoder': 'basisu',
+      'required': extensionsRequired?.contains(_basisuExtension) ?? true,
+      'limitation': limitation,
+      'status': status,
+      'stage': stage,
+      'field': field,
+      'limit': limit,
+      'actual': actual,
+      'reason': reason,
+      ...details,
+    },
+  );
+}
+
+ViewerDiagnostic _budgetFailure(
+  String? debugName,
+  Map<String, Object?> json,
+  GlbDecodeBudgetExceeded error,
+) {
+  final extensionsRequired = _list(json['extensionsRequired']);
+  return ViewerDiagnostic(
+    code: ViewerDiagnosticCode.unsupportedModelFeature,
+    message: 'BasisU rewrite exceeded the configured GLB decode budget.',
+    details: <String, Object?>{
+      'source': debugName,
+      'extension': _basisuExtension,
+      'decoder': 'basisu',
+      'required': extensionsRequired?.contains(_basisuExtension) ?? true,
+      'limitation': 'decodeBudget',
+      'status': error.status,
+      'stage': error.stage,
+      'field': error.field,
+      'limit': error.limit,
+      'actual': error.actual,
+      'actualExact': error.actualExact,
+      'actualExceedsMaxSafeInteger': error.actualExceedsMaxSafeInteger,
+      if (error.actualLowerBound != null)
+        'actualLowerBound': error.actualLowerBound,
+      if (error.operands.isNotEmpty) 'operands': error.operands,
+      'reason': error.toString(),
+    },
+  );
+}
+
+ViewerDiagnostic _embeddedBinLengthFailure(
+  String? debugName,
+  Map<String, Object?> json,
+  Object? actual,
+  int actualBinCapacity,
+) {
+  final actualInt = actual is int ? actual : null;
+  final actualIsSafe =
+      actualInt != null && actualInt >= 0 && actualInt <= kGlbMaxSafeInteger;
+  return _typedFailure(
+    debugName,
+    json,
+    'buffers[0].byteLength must fit the existing embedded BIN chunk.',
+    limitation: 'embeddedBinDeclaredLength',
+    status: 'malformedAsset',
+    field: 'buffers[0].byteLength',
+    limit: actualBinCapacity,
+    actual: actualIsSafe ? actualInt : 'byteLength=$actual',
+    details: <String, Object?>{
+      'actualExact': actualIsSafe,
+      'actualExceedsMaxSafeInteger':
+          actualInt != null && actualInt > kGlbMaxSafeInteger,
+      if (actualInt != null && actualInt > kGlbMaxSafeInteger)
+        'actualLowerBound': kGlbMaxSafeInteger,
+    },
+  );
+}
+
+ViewerDiagnostic _outputFailure(
+  String? debugName,
+  Map<String, Object?> json,
+  Object error,
+) {
+  return _typedFailure(
+    debugName,
+    json,
+    'BasisU GLB output construction did not complete successfully.',
+    limitation: 'glbOutputConstruction',
+    status: 'rewriteFailed',
+    stage: 'basisuOutput',
+    field: 'glbBytes',
+    limit: 'successful GLB output construction',
+    actual: error.toString(),
   );
 }
 
@@ -478,8 +977,6 @@ int? _intValue(Object? value) {
   return null;
 }
 
-int _align4(int value) => (value + 3) & ~3;
-
 final class _GlbReadResult {
   const _GlbReadResult({this.json, this.bin}) : diagnostic = null;
   const _GlbReadResult.diagnostic(this.diagnostic)
@@ -491,14 +988,14 @@ final class _GlbReadResult {
   final ViewerDiagnostic? diagnostic;
 }
 
-final class _BufferWrite {
-  const _BufferWrite({
-    required this.bin,
-    required this.logicalLength,
-    required this.bufferViewIndex,
+final class _BasisuImageWrite {
+  const _BasisuImageWrite({
+    required this.imageIndex,
+    required this.decoded,
+    required this.byteOffset,
   });
 
-  final Uint8List bin;
-  final int logicalLength;
-  final int bufferViewIndex;
+  final int imageIndex;
+  final GlbDecodedBasisuImage decoded;
+  final int byteOffset;
 }

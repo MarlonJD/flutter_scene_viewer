@@ -1,0 +1,12 @@
+{
+  "name": "flutter-scene-viewer-gltf-rewrite-validation",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test validate_rewritten_glb.test.mjs",
+    "validate": "node validate_rewritten_glb.mjs"
+  },
+  "dependencies": {
+    "gltf-validator": "2.0.0-dev.3.10"
+  }
+}

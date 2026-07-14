@@ -24,6 +24,8 @@ class FlutterSceneViewerDraco {
     required List<String> requiredExtensions,
     String? source,
     List<Object?> dracoPrimitives = const <Object?>[],
+    required Map<String, Object?> decodeBudget,
+    required Map<String, Object?> decodeBudgetState,
   }) {
     return channel.invokeMapMethod<String, Object?>(
       'decodeGlb',
@@ -32,6 +34,8 @@ class FlutterSceneViewerDraco {
         'requiredExtensions': requiredExtensions,
         'source': source,
         'dracoPrimitives': dracoPrimitives,
+        'decodeBudget': decodeBudget,
+        'decodeBudgetState': decodeBudgetState,
       },
     );
   }

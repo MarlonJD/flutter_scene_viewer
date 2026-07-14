@@ -3,7 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "render": "node render_reference.mjs"
+    "render": "node render_reference.mjs",
+    "capture:a1b32-plan014": "node render_plan014_a1b32_reference.mjs",
+    "test:plan014-capture": "node --test plan014_capture_contract.test.mjs"
   },
   "dependencies": {
     "three": "^0.167.0",

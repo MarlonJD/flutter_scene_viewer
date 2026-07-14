@@ -49,6 +49,12 @@ report `unsupportedMaterialFeature`. Renderer-native upstream support remains
 a future integration path. Physical iOS, Android material rendering, and Web
 material rendering remain `not run`.
 
+The [generated capability matrix](generated/capability_matrix.md) is the
+current Plan 014 feature/target claim source. Historical candidate screenshots
+and simulator runs remain context. For each row, current Plan 014 target
+evidence remains `not run`. Host parser, codec, rewrite, and validator results
+do not change those target rows.
+
 `MaterialExtensionSupport.supportFor(MaterialExtensionFeature)` is the
 authoritative feature query. Each `MaterialExtensionFeatureSupport` keeps
 availability, `MaterialExtensionMaturity`, and
@@ -311,9 +317,11 @@ matrix evidence, three.js reference trends, and verified local iOS Simulator
 shader-load/visual-matrix evidence. Its shader separates IOR-based Fresnel
 surface reflection from transmitted background energy and applies
 attenuationColor/distance as local absorption, but it still remains a bounded
-screen-space implementation. Its maturity remains `candidate-only` while iOS
-Simulator evidence is `verified locally`; physical iOS, Android material
-rendering, and Web material rendering remain `not run`.
+screen-space implementation. Its maturity remains `candidate-only`.
+Historical iOS Simulator evidence is separately retained as
+`verified locally`, but it is not current Plan 014 target evidence; physical
+iOS, Android material rendering, and Web material rendering also remain
+`not run`.
 
 Clearcoat is a v1 release blocker for coated product materials such as car
 paint, varnished wood, and carbon fiber gloss coat. The clearcoat patch fields
@@ -329,11 +337,11 @@ overlay that preserves the source primitive material and adds a separate
 coating lobe for clearcoat factor, clearcoat roughness, clearcoat texture, and
 clearcoat normal inputs. Lowering roughness must not be presented as
 clearcoat. Texture forms must still require authored UV0. The package-local
-backend has iOS Simulator shader-load, synthetic visual-matrix, and ToyCar
-real-asset evidence `verified locally` under
+backend has historical iOS Simulator shader-load, synthetic visual-matrix, and
+ToyCar real-asset evidence `verified locally` under
 `backendKind: flutterSceneCustomShader`; its maturity remains `candidate-only`.
-Physical iOS, Android material rendering, and Web material rendering remain
-`not run`.
+That historical record is not a current Plan 014 target run. Physical iOS,
+Android material rendering, and Web material rendering remain `not run`.
 
 Specular fields are serializable request intent for `KHR_materials_specular`.
 With the default diagnostics-only policy, requests using those fields return

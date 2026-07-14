@@ -18,6 +18,576 @@
     ],
     "comparison": "directional-not-pixel-parity"
   },
+  "rewriteValidation": {
+    "schemaVersion": 1,
+    "validator": {
+      "package": "gltf-validator",
+      "version": "2.0.0-dev.3.10",
+      "prerelease": "dev.3.10",
+      "sourceCommit": "bcd52cc4ba5f333b2999a58f67cc05ddf28b4fb1",
+      "license": "Apache-2.0",
+      "lockPath": "tools/gltf_rewrite_validation/package-lock.json",
+      "npmIntegrity": "sha512-odJ4k0tRkGXiDGn78yDBg+fBbAIvBnXxh3RwAta0emSxGtyagFE8B4xELB1oYe3S5RD8Ci3uZAsZaascH2LAEQ=="
+    },
+    "evidence": {
+      "runtimeCapability": "not established",
+      "releaseMaturity": "not established",
+      "hostValidatorEvidence": "verified locally",
+      "targetEvidence": [
+        {
+          "target": "iOS Simulator",
+          "status": "not run"
+        },
+        {
+          "target": "physical iOS",
+          "status": "not run"
+        },
+        {
+          "target": "Android",
+          "status": "not run"
+        },
+        {
+          "target": "Web",
+          "status": "not run"
+        }
+      ],
+      "scope": "Official glTF Validator structural acceptance of actual rewritten GLB bytes on the host.",
+      "doesNotEstablish": [
+        "production readiness",
+        "runtime capability",
+        "rendered correctness",
+        "device support",
+        "package readiness",
+        "release readiness"
+      ]
+    },
+    "assets": [
+      {
+        "id": "meshopt",
+        "source": "KhronosGroup/glTF-Sample-Assets",
+        "sourceCommit": "2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf",
+        "license": "CC0-1.0",
+        "licensePath": "test/fixtures/meshopt/LICENSE.md",
+        "licenseSha256": "63fc4b5080289c3640c904dcf5adb3a6122a707928164d7520f46b3051da8ac3",
+        "sourceFixtures": [
+          {
+            "path": "test/fixtures/meshopt/MeshoptCubeTest/glTF/MeshoptCubeTest.bin",
+            "sha256": "6578c1d82c5cc2b228e9513e37f348ca89cdb24b5985aa0567efef8d3c014360"
+          }
+        ],
+        "codec": {
+          "identity": "repository-owned Dart EXT_meshopt_compression decoder",
+          "implementationPath": "lib/src/internal/glb_meshopt_rewriter.dart"
+        },
+        "normalizedReportPath": "tools/gltf_rewrite_validation/reports/meshopt.json",
+        "rewrittenSha256": "676271e50ce235f349c01749613e7bfade4f5720cff72d7803a272f8ef41e549",
+        "issueDisposition": {
+          "errors": 0,
+          "warnings": 0,
+          "infos": 0,
+          "hints": 0,
+          "messages": [],
+          "warningsDisposition": "none; zero warnings reported"
+        },
+        "evidenceScope": "Actual fixture-to-Dart-rewriter-to-official-validator host chain only."
+      },
+      {
+        "id": "draco",
+        "source": "KhronosGroup/glTF-Sample-Assets",
+        "sourceCommit": "2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf",
+        "license": "CC-BY-4.0",
+        "licensePath": "packages/flutter_scene_viewer_draco/test/fixtures/draco/Box/LICENSE.md",
+        "licenseSha256": "634623c7bef43aa4b16a3556ac55ae71b671daf4509437d403e4f2a0273928dc",
+        "sourceFixtures": [
+          {
+            "path": "packages/flutter_scene_viewer_draco/test/fixtures/draco/Box/glTF-Draco/Box.gltf",
+            "sha256": "3c46acecdfa90b012ec9052d8a1dfa61358e6d56a9e333504189cc78a2de4d1b"
+          },
+          {
+            "path": "packages/flutter_scene_viewer_draco/test/fixtures/draco/Box/glTF-Draco/Box.bin",
+            "sha256": "610dc6e08aba7c2720c8e4ec0578efd91cf2d88a5e638dab7811a22f0235bf2e"
+          }
+        ],
+        "codec": {
+          "identity": "Google Draco 1.5.7",
+          "sourceCommit": "8786740086a9f4d83f44aa83badfbea4dce7a1b5",
+          "license": "Apache-2.0",
+          "licensePath": "packages/flutter_scene_viewer_draco/third_party/draco/LICENSE",
+          "licenseSha256": "d3709b0fb4b8a94bbb1d02b8a2e484f258b0d9c5c5a01f940391f3fe662cd1a4"
+        },
+        "normalizedReportPath": "tools/gltf_rewrite_validation/reports/draco.json",
+        "rewrittenSha256": "ed046b12e6be838c8702a631edfe6807bbc8380dc3d15ca31977ec930487842b",
+        "issueDisposition": {
+          "errors": 0,
+          "warnings": 0,
+          "infos": 1,
+          "hints": 3,
+          "messages": [
+            {
+              "severity": 2,
+              "code": "UNUSED_OBJECT",
+              "message": "This object may be unused.",
+              "pointer": "/bufferViews/0"
+            },
+            {
+              "severity": 3,
+              "code": "BUFFER_VIEW_TARGET_MISSING",
+              "message": "bufferView.target should be set for vertex or index data.",
+              "pointer": "/meshes/0/primitives/0/attributes/NORMAL"
+            },
+            {
+              "severity": 3,
+              "code": "BUFFER_VIEW_TARGET_MISSING",
+              "message": "bufferView.target should be set for vertex or index data.",
+              "pointer": "/meshes/0/primitives/0/attributes/POSITION"
+            },
+            {
+              "severity": 3,
+              "code": "BUFFER_VIEW_TARGET_MISSING",
+              "message": "bufferView.target should be set for vertex or index data.",
+              "pointer": "/meshes/0/primitives/0/indices"
+            }
+          ],
+          "warningsDisposition": "none; zero warnings reported",
+          "orphanSourceBufferViews": [
+            "/bufferViews/0"
+          ],
+          "orphanDisposition": "intentionally retained; production compaction not performed"
+        },
+        "evidenceScope": "Actual fixture-to-pinned-codec/bridge-to-Dart-rewriter-to-official-validator host chain only."
+      },
+      {
+        "id": "basisu",
+        "source": "KhronosGroup/KTX-Software-CTS",
+        "sourceCommit": "8c6bd82215d2ca4e015dca0b3378c602b9d4e688",
+        "license": "Apache-2.0",
+        "licensePath": "packages/flutter_scene_viewer_basisu/test/fixtures/ktx2-cts/LICENSE",
+        "licenseSha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+        "sourceFixtures": [
+          {
+            "path": "packages/flutter_scene_viewer_basisu/test/fixtures/ktx2-cts/deflate/metadata/output_create_R8G8B8A8_SRGB_2D_UASTC_2_RDO_zstd_5.ktx2",
+            "sha256": "27484bc9b6e062acf0d6478df1b3ad62f6b6f32b923539c93353e535b572b0e4"
+          }
+        ],
+        "codec": {
+          "identity": "Basis Universal transcoder",
+          "upstreamBaseCommit": "882abb5320400ab650c1be33f9152e4955e83af3",
+          "upstreamSourcePath": "transcoder/basisu_transcoder.cpp",
+          "upstreamSourceSha256": "27fda5a2330831704a7adcf254b852c6df5081258dcc1e42283a936030b6f01f",
+          "vendoredSourcePath": "packages/flutter_scene_viewer_basisu/third_party/basis_universal/transcoder/basisu_transcoder.cpp",
+          "vendoredSourceSha256": "e7af01b01b33dbcfbbda9b9365be308347ee45e87b7fbd7bf65cd215b1e07ba5",
+          "compiledSourceManifestPath": "packages/flutter_scene_viewer_basisu/third_party/basis_universal/VENDORED_SOURCES.sha256",
+          "compiledSourceManifestSha256": "1d5514363ae26035bc28c9c324acef7100df87220f3511436e595b08257b145e",
+          "localModificationsPath": "packages/flutter_scene_viewer_basisu/third_party/basis_universal/FSV_LOCAL_MODIFICATIONS.md",
+          "localModificationsSha256": "a72fdacfac7653a4da386ac8340cf85587380252e77b42de781eb36e8845676d",
+          "localModification": {
+            "notice": "FSV LOCAL MODIFICATION (Apache-2.0 section 4(b))",
+            "path": "packages/flutter_scene_viewer_basisu/third_party/basis_universal/transcoder/basisu_transcoder.cpp",
+            "purpose": "Reject KTX2 dimensions above BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION before dependent size calculations."
+          },
+          "license": "Apache-2.0",
+          "licensePath": "packages/flutter_scene_viewer_basisu/third_party/basis_universal/LICENSE",
+          "licenseSha256": "065fcf48d6af21c0b75e23be5ed5753aee75c892e1c2cf178fa6736305614a5c"
+        },
+        "normalizedReportPath": "tools/gltf_rewrite_validation/reports/basisu.json",
+        "rewrittenSha256": "3bbea2f9c2e67bd5cfc34df2c775675780d5c1c4d48b72cc46cc210453dc0ffb",
+        "issueDisposition": {
+          "errors": 0,
+          "warnings": 0,
+          "infos": 1,
+          "hints": 0,
+          "messages": [
+            {
+              "severity": 2,
+              "code": "UNUSED_OBJECT",
+              "message": "This object may be unused.",
+              "pointer": "/bufferViews/2"
+            }
+          ],
+          "warningsDisposition": "none; zero warnings reported",
+          "orphanSourceBufferViews": [
+            "/bufferViews/2"
+          ],
+          "orphanDisposition": "intentionally retained; production compaction not performed"
+        },
+        "evidenceScope": "Actual fixture-to-pinned-codec/bridge-to-Dart-rewriter-to-official-validator host chain only."
+      }
+    ]
+  },
+  "fixtureProvenance": {
+    "schemaVersion": 1,
+    "sourceRepository": {
+      "name": "KhronosGroup/glTF-Sample-Assets",
+      "commit": "2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf",
+      "commitUrl": "https://github.com/KhronosGroup/glTF-Sample-Assets/commit/2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf"
+    },
+    "fetchToolPath": "tools/stage_material_extension_fixtures.py",
+    "scope": "Source and license provenance only; no renderer, runtime, target, release, or production-readiness evidence.",
+    "evidence": {
+      "fixtureProvenance": "verified locally",
+      "runtimeCapability": "not established",
+      "releaseMaturity": "not established",
+      "targetEvidence": [
+        {
+          "target": "iOS Simulator",
+          "status": "not run"
+        },
+        {
+          "target": "physical iOS",
+          "status": "not run"
+        },
+        {
+          "target": "Android",
+          "status": "not run"
+        },
+        {
+          "target": "Web",
+          "status": "not run"
+        }
+      ]
+    },
+    "fixtures": [
+      {
+        "id": "texture_transform_multi_test",
+        "name": "TextureTransformMultiTest",
+        "features": [
+          "KHR_texture_transform"
+        ],
+        "sourceKind": "khronos-official",
+        "sourceRepository": {
+          "name": "KhronosGroup/glTF-Sample-Assets",
+          "commit": "2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf",
+          "commitUrl": "https://github.com/KhronosGroup/glTF-Sample-Assets/commit/2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf"
+        },
+        "sourcePath": "Models/TextureTransformMultiTest/glTF-Binary/TextureTransformMultiTest.glb",
+        "sourceUrl": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf/Models/TextureTransformMultiTest/glTF-Binary/TextureTransformMultiTest.glb",
+        "sourceSha256": "569aedb53822d5721e7e06af5983348683d4b2ffb1d469338ad4f02bf6a74911",
+        "byteLength": 388264,
+        "vendored": false,
+        "localPath": null,
+        "license": {
+          "assetSpdx": "CC-BY-4.0",
+          "metadataSpdx": "CC-BY-4.0",
+          "evidencePath": "Models/TextureTransformMultiTest/LICENSE.md",
+          "evidenceUrl": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf/Models/TextureTransformMultiTest/LICENSE.md",
+          "evidenceSha256": "6ca5a443146e5012bdb86b20f23d591cbffec098ce32dbc7733705c32ad54e1f",
+          "evidenceByteLength": 719
+        }
+      },
+      {
+        "id": "specular_test",
+        "name": "SpecularTest",
+        "features": [
+          "KHR_materials_specular"
+        ],
+        "sourceKind": "khronos-official",
+        "sourceRepository": {
+          "name": "KhronosGroup/glTF-Sample-Assets",
+          "commit": "2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf",
+          "commitUrl": "https://github.com/KhronosGroup/glTF-Sample-Assets/commit/2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf"
+        },
+        "sourcePath": "Models/SpecularTest/glTF-Binary/SpecularTest.glb",
+        "sourceUrl": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf/Models/SpecularTest/glTF-Binary/SpecularTest.glb",
+        "sourceSha256": "cf789c68c3ab4b74877da3c5992c612c213f9c901ed4fafbf9be362f434e48d9",
+        "byteLength": 223376,
+        "vendored": false,
+        "localPath": null,
+        "license": {
+          "assetSpdx": "CC-BY-4.0",
+          "metadataSpdx": "CC-BY-4.0",
+          "evidencePath": "Models/SpecularTest/LICENSE.md",
+          "evidenceUrl": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf/Models/SpecularTest/LICENSE.md",
+          "evidenceSha256": "720582df68ecd9818f27459b9aa502e07ec1e8307a63b464d726ec9dee2665e3",
+          "evidenceByteLength": 704
+        }
+      },
+      {
+        "id": "ior_test_grid",
+        "name": "IORTestGrid",
+        "features": [
+          "KHR_materials_ior"
+        ],
+        "sourceKind": "khronos-official",
+        "sourceRepository": {
+          "name": "KhronosGroup/glTF-Sample-Assets",
+          "commit": "2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf",
+          "commitUrl": "https://github.com/KhronosGroup/glTF-Sample-Assets/commit/2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf"
+        },
+        "sourcePath": "Models/IORTestGrid/glTF-Binary/IORTestGrid.glb",
+        "sourceUrl": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf/Models/IORTestGrid/glTF-Binary/IORTestGrid.glb",
+        "sourceSha256": "863cf24d0e48892ec830a7c712e4eb8bf5c0fd6cc2ae2f34d213b216f0bd6c12",
+        "byteLength": 2628524,
+        "vendored": false,
+        "localPath": null,
+        "license": {
+          "assetSpdx": "CC0-1.0",
+          "metadataSpdx": "CC-BY-4.0",
+          "evidencePath": "Models/IORTestGrid/LICENSE.md",
+          "evidenceUrl": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf/Models/IORTestGrid/LICENSE.md",
+          "evidenceSha256": "f82f11fb00c3b6386125483b75450cd47de2199017983eff7e5f8b9f21efa270",
+          "evidenceByteLength": 700
+        }
+      },
+      {
+        "id": "clearcoat_test",
+        "name": "ClearCoatTest",
+        "features": [
+          "KHR_materials_clearcoat"
+        ],
+        "sourceKind": "khronos-official",
+        "sourceRepository": {
+          "name": "KhronosGroup/glTF-Sample-Assets",
+          "commit": "2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf",
+          "commitUrl": "https://github.com/KhronosGroup/glTF-Sample-Assets/commit/2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf"
+        },
+        "sourcePath": "Models/ClearCoatTest/glTF-Binary/ClearCoatTest.glb",
+        "sourceUrl": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf/Models/ClearCoatTest/glTF-Binary/ClearCoatTest.glb",
+        "sourceSha256": "c3a1cbe318cd043b937130af4eb83ec2ea0b03613387b1b7d769dfab4ac15948",
+        "byteLength": 258048,
+        "vendored": false,
+        "localPath": null,
+        "license": {
+          "assetSpdx": "CC-BY-4.0",
+          "metadataSpdx": "CC-BY-4.0",
+          "evidencePath": "Models/ClearCoatTest/LICENSE.md",
+          "evidenceUrl": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf/Models/ClearCoatTest/LICENSE.md",
+          "evidenceSha256": "4af69dbcddb15dda2711af88095c26b4d0672948dc81b6b02d7dcacb124ef8ae",
+          "evidenceByteLength": 719
+        }
+      },
+      {
+        "id": "attenuation_test",
+        "name": "AttenuationTest",
+        "features": [
+          "KHR_materials_transmission",
+          "KHR_materials_volume"
+        ],
+        "sourceKind": "khronos-official",
+        "sourceRepository": {
+          "name": "KhronosGroup/glTF-Sample-Assets",
+          "commit": "2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf",
+          "commitUrl": "https://github.com/KhronosGroup/glTF-Sample-Assets/commit/2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf"
+        },
+        "sourcePath": "Models/AttenuationTest/glTF-Binary/AttenuationTest.glb",
+        "sourceUrl": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf/Models/AttenuationTest/glTF-Binary/AttenuationTest.glb",
+        "sourceSha256": "7ca161b7f8a9e4b2ac1f7f75816b5848bb31f3b4c226c4cb731b487c8809b756",
+        "byteLength": 57532,
+        "vendored": false,
+        "localPath": null,
+        "license": {
+          "assetSpdx": "CC-BY-4.0",
+          "metadataSpdx": "CC-BY-4.0",
+          "evidencePath": "Models/AttenuationTest/LICENSE.md",
+          "evidenceUrl": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf/Models/AttenuationTest/LICENSE.md",
+          "evidenceSha256": "0235f6ae8126cf61acc7e304224f21fe509993dd4e40a3c0202b88f06bc24779",
+          "evidenceByteLength": 707
+        }
+      },
+      {
+        "id": "a1b32",
+        "name": "A1B32",
+        "features": [
+          "KHR_draco_mesh_compression",
+          "KHR_materials_specular",
+          "KHR_materials_ior"
+        ],
+        "sourceKind": "user-authorized-local",
+        "sourceOriginalFilename": "A1B32.glb",
+        "sourceUrl": null,
+        "sourceSha256": "a9383e98ae7876e9589ad4c415c297c9862ee2267836f1f1e82024394c9ac592",
+        "byteLength": 2809824,
+        "vendored": false,
+        "localPath": null,
+        "stagingPath": "tools/out/material_extension_acceptance/A1B32.glb",
+        "permission": {
+          "status": "user-authorized",
+          "authority": "user",
+          "scope": "current Plan 014 repository-local use",
+          "grantedFor": "current Plan 014 task",
+          "recordedOn": "2026-07-14",
+          "userStatement": "User stated A1B32 may be used and has no license issue.",
+          "redistribution": "not established; asset is not vendored",
+          "spdxLicense": "not provided",
+          "copyrightHolder": "not provided"
+        },
+        "glbContract": {
+          "version": 2,
+          "extensionsUsed": [
+            "KHR_draco_mesh_compression",
+            "KHR_materials_specular",
+            "KHR_materials_ior"
+          ],
+          "extensionsRequired": [
+            "KHR_draco_mesh_compression"
+          ],
+          "nodes": 1,
+          "meshes": 1,
+          "materials": 20
+        },
+        "sourceValidation": {
+          "validator": "gltf-validator@2.0.0-dev.3.10",
+          "hostEvidence": "verified locally",
+          "errors": 0,
+          "warnings": 6,
+          "infos": 26,
+          "hints": 0,
+          "warningDetails": [
+            {
+              "severity": 1,
+              "code": "IMAGE_FEATURES_UNSUPPORTED",
+              "message": "Image contains unsupported features like non-default colorspace information, non-square pixels, or animation.",
+              "pointer": "/images/7",
+              "disposition": "Requires target and visual evaluation before A1B32 acceptance."
+            },
+            {
+              "severity": 1,
+              "code": "IMAGE_FEATURES_UNSUPPORTED",
+              "message": "Image contains unsupported features like non-default colorspace information, non-square pixels, or animation.",
+              "pointer": "/images/8",
+              "disposition": "Requires target and visual evaluation before A1B32 acceptance."
+            },
+            {
+              "severity": 1,
+              "code": "MESH_PRIMITIVE_GENERATED_TANGENT_SPACE",
+              "message": "Material requires a tangent space but the mesh primitive does not provide it. Runtime-generated tangent space may be non-portable across implementations.",
+              "pointer": "/meshes/0/primitives/0/material",
+              "disposition": "Generated tangent portability requires target and visual evaluation."
+            },
+            {
+              "severity": 1,
+              "code": "MESH_PRIMITIVE_GENERATED_TANGENT_SPACE",
+              "message": "Material requires a tangent space but the mesh primitive does not provide it. Runtime-generated tangent space may be non-portable across implementations.",
+              "pointer": "/meshes/0/primitives/1/material",
+              "disposition": "Generated tangent portability requires target and visual evaluation."
+            },
+            {
+              "severity": 1,
+              "code": "MESH_PRIMITIVE_GENERATED_TANGENT_SPACE",
+              "message": "Material requires a tangent space but the mesh primitive does not provide it. Runtime-generated tangent space may be non-portable across implementations.",
+              "pointer": "/meshes/0/primitives/2/material",
+              "disposition": "Generated tangent portability requires target and visual evaluation."
+            },
+            {
+              "severity": 1,
+              "code": "MESH_PRIMITIVE_GENERATED_TANGENT_SPACE",
+              "message": "Material requires a tangent space but the mesh primitive does not provide it. Runtime-generated tangent space may be non-portable across implementations.",
+              "pointer": "/meshes/0/primitives/3/material",
+              "disposition": "Generated tangent portability requires target and visual evaluation."
+            }
+          ],
+          "warningDisposition": "Exact source warnings are retained and block A1B32 acceptance until target and visual evaluation; this is not rewrite, renderer, target, release, or production evidence."
+        }
+      }
+    ]
+  },
+  "referenceCaptureEvidence": {
+    "schemaVersion": 1,
+    "id": "a1b32_threejs_four_view",
+    "status": "verified locally",
+    "evidenceKind": "reference-renderer-direction",
+    "toolPath": "tools/reference_renderers/threejs_material_extension_fixture/render_plan014_a1b32_reference.mjs",
+    "contractTestPath": "tools/reference_renderers/threejs_material_extension_fixture/plan014_capture_contract.test.mjs",
+    "reportPath": "tools/out/material_extension_acceptance/a1b32_threejs_reference/evidence.json",
+    "sourceAsset": {
+      "id": "a1b32",
+      "sha256": "a9383e98ae7876e9589ad4c415c297c9862ee2267836f1f1e82024394c9ac592",
+      "byteLength": 2809824,
+      "materialPolicy": "authored-materials-unmodified"
+    },
+    "renderer": {
+      "name": "three.js",
+      "version": "0.167.1",
+      "releaseTag": "r167",
+      "sourceCommit": "42a2f6aac8cffebb29524d68eb7136a756f15960",
+      "npmIntegrity": "sha512-gYTLJA/UQip6J/tJvl91YYqlZF47+D/kxiWrbTon35ZHlXEN0VOo+Qke2walF1/x92v55H6enomymg4Dak52kw==",
+      "backend": "WebGL",
+      "role": "directional-reference-only"
+    },
+    "browser": {
+      "product": "Chrome",
+      "version": "150.0.7871.115",
+      "platform": "MacIntel"
+    },
+    "host": {
+      "platform": "darwin",
+      "release": "25.5.0",
+      "architecture": "arm64",
+      "device": "Apple M2"
+    },
+    "viewport": {
+      "width": 640,
+      "height": 960,
+      "deviceScaleFactor": 1
+    },
+    "referenceState": {
+      "path": "tools/material_extension_acceptance/fixtures/reference_state.json",
+      "schemaVersion": 1,
+      "sha256": "774fb35234176d4d949ac84cf6ba16fb05ee7afd7e8d1b70d42c00521f9db8ff",
+      "cameraFit": "assetBounds",
+      "views": [
+        "front",
+        "left",
+        "right",
+        "back"
+      ]
+    },
+    "passCriteria": [
+      "all four configured views render non-empty PNG bytes",
+      "authored materials, textures, geometry, UVs, and visibility remain unmodified",
+      "capture metadata records exact source, renderer, state, view, and artifact hashes"
+    ],
+    "captures": [
+      {
+        "view": "front",
+        "artifactPath": "tools/out/material_extension_acceptance/a1b32_threejs_reference/front.png",
+        "byteLength": 103900,
+        "sha256": "e83a2fcaac4be1f8e22762c4729928ffdd99ad8ada27ad466e085a5eda14eab9"
+      },
+      {
+        "view": "left",
+        "artifactPath": "tools/out/material_extension_acceptance/a1b32_threejs_reference/left.png",
+        "byteLength": 77562,
+        "sha256": "36a89eb64369a36c1b2c00e03bcc4b6a8a9b5567bdbd11d2414c105f466e0203"
+      },
+      {
+        "view": "right",
+        "artifactPath": "tools/out/material_extension_acceptance/a1b32_threejs_reference/right.png",
+        "byteLength": 79293,
+        "sha256": "3af9c2ba3487f0aac818dcbde5cde04fb3ef8cf734df4ff86c2853a34f2cd99c"
+      },
+      {
+        "view": "back",
+        "artifactPath": "tools/out/material_extension_acceptance/a1b32_threejs_reference/back.png",
+        "byteLength": 98053,
+        "sha256": "fde6520710a6f32aff4d4efaeaeeaefef40312e8fea5730698d1457ce1381e05"
+      }
+    ],
+    "persistence": "hash metadata is tracked; image artifacts stay ignored because redistribution is not established",
+    "targetEvidence": [
+      {
+        "target": "iOS Simulator",
+        "status": "not run"
+      },
+      {
+        "target": "physical iOS",
+        "status": "not run"
+      },
+      {
+        "target": "Android",
+        "status": "not run"
+      },
+      {
+        "target": "Web",
+        "status": "not run"
+      }
+    ],
+    "evidenceBoundary": {
+      "runtimeCapability": "not established",
+      "releaseMaturity": "not established",
+      "targetEvidence": "not established",
+      "productionReadiness": "not established"
+    }
+  },
   "assets": [
     {
       "id": "glass_vase_flowers",

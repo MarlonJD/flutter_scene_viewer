@@ -25,6 +25,326 @@ V1 release-blocker capability to verify:
 Adapter implementation must keep direct `flutter_scene` imports isolated so API
 breakage is easy to repair.
 
+## 2026-07-13 pinned texture-binding audit
+
+This audit is scoped to the dependency revision in `pubspec.lock`,
+`cd6760912fa38beb55f63e388655a1aeabd32fe4`. It records renderer capability,
+not glTF semantics or release maturity.
+
+Verified from the pinned source:
+
+- `lib/src/texture/texture2d.dart:53-99` exposes one public
+  `TextureSampling.addressMode` and writes it to both the low-level
+  `widthAddressMode` and `heightAddressMode`. The low-level sampler can carry
+  independent axes, but the public `TextureSampling` constructor cannot.
+- `Texture2D.fromPixels`, `Texture2D.fromImage`, and `Texture2D.fromAsset`
+  accept `TextureSampling` at lines 135-196. Wrapper-created asset, decoded
+  image, and scaled-normal pixel textures can therefore carry symmetric wrap
+  plus minification, magnification, and mip intent without changing encoded
+  source bytes.
+- `lib/src/runtime_importer/texture_builder.dart:19-88` iterates glTF texture
+  entries one-to-one, but `_decodeAndUpload` constructs every imported texture
+  with default sampling. It does not read the glTF texture's sampler. The
+  shared placeholder also has separate fixed default sampling and is not
+  evidence of authored sampler import.
+- `lib/src/material/physically_based_material.dart:47-136` exposes five core
+  texture sources but no texture-coordinate or per-slot transform fields.
+  `shaders/material_varyings.glsl:6-24` exposes only the primary UV varying,
+  and `shaders/flutter_scene_standard.frag:10-59` samples every standard slot
+  with that same untransformed `v_texture_coords` value, including the normal
+  map path.
+
+The wrapper-supported subset is `verified locally` by focused CPU tests:
+
+- equal `wrapS` and `wrapT` map to repeat, clamp-to-edge, or mirrored-repeat;
+- all six public glTF minification modes and both magnification modes map to
+  the corresponding `TextureSampling` min/mag/mip fields; unspecified filters
+  retain the pinned renderer defaults;
+- sampler state is passed through every wrapper-created `fromAsset`,
+  `fromImage`, and `fromPixels` path while color, data, and normal content roles
+  remain separate;
+- separate bindings of one encoded image create separate texture-source calls,
+  so sampler state is not stored as mutable state on shared encoded bytes.
+  There is no wrapper texture cache today. Any future cache key must include
+  content role and sampler state.
+
+Review remediation also verified the following CPU-safe boundary behavior:
+
+- standard PBR base-color and normal slots retain their separately created
+  `TextureSource` objects and therefore retain distinct resulting sampler
+  state;
+- clearcoat receives wrapper-loaded occlusion and emissive texture sources
+  instead of silently falling back to the authored source material;
+- binding-only transmission and thickness intent participates in capability
+  routing. The scalar-only renderer-native material contract rejects every
+  transmission, volume, clearcoat, and specular extension texture slot with a
+  typed `rendererNativeExtensionTextureContractMissing` diagnostic before any
+  native setter runs;
+- the package-local transmission backend rejects metallic/roughness state,
+  metallic-roughness textures, occlusion state/textures, or emissive
+  factor/textures found in either the incoming patch or the existing source
+  PBR material before texture loading or material mutation. Its bounded shader
+  consumes base-color and normal inputs, but it cannot consume those combined
+  core-plus-transmission inputs atomically;
+- preprocessed clearcoat binding resolves a `TextureSource` to both its
+  `sampledTexture` and `sampledSampler`; a source with no sampled GPU texture
+  returns a typed `preprocessedTextureSampleUnavailable` diagnostic before
+  the target material or clearcoat overlay is changed. Raw GPU textures remain
+  accepted.
+- package-local transmission and clearcoat load incoming normal-map bytes
+  without baking `normalScale`; their per-material shader parameters apply the
+  scale once. Transmission falls back to the existing PBR source material's
+  normal scale when the patch omits it. The standard PBR path remains separate:
+  it keeps the existing scaled-pixel texture creation and assigns upstream
+  `normalScale` as `1`.
+- scalar specular/specular-color overrides remain unsupported by the pinned
+  renderer-native material contract and return
+  `rendererNativeSpecularContractMissing`. Direct patches that combine core
+  PBR fields with native scalar extension intent return
+  `rendererNativeMixedCoreExtensionPatchUnsupported` before texture loading,
+  native setters, or target mutation. These diagnostics preserve intent; they
+  are not renderer support.
+- imported authored core and each extension group are delivered independently
+  to the adapter. The controller does not turn sequential authored groups into
+  a direct cumulative mixed patch. CPU integration verifies valid core PBR and
+  supported renderer-native clearcoat plus transmission/IOR still apply when
+  an independently validated specular group is unsupported.
+- a PBR material that implements the renderer-native scalar extension contract
+  retains its object identity when an explicit core alpha mode requires a
+  mounted-mesh refresh. CPU integration verifies alpha mask/cutoff applies
+  first, an unsupported specular group stays isolated, and later native
+  clearcoat plus transmission/IOR setters still reach the same material. Plain
+  PBR materials retain the existing replacement behavior for alpha pipeline
+  changes.
+- after package-local clearcoat overlay setup succeeds, direct combined core
+  factors and wrapper-loaded base-color, metallic-roughness, normal,
+  occlusion, and emissive textures are applied to the source/base PBR
+  primitive. Overlay failure leaves those core fields unchanged. This is
+  wrapper behavior around a `candidate-only` overlay, not renderer-native or
+  release evidence.
+- after that combined core mutation, positive package-local clearcoat
+  re-suppresses the base/source normal so the raw incoming normal is consumed
+  once by the overlay rather than shaded in both passes. A zero clearcoat
+  factor preserves the legitimate combined core normal, and clearcoat reset
+  restores the original source normal and scale. This CPU invariant is not GPU
+  or visual evidence for the candidate overlay.
+- package-local transmission rejects incoming alpha mode/cutoff and existing
+  source alpha-mask state before texture loading or mutation because its
+  bounded shader does not implement core alpha-mode semantics. Package-local
+  extension patches also reject combined visibility intent before backend or
+  geometry mutation; visibility remains a separate successful patch.
+
+The tests that assign a real `flutter_gpu.Texture` and sampler into actual
+`MaterialParameters` are present but were `not run` by the plain focused CPU
+command. They require Impeller, Flutter GPU, generated shader-bundle assets,
+and `FLUTTER_SCENE_GPU_TESTS=true`. CPU verification proves the wrapper plan,
+resulting standard-material `TextureSource` sampler state, clearcoat config
+forwarding, and the typed unavailable-source path; it does not establish that
+the clearcoat `MaterialParameters` sampler was bound by a live GPU run.
+
+The following remain `blocked` on a real upstream contract:
+
+- asymmetric `wrapS`/`wrapT` is preserved in the public binding and returned as
+  a typed `independentWrapAxes` diagnostic;
+- non-identity offset, scale, or rotation is preserved per material slot and
+  returned as a typed `perSlotUvTransformContractMissing` diagnostic before
+  image decode or texture creation;
+- runtime application of Glorvia repeat `2.5` is `not run`. No separate
+  upstream checkout/commit or durable Glorvia runtime fixture is available,
+  so the dependency pin is unchanged and this is not renderer support.
+
+No texture tiling, texture baking, generated UVs, shared mutable transform
+state, pub-cache edits, or package-local replacement PBR renderer were added.
+
+## 2026-07-13 pinned specular and opaque-IOR audit
+
+This audit is scoped to `flutter_scene` revision
+`cd6760912fa38beb55f63e388655a1aeabd32fe4`. Khronos remains the authority for
+glTF semantics; the pinned source is the authority for current renderer
+capability.
+
+The ratified
+[`KHR_materials_specular`](https://github.com/KhronosGroup/glTF/tree/main/extensions/2.0/Khronos/KHR_materials_specular)
+contract defines a `[0, 1]` linear strength factor, a data/linear alpha-channel
+strength texture, a non-negative linear RGB color factor that may exceed `1`,
+and an sRGB-encoded RGB color texture. Factors multiply their texture samples.
+The dielectric response must conserve energy and these controls must not alter
+the metal BRDF. The ratified
+[`KHR_materials_ior`](https://github.com/KhronosGroup/glTF/tree/main/extensions/2.0/Khronos/KHR_materials_ior)
+contract accepts finite IOR values greater than or equal to `1` plus the exact
+`0` compatibility value; opaque IOR remains part of the ordinary
+metallic-roughness PBR family.
+
+Verified from the pinned renderer source:
+
+- `lib/src/material/physically_based_material.dart:47-227` exposes and binds
+  the core five PBR texture slots and scalar factors, but no specular-strength,
+  specular-color, or IOR material fields or texture slots.
+- `lib/src/material/material_parameters.dart:46-139` is a generic reflected
+  `.fmat` parameter container. It does not add semantic fields to the standard
+  PBR material or prove that its shader consumes specular/IOR intent.
+- `lib/src/runtime_importer/material_builder.dart:12-57` imports core
+  metallic-roughness, normal, occlusion, emissive, alpha, and double-sided
+  state only.
+- `shaders/material_inputs.glsl:12-45` has no specular or IOR surface input,
+  and `shaders/flutter_scene_standard.frag:10-61` declares only the five core
+  texture samplers.
+- `shaders/material_lighting.glsl:248` fixes dielectric reflectance at `0.04`
+  before mixing with metallic base color. Both indirect and direct lighting use
+  that reflectance; there is no authored specular/IOR input.
+
+The wrapper validation/parser subset is `verified locally` by CPU tests:
+
+- public patches accept specular strength in `[0, 1]`, non-negative finite
+  three-component specular color including values above `1`, and IOR exactly
+  `0` or finite `>= 1`;
+- invalid values produce typed `invalidMaterialOverride` diagnostics without
+  clamping or coercion; intrinsic domain diagnostics take precedence over
+  capability diagnostics even when support is unavailable or the patch came
+  from JSON;
+- malformed or range-invalid authored specular/IOR data invalidates only its
+  extension group, preserving a valid sibling group and the separately applied
+  core material;
+- malformed or range-invalid IOR on an otherwise valid transmission/volume
+  material removes only IOR from that group. Transmission, thickness, and
+  attenuation intent remain preserved so the renderer's absent-IOR default can
+  apply; invalid transmission or volume data still invalidates its own group;
+- IOR `0` and ordinary opaque IOR do not route into glass or trigger a PBR
+  family replacement;
+- current policy support keeps specular unavailable, maturity
+  `diagnosticOnly`, and every target evidence row `notRun`. Renderer-native
+  scalar specular still returns `rendererNativeSpecularContractMissing`, and
+  specular texture bindings return
+  `rendererNativeExtensionTextureContractMissing` before loading or mutation.
+- the real adapter boundary rejects package-local/non-native specular and
+  opaque-IOR intent with `pinnedStandardPbrSpecularContractMissing` or
+  `pinnedStandardPbrOpaqueIorContractMissing` before texture loading,
+  material mutation, controller persistence, or render requests. This does not
+  disable candidate transmissive IOR, and an actual renderer-native material
+  contract retains its opaque-IOR application path.
+
+Actual texture channel/color-space sampling, factor-times-texture behavior,
+dielectric energy conservation, metal isolation, and visible opaque-IOR BRDF
+trends remain `blocked` on a first-class upstream renderer contract. A skipped
+acceptance test records that exact blocker without pretending wrapper parsing
+is rendering evidence. A1B32 visual/runtime evidence, iOS Simulator rendering,
+physical iOS, Android material rendering, and Web material rendering are
+`not run`. Runtime support remains unavailable/diagnostic-only; no release
+maturity or `production-ready` claim changed.
+
+## 2026-07-13 pinned clearcoat audit
+
+This audit uses ratified Khronos `KHR_materials_clearcoat` for semantics,
+Filament only for second-lobe/energy audit direction, and pinned
+`flutter_scene` revision `cd6760912fa38beb55f63e388655a1aeabd32fe4` for
+renderer capability.
+
+Khronos requires clearcoat factor multiplied by the factor texture's red
+channel, roughness multiplied by the roughness texture's green channel, and an
+independent tangent-space coat normal. The coat lobe attenuates the base by its
+Fresnel weight; the coat normal affects the top layer, not the base material.
+The pinned standard PBR material/importer/shader exposes no first-class
+clearcoat fields, texture slots, importer mapping, or integrated second-lobe
+contract.
+
+The package-local candidate was re-audited against the pinned `.fmat` emitter:
+
+- the first source-only audit missed that every lit `.fmat` appends
+  `EvaluateLighting(material)` after its authored `Surface`; a manual coat
+  lobe routed through emissive therefore double-counted direct and IBL
+  lighting even after an older heuristic highlight was removed;
+- the candidate now authors no BRDF, direct-light, IBL, shadow, Fresnel-lobe,
+  or coat-emissive lighting. A CPU test compiles the material through pinned
+  `flutter_scene` and verifies exactly one engine `EvaluateLighting(material)`
+  call. Coat roughness, independent coat normal, and occlusion feed that engine
+  lighting path; factor and roughness textures still use red and green;
+- the old backend nulled the retained source PBR normal and attenuated its
+  scale while positive clearcoat was active. That suppression and restore
+  state are removed. The base primitive retains its latest successful normal
+  texture and scale, while the overlay uses only the independent coat normal;
+- the alpha-blended `.fmat` has fixed back-face culling and cannot preserve a
+  double-sided source PBR contract. Such requests return typed
+  `packageLocalClearcoatDoubleSidedCullingContractMissing` diagnostics before
+  shader creation, material mutation, state persistence, or overlay creation;
+- source-over alpha also couples visible coat-lobe energy to base attenuation,
+  so the overlay cannot independently express the Khronos Fresnel weighting.
+  This is an exact non-conformance blocker, not a threshold-tuning problem.
+
+The bounded candidate remains `candidate-only`. The CPU audit is verified
+locally; 12 GPU/Impeller tests, post-change Khronos sample captures, iOS
+Simulator recapture, physical iOS, Android material rendering, Web material
+rendering, packaging, and release evidence are `not run`. Renderer-native
+clearcoat is deferred in
+[`015_renderer_native_clearcoat.md`](../exec-plans/deferred/015_renderer_native_clearcoat.md),
+and the v1 clearcoat release gate remains blocked.
+
+## 2026-07-13 pinned transmission and volume audit
+
+This audit uses ratified Khronos `KHR_materials_transmission`,
+`KHR_materials_volume`, and `KHR_materials_ior` for semantics and pinned
+`flutter_scene` revision `cd6760912fa38beb55f63e388655a1aeabd32fe4` for
+renderer capability. Filament was consulted only as a real-time shading
+reference and is not evidence of this backend's support.
+
+Khronos requires transmission factor multiplied by the transmission texture's
+linear red channel, while optical transmission remains separate from alpha-as-
+coverage. A zero-thickness surface is thin-walled and has no macroscopic
+refraction. Positive volume uses thickness factor multiplied by the thickness
+texture's green channel, interprets thickness in mesh space under node
+transforms, and applies attenuation distance in world space. Metallic response
+does not transmit, and the exact `ior == 0` compatibility mode has effective
+infinite IOR/Fresnel one.
+
+The pinned standard PBR material, importer, surface inputs, lighting shader,
+and standard fragment expose no first-class transmission, volume thickness,
+attenuation, or variable-IOR fields. Its render graph can publish scene color,
+but the standard material path does not consume that target for glTF
+transmission/refraction. The wrapper therefore cannot infer renderer-native
+support from the render texture API alone.
+
+The package-local candidate was re-audited against that boundary:
+
+- source/compiler tests verify transmission uses red, thickness uses green,
+  zero thickness produces zero refraction offset, and source alpha remains
+  independent; the pinned unlit `.fmat` emitter performs the final
+  premultiplication exactly once;
+- authored contour/rim, key/fill, glint, source-detail, arbitrary alpha caps,
+  roughness-driven base-color blending, synthetic reflection tint, HDR output
+  clamping, and the nonzero attenuation-color floor were removed;
+- an effective transmission factor of zero bypasses the extension path. It
+  skips transmission/thickness binding validation and decoding, restores any
+  active candidate only after core texture loads succeed, and applies combined
+  base/normal/roughness intent through the ordinary PBR path. Failed core loads
+  preserve the active candidate atomically;
+- a positive-factor runtime transmission texture returns typed
+  `packageLocalTransmissionTextureBasePbrContractMissing` before decode or
+  mutation because an unlit whole-material replacement cannot preserve the lit
+  base response at zero-valued texels;
+- every positive thickness returns typed
+  `packageLocalVolumeTransformContractMissing` before decode or mutation
+  because node/world scale, closed-volume boundaries, and entry/exit transport
+  do not reach the candidate shader;
+- valid `ior == 0` returns typed
+  `packageLocalIorZeroCompatibilityContractMissing` instead of being coerced,
+  and factor-zero IOR intent retains the pinned opaque-IOR diagnostic boundary;
+- missing scene-view collections are diagnosed before texture decoding for
+  both initial candidate application and active factor-zero reset. Backend
+  preflight and later guards remain defense in depth.
+
+Independent review approved the bounded CPU-safe slice after three RED-first
+adapter/backend remediation cycles. The final exact Task 9 suite passed 110
+tests with 13 explicit GPU/Impeller, shader-bundle, visual, or renderer skips.
+Those skips, WaterBottle/GlassVase captures, opaque-behind-glass trends, iOS
+Simulator, physical iOS, Android material rendering, Web material rendering,
+packaging, and release evidence remain `not run`.
+
+Only scalar factor-driven thin screen-space compositing remains
+`candidate-only`. It is not renderer-owned reflection/transmission transport,
+positive volume, nested glass, order-independent transparency, or a general
+PBR renderer. Renderer-native work is deferred in
+[`016_renderer_native_transmission_volume.md`](../exec-plans/deferred/016_renderer_native_transmission_volume.md),
+and the v1 glass release gate remains blocked.
+
 ## Local verification note
 
 On 2026-07-02, `flutter_scene` 0.18.1 was present in the local pub cache and

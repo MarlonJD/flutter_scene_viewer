@@ -208,16 +208,13 @@ class FlutterSceneViewerController extends ChangeNotifier {
       ...extensionPatches.keys,
     };
     for (final address in addresses) {
-      var appliedPatch = const MaterialPatch();
       final corePatch = corePatches[address];
       if (corePatch != null &&
           await _applyAuthoredMaterialPatch(
             address,
-            validationPatch: corePatch,
-            appliedPatch: corePatch,
+            patch: corePatch,
             sink: sink,
           )) {
-        appliedPatch = corePatch;
         appliedAny = true;
       }
       final groups = extensionPatches[address];
@@ -229,14 +226,11 @@ class FlutterSceneViewerController extends ChangeNotifier {
         if (groupPatch == null) {
           continue;
         }
-        final candidate = appliedPatch.merge(groupPatch);
         if (await _applyAuthoredMaterialPatch(
           address,
-          validationPatch: groupPatch,
-          appliedPatch: candidate,
+          patch: groupPatch,
           sink: sink,
         )) {
-          appliedPatch = candidate;
           appliedAny = true;
         }
       }
@@ -248,13 +242,12 @@ class FlutterSceneViewerController extends ChangeNotifier {
 
   Future<bool> _applyAuthoredMaterialPatch(
     PartAddress address, {
-    required MaterialPatch validationPatch,
-    required MaterialPatch appliedPatch,
+    required MaterialPatch patch,
     required ViewerCommandSink sink,
   }) async {
     final diagnostics = _validateMaterialPatch(
       address,
-      validationPatch,
+      patch,
       support: sink.materialExtensionSupport,
     );
     if (diagnostics.isNotEmpty) {
@@ -263,7 +256,7 @@ class FlutterSceneViewerController extends ChangeNotifier {
       }
       return false;
     }
-    final sinkDiagnostics = await sink.setPartMaterial(address, appliedPatch);
+    final sinkDiagnostics = await sink.setPartMaterial(address, patch);
     if (sinkDiagnostics.isNotEmpty) {
       for (final diagnostic in sinkDiagnostics) {
         recordDiagnostic(diagnostic);

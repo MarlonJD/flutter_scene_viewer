@@ -42,7 +42,10 @@ public final class FlutterSceneViewerBasisuPlugin
   private static native boolean nativeImageTranscodeAvailable();
 
   private static native Map<String, Object> nativeTranscodeImages(
-      Object basisuImages, String source);
+      Object basisuImages,
+      Object decodeBudget,
+      Object decodeBudgetState,
+      String source);
 
   @Override
   public void onAttachedToEngine(FlutterPluginBinding binding) {
@@ -157,7 +160,12 @@ public final class FlutterSceneViewerBasisuPlugin
                 source));
       } else {
         try {
-          Map<String, Object> response = nativeTranscodeImages(images, source);
+          Map<String, Object> response =
+              nativeTranscodeImages(
+                  images,
+                  call.argument("decodeBudget"),
+                  call.argument("decodeBudgetState"),
+                  source);
           if (response != null) {
             return response;
           }

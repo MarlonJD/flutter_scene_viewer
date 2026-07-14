@@ -618,6 +618,166 @@ void main() {
     );
   });
 
+  test('range-invalid specular group preserves valid opaque IOR sibling', () {
+    final result = readGlbMaterialExtensionIntent(
+      _singleMaterialExtensionsGlb(<String, Object?>{
+        'KHR_materials_specular': <String, Object?>{
+          'specularFactor': 1.01,
+        },
+        'KHR_materials_ior': <String, Object?>{'ior': 1.45},
+      }),
+      debugName: 'invalid-specular.glb',
+    );
+    final groups = result.patches[PartAddress(
+      nodePath: const <String>['Material'],
+      primitiveIndex: 0,
+    )]!;
+
+    expect(groups, isNot(contains(MaterialExtensionPatchGroup.specular)));
+    expect(groups[MaterialExtensionPatchGroup.opaqueIor]!.ior, 1.45);
+    expect(result.diagnostics, hasLength(1));
+    expect(result.diagnostics.single.code,
+        ViewerDiagnosticCode.invalidMaterialOverride);
+    expect(result.diagnostics.single.details['extension'],
+        'KHR_materials_specular');
+    expect(result.diagnostics.single.details['field'], 'specularFactor');
+  });
+
+  test('invalid specular color domain or shape preserves opaque IOR sibling',
+      () {
+    for (final colorFactor in <List<Object?>>[
+      <Object?>[-0.01, 1, 1],
+      <Object?>[1, 1],
+    ]) {
+      final result = readGlbMaterialExtensionIntent(
+        _singleMaterialExtensionsGlb(<String, Object?>{
+          'KHR_materials_specular': <String, Object?>{
+            'specularColorFactor': colorFactor,
+          },
+          'KHR_materials_ior': <String, Object?>{'ior': 1.45},
+        }),
+        debugName: 'invalid-specular-color.glb',
+      );
+      final groups = result.patches[PartAddress(
+        nodePath: const <String>['Material'],
+        primitiveIndex: 0,
+      )]!;
+
+      expect(
+        groups,
+        isNot(contains(MaterialExtensionPatchGroup.specular)),
+        reason: '$colorFactor',
+      );
+      expect(groups[MaterialExtensionPatchGroup.opaqueIor]!.ior, 1.45);
+      expect(result.diagnostics, hasLength(1), reason: '$colorFactor');
+      expect(result.diagnostics.single.code,
+          ViewerDiagnosticCode.invalidMaterialOverride);
+      expect(result.diagnostics.single.details['extension'],
+          'KHR_materials_specular');
+      expect(
+        result.diagnostics.single.details['field'],
+        'specularColorFactor',
+      );
+    }
+  });
+
+  test('range-invalid opaque IOR preserves valid specular sibling', () {
+    final result = readGlbMaterialExtensionIntent(
+      _singleMaterialExtensionsGlb(<String, Object?>{
+        'KHR_materials_specular': <String, Object?>{
+          'specularFactor': 0.6,
+          'specularColorFactor': <Object?>[0.25, 1.5, 3.0],
+        },
+        'KHR_materials_ior': <String, Object?>{'ior': 0.5},
+      }),
+      debugName: 'invalid-ior.glb',
+    );
+    final groups = result.patches[PartAddress(
+      nodePath: const <String>['Material'],
+      primitiveIndex: 0,
+    )]!;
+
+    expect(groups, isNot(contains(MaterialExtensionPatchGroup.opaqueIor)));
+    expect(groups[MaterialExtensionPatchGroup.specular]!.specular, 0.6);
+    expect(
+      groups[MaterialExtensionPatchGroup.specular]!.specularColorFactor,
+      <double>[0.25, 1.5, 3],
+    );
+    expect(result.diagnostics, hasLength(1));
+    expect(result.diagnostics.single.code,
+        ViewerDiagnosticCode.invalidMaterialOverride);
+    expect(result.diagnostics.single.details['extension'], 'KHR_materials_ior');
+    expect(result.diagnostics.single.details['field'], 'ior');
+  });
+
+  test('invalid IOR does not discard valid transmission volume or sibling', () {
+    for (final invalidIor in <Object?>['invalid', 0.5]) {
+      final result = readGlbMaterialExtensionIntent(
+        _singleMaterialExtensionsGlb(<String, Object?>{
+          'KHR_materials_transmission': <String, Object?>{
+            'transmissionFactor': 0.75,
+          },
+          'KHR_materials_volume': <String, Object?>{
+            'thicknessFactor': 0.02,
+            'attenuationColor': <Object?>[0.8, 0.9, 1.0],
+            'attenuationDistance': 4.0,
+          },
+          'KHR_materials_ior': <String, Object?>{'ior': invalidIor},
+          'KHR_materials_specular': <String, Object?>{
+            'specularFactor': 0.6,
+          },
+        }),
+        debugName: 'invalid-glass-ior.glb',
+      );
+      final groups = result.patches[PartAddress(
+        nodePath: const <String>['Material'],
+        primitiveIndex: 0,
+      )]!;
+      final transmissionVolume =
+          groups[MaterialExtensionPatchGroup.transmissionVolume]!;
+
+      expect(transmissionVolume.transmission, 0.75, reason: '$invalidIor');
+      expect(transmissionVolume.thickness, 0.02, reason: '$invalidIor');
+      expect(
+        transmissionVolume.attenuationColor,
+        <double>[0.8, 0.9, 1],
+        reason: '$invalidIor',
+      );
+      expect(
+        transmissionVolume.attenuationDistance,
+        4,
+        reason: '$invalidIor',
+      );
+      expect(transmissionVolume.ior, isNull, reason: '$invalidIor');
+      expect(groups[MaterialExtensionPatchGroup.specular]!.specular, 0.6);
+      expect(result.diagnostics, hasLength(1), reason: '$invalidIor');
+      expect(result.diagnostics.single.code,
+          ViewerDiagnosticCode.invalidMaterialOverride);
+      expect(
+          result.diagnostics.single.details['extension'], 'KHR_materials_ior');
+      expect(result.diagnostics.single.details['field'], 'ior');
+    }
+  });
+
+  test('accepts the authored IOR zero compatibility value as opaque intent',
+      () {
+    final result = readGlbMaterialExtensionIntent(
+      _singleMaterialExtensionsGlb(<String, Object?>{
+        'KHR_materials_ior': <String, Object?>{'ior': 0},
+      }),
+      debugName: 'ior-zero.glb',
+    );
+    final patch = result.patches[PartAddress(
+      nodePath: const <String>['Material'],
+      primitiveIndex: 0,
+    )]![MaterialExtensionPatchGroup.opaqueIor]!;
+
+    expect(result.diagnostics, isEmpty);
+    expect(patch.ior, 0);
+    expect(patch.hasGlassOverride, isFalse);
+    expect(patch.hasOpaqueIorOverride, isTrue);
+  });
+
   test('unsupported extension texture discards only its own group', () {
     final result = readGlbMaterialExtensionIntent(
       _glb(<String, Object?>{
@@ -907,6 +1067,36 @@ Map<String, Object?> _transmissionMaterial() {
       },
     },
   };
+}
+
+Uint8List _singleMaterialExtensionsGlb(
+  Map<String, Object?> extensions,
+) {
+  return _glb(<String, Object?>{
+    'asset': <String, Object?>{'version': '2.0'},
+    'scene': 0,
+    'scenes': <Object?>[
+      <String, Object?>{
+        'nodes': <Object?>[0],
+      },
+    ],
+    'nodes': <Object?>[
+      <String, Object?>{'name': 'Material', 'mesh': 0},
+    ],
+    'meshes': <Object?>[
+      <String, Object?>{
+        'primitives': <Object?>[
+          <String, Object?>{
+            'attributes': <String, Object?>{'POSITION': 0},
+            'material': 0,
+          },
+        ],
+      },
+    ],
+    'materials': <Object?>[
+      <String, Object?>{'extensions': extensions},
+    ],
+  });
 }
 
 Uint8List _glb(Map<String, Object?> json) {

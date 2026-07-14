@@ -42,6 +42,82 @@ final class MeshoptDecodeException implements Exception {
   String toString() => message;
 }
 
+/// Cooperative deadline control for the synchronous pure-Dart Meshopt path.
+///
+/// [checkInterval] is interpreted as approximate decoded output bytes between
+/// elapsed-time reads. It is not an external cancellation signal.
+final class MeshoptDecodeControl {
+  MeshoptDecodeControl({
+    required this.timeout,
+    required this.checkInterval,
+    required Duration Function() elapsed,
+  }) : _elapsed = elapsed {
+    if (timeout.isNegative) {
+      throw ArgumentError.value(timeout, 'timeout', 'must not be negative');
+    }
+    if (checkInterval <= 0) {
+      throw ArgumentError.value(
+        checkInterval,
+        'checkInterval',
+        'must be positive',
+      );
+    }
+  }
+
+  factory MeshoptDecodeControl.running({
+    required Duration timeout,
+    required int checkInterval,
+  }) {
+    final stopwatch = Stopwatch()..start();
+    return MeshoptDecodeControl(
+      timeout: timeout,
+      checkInterval: checkInterval,
+      elapsed: () => stopwatch.elapsed,
+    );
+  }
+
+  final Duration timeout;
+  final int checkInterval;
+  final Duration Function() _elapsed;
+  int _workSinceCheck = 0;
+
+  void checkpoint({
+    required String stage,
+    int decodedBytes = 0,
+    bool force = false,
+  }) {
+    if (decodedBytes < 0) {
+      throw ArgumentError.value(
+        decodedBytes,
+        'decodedBytes',
+        'must not be negative',
+      );
+    }
+    if (!force && decodedBytes < checkInterval - _workSinceCheck) {
+      _workSinceCheck += decodedBytes;
+      return;
+    }
+    _workSinceCheck = 0;
+    if (_elapsed() >= timeout) {
+      throw MeshoptDecodeDeadlineExceeded(stage: stage, timeout: timeout);
+    }
+  }
+}
+
+final class MeshoptDecodeDeadlineExceeded implements Exception {
+  const MeshoptDecodeDeadlineExceeded({
+    required this.stage,
+    required this.timeout,
+  });
+
+  final String stage;
+  final Duration timeout;
+
+  @override
+  String toString() =>
+      'Meshopt decode exceeded ${timeout.inMicroseconds} us at $stage.';
+}
+
 const int _vertexHeader = 0xa0;
 const int _indexHeader = 0xe0;
 const int _sequenceHeader = 0xd0;
@@ -61,28 +137,40 @@ Uint8List decodeMeshoptGltfBuffer(
   required int byteStride,
   required MeshoptCompressionMode mode,
   required MeshoptCompressionFilter filter,
+  MeshoptDecodeControl? control,
 }) {
   if (count < 0 || byteStride <= 0) {
     throw const MeshoptDecodeException('Invalid meshopt count or byteStride.');
   }
+  control?.checkpoint(stage: 'meshoptDecodeStart', force: true);
   final decoded = switch (mode) {
     MeshoptCompressionMode.attributes => _decodeVertexBuffer(
         source,
         vertexCount: count,
         vertexSize: byteStride,
+        control: control,
       ),
     MeshoptCompressionMode.triangles => _decodeIndexBuffer(
         source,
         indexCount: count,
         indexSize: byteStride,
+        control: control,
       ),
     MeshoptCompressionMode.indices => _decodeIndexSequence(
         source,
         indexCount: count,
         indexSize: byteStride,
+        control: control,
       ),
   };
-  _applyFilter(decoded, count: count, byteStride: byteStride, filter: filter);
+  _applyFilter(
+    decoded,
+    count: count,
+    byteStride: byteStride,
+    filter: filter,
+    control: control,
+  );
+  control?.checkpoint(stage: 'meshoptDecodeComplete', force: true);
   return decoded;
 }
 
@@ -90,6 +178,7 @@ Uint8List _decodeVertexBuffer(
   Uint8List source, {
   required int vertexCount,
   required int vertexSize,
+  required MeshoptDecodeControl? control,
 }) {
   if (vertexSize <= 0 || vertexSize > 256 || vertexSize % 4 != 0) {
     throw const MeshoptDecodeException(
@@ -132,6 +221,10 @@ Uint8List _decodeVertexBuffer(
       vertexOffset < vertexCount;
       vertexOffset += blockSize) {
     final blockVertexCount = math.min(blockSize, vertexCount - vertexOffset);
+    control?.checkpoint(
+      stage: 'meshoptAttributes',
+      decodedBytes: blockVertexCount * vertexSize,
+    );
     dataOffset = _decodeVertexBlock(
       source,
       dataOffset: dataOffset,
@@ -432,6 +525,7 @@ Uint8List _decodeIndexBuffer(
   Uint8List source, {
   required int indexCount,
   required int indexSize,
+  required MeshoptDecodeControl? control,
 }) {
   if (indexCount % 3 != 0 || (indexSize != 2 && indexSize != 4)) {
     throw const MeshoptDecodeException(
@@ -486,6 +580,10 @@ Uint8List _decodeIndexBuffer(
   }
 
   for (var index = 0; index < indexCount; index += 3) {
+    control?.checkpoint(
+      stage: 'meshoptTriangles',
+      decodedBytes: 3 * indexSize,
+    );
     if (dataOffset > dataSafeEnd) {
       throw const MeshoptDecodeException('TRIANGLES stream is malformed.');
     }
@@ -595,6 +693,7 @@ Uint8List _decodeIndexSequence(
   Uint8List source, {
   required int indexCount,
   required int indexSize,
+  required MeshoptDecodeControl? control,
 }) {
   if (indexSize != 2 && indexSize != 4) {
     throw const MeshoptDecodeException('INDICES byteStride must be 2 or 4.');
@@ -616,6 +715,10 @@ Uint8List _decodeIndexSequence(
   var dataOffset = 1;
   final dataSafeEnd = source.lengthInBytes - 4;
   for (var index = 0; index < indexCount; index += 1) {
+    control?.checkpoint(
+      stage: 'meshoptIndices',
+      decodedBytes: indexSize,
+    );
     if (dataOffset >= dataSafeEnd) {
       throw const MeshoptDecodeException('INDICES stream is malformed.');
     }
@@ -642,16 +745,32 @@ void _applyFilter(
   required int count,
   required int byteStride,
   required MeshoptCompressionFilter filter,
+  required MeshoptDecodeControl? control,
 }) {
   switch (filter) {
     case MeshoptCompressionFilter.none:
       return;
     case MeshoptCompressionFilter.octahedral:
-      _decodeFilterOct(data, count: count, stride: byteStride);
+      _decodeFilterOct(
+        data,
+        count: count,
+        stride: byteStride,
+        control: control,
+      );
     case MeshoptCompressionFilter.quaternion:
-      _decodeFilterQuat(data, count: count, stride: byteStride);
+      _decodeFilterQuat(
+        data,
+        count: count,
+        stride: byteStride,
+        control: control,
+      );
     case MeshoptCompressionFilter.exponential:
-      _decodeFilterExp(data, count: count, stride: byteStride);
+      _decodeFilterExp(
+        data,
+        count: count,
+        stride: byteStride,
+        control: control,
+      );
   }
 }
 
@@ -659,6 +778,7 @@ void _decodeFilterOct(
   Uint8List data, {
   required int count,
   required int stride,
+  required MeshoptDecodeControl? control,
 }) {
   if (stride != 4 && stride != 8) {
     throw const MeshoptDecodeException(
@@ -668,6 +788,10 @@ void _decodeFilterOct(
   final componentSize = stride ~/ 4;
   final max = componentSize == 1 ? 127.0 : 32767.0;
   for (var index = 0; index < count; index += 1) {
+    control?.checkpoint(
+      stage: 'meshoptOctahedralFilter',
+      decodedBytes: stride,
+    );
     final offset = index * stride;
     final xRaw = _readSignedComponent(data, offset, componentSize);
     final yRaw =
@@ -708,6 +832,7 @@ void _decodeFilterQuat(
   Uint8List data, {
   required int count,
   required int stride,
+  required MeshoptDecodeControl? control,
 }) {
   if (stride != 8) {
     throw const MeshoptDecodeException(
@@ -715,6 +840,10 @@ void _decodeFilterQuat(
   }
   final scale = 32767.0 / math.sqrt2;
   for (var index = 0; index < count; index += 1) {
+    control?.checkpoint(
+      stage: 'meshoptQuaternionFilter',
+      decodedBytes: stride,
+    );
     final offset = index * stride;
     final x = _readSignedComponent(data, offset, 2).toDouble();
     final y = _readSignedComponent(data, offset + 2, 2).toDouble();
@@ -746,6 +875,7 @@ void _decodeFilterExp(
   Uint8List data, {
   required int count,
   required int stride,
+  required MeshoptDecodeControl? control,
 }) {
   if (stride <= 0 || stride % 4 != 0) {
     throw const MeshoptDecodeException(
@@ -755,6 +885,10 @@ void _decodeFilterExp(
   final words = count * (stride ~/ 4);
   final view = ByteData.sublistView(data);
   for (var index = 0; index < words; index += 1) {
+    control?.checkpoint(
+      stage: 'meshoptExponentialFilter',
+      decodedBytes: 4,
+    );
     final value = view.getUint32(index * 4, Endian.little);
     final exponent = _signExtend(value >> 24, 8);
     final mantissa = _signExtend(value & 0x00ffffff, 24);

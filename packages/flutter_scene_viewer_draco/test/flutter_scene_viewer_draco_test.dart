@@ -19,6 +19,20 @@ void main() {
         'compressedBytes': Uint8List.fromList(<int>[7, 8, 9]),
       },
     ];
+    final decodeBudget = <String, Object?>{
+      'maxTotalDecodedBytes': 100,
+      'maxAccessors': 10,
+      'maxVertices': 20,
+      'maxIndices': 30,
+      'maxNativeOutputBytes': 100,
+    };
+    final decodeBudgetState = <String, Object?>{
+      'totalDecodedBytes': 4,
+      'nativeOutputBytes': 3,
+      'accessors': 2,
+      'vertices': 1,
+      'indices': 0,
+    };
     addTearDown(() {
       messenger.setMockMethodCallHandler(channel, null);
     });
@@ -31,6 +45,8 @@ void main() {
       ]);
       expect(arguments['source'], 'compressed.glb');
       expect(arguments['dracoPrimitives'], dracoPrimitives);
+      expect(arguments['decodeBudget'], decodeBudget);
+      expect(arguments['decodeBudgetState'], decodeBudgetState);
       return <String, Object?>{
         'bytes': decodedBytes,
         'diagnostics': <Object?>[],
@@ -42,6 +58,8 @@ void main() {
       requiredExtensions: const <String>['KHR_draco_mesh_compression'],
       source: 'compressed.glb',
       dracoPrimitives: dracoPrimitives,
+      decodeBudget: decodeBudget,
+      decodeBudgetState: decodeBudgetState,
     );
 
     expect(result?['bytes'], decodedBytes);

@@ -292,7 +292,7 @@ final class _GlbMaterialExtensionMapper {
     } else {
       final extension = iorExtension.value;
       if (extension != null) {
-        final value = _doubleField(
+        final value = _iorField(
           extension,
           'ior',
           'KHR_materials_ior',
@@ -427,7 +427,7 @@ final class _GlbMaterialExtensionMapper {
     } else {
       final extension = specularExtension.value;
       if (extension != null) {
-        final factor = _doubleField(
+        final factor = _unitIntervalField(
           extension,
           'specularFactor',
           'KHR_materials_specular',
@@ -446,12 +446,11 @@ final class _GlbMaterialExtensionMapper {
         if (texture.requiresUv) {
           specularTextureSlots.add('specularTexture');
         }
-        final colorFactor = _doubleListField(
+        final colorFactor = _nonNegativeRgbField(
           extension,
           'specularColorFactor',
           'KHR_materials_specular',
           materialIndex,
-          length: 3,
         );
         specularInvalid = specularInvalid || colorFactor.invalid;
         specularColorFactor = colorFactor.value;
@@ -472,11 +471,6 @@ final class _GlbMaterialExtensionMapper {
     final hasTransmissionOrVolumeIntent =
         extensions.containsKey('KHR_materials_transmission') ||
             extensions.containsKey('KHR_materials_volume');
-    if (iorInvalid) {
-      if (hasTransmissionOrVolumeIntent) {
-        transmissionVolumeInvalid = true;
-      }
-    }
     final groups =
         <MaterialExtensionPatchGroup, _MaterialExtensionGroupIntent>{};
     final transmissionVolumePatch = MaterialPatch(
@@ -851,6 +845,56 @@ final class _GlbMaterialExtensionMapper {
     return const _DoubleRead.invalid();
   }
 
+  _DoubleRead _unitIntervalField(
+    Map<String, Object?> extension,
+    String field,
+    String extensionName,
+    int materialIndex,
+  ) {
+    final result = _doubleField(extension, field, extensionName, materialIndex);
+    final value = result.value;
+    if (result.invalid || value == null) {
+      return result;
+    }
+    if (value.isFinite && value >= 0 && value <= 1) {
+      return result;
+    }
+    diagnostics.add(
+      _invalidExtensionDiagnostic(
+        extensionName: extensionName,
+        field: field,
+        materialIndex: materialIndex,
+        value: value,
+      ),
+    );
+    return const _DoubleRead.invalid();
+  }
+
+  _DoubleRead _iorField(
+    Map<String, Object?> extension,
+    String field,
+    String extensionName,
+    int materialIndex,
+  ) {
+    final result = _doubleField(extension, field, extensionName, materialIndex);
+    final value = result.value;
+    if (result.invalid || value == null) {
+      return result;
+    }
+    if (value.isFinite && (value == 0 || value >= 1)) {
+      return result;
+    }
+    diagnostics.add(
+      _invalidExtensionDiagnostic(
+        extensionName: extensionName,
+        field: field,
+        materialIndex: materialIndex,
+        value: value,
+      ),
+    );
+    return const _DoubleRead.invalid();
+  }
+
   _DoubleListRead _doubleListField(
     Map<String, Object?> extension,
     String field,
@@ -879,6 +923,37 @@ final class _GlbMaterialExtensionMapper {
         result.add(item.toDouble());
       }
       return _DoubleListRead(value: List<double>.unmodifiable(result));
+    }
+    diagnostics.add(
+      _invalidExtensionDiagnostic(
+        extensionName: extensionName,
+        field: field,
+        materialIndex: materialIndex,
+        value: value,
+      ),
+    );
+    return const _DoubleListRead.invalid();
+  }
+
+  _DoubleListRead _nonNegativeRgbField(
+    Map<String, Object?> extension,
+    String field,
+    String extensionName,
+    int materialIndex,
+  ) {
+    final result = _doubleListField(
+      extension,
+      field,
+      extensionName,
+      materialIndex,
+      length: 3,
+    );
+    final value = result.value;
+    if (result.invalid || value == null) {
+      return result;
+    }
+    if (value.every((component) => component.isFinite && component >= 0)) {
+      return result;
     }
     diagnostics.add(
       _invalidExtensionDiagnostic(

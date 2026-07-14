@@ -64,6 +64,25 @@ Network models can be hostile or simply too large. MVP should support:
 - texture dimension limit;
 - memory-budget-aware texture cache.
 
+Meshopt timeout is cooperatively enforced inside the synchronous Dart decoder.
+One monotonic deadline spans all compressed bufferViews, with checks before
+decode allocation and at approximate decoded-byte intervals across every
+claimed mode and filter. Timeout returns a typed diagnostic, returns no partial
+GLB, and commits no caller tracker state. Temporary Dart buffers become
+garbage-collectible after stack unwind; deterministic collection is not
+guaranteed. Meshopt still has no external cancellation signal.
+
+Native decoder timeout is enforced only at the Dart MethodChannel result
+boundary in current Plan 014 code. A late Draco or BasisU response is discarded
+without GLB rewrite, tracker commit, or adapter import. This does not stop the
+synchronous native codec call or guarantee native resource release. The pinned
+Draco and BasisU entrypoints plus their one-shot MethodChannel bridges expose no
+cooperative deadline, cancellation callback, or allocator budget. The exact
+source-backed boundaries are recorded in the
+[decoder control blockers](generated/capability_matrix.md#decoder-control-blockers)
+table. This blocker does not promote host conformance into target runtime or
+release evidence.
+
 ## Current adapter assumptions
 
 The runtime adapter boundary expects `flutter_scene` to provide
@@ -318,6 +337,12 @@ iOS Simulator evidence shows authored glass and clearcoat in one real GLB.
 The package-local glass and clearcoat paths remain `candidate-only`; their iOS
 Simulator evidence is separately labeled `verified locally`. Physical iOS,
 Android material rendering, and Web material rendering remain `not run`.
+
+The [generated capability matrix](generated/capability_matrix.md) is the
+current Plan 014 feature/target claim source. The preceding candidate evidence
+is historical context; current Plan 014 target evidence remains `not run` for
+all selected extension rows. Host decoder, rewrite, validator, and reference
+renderer results remain separate from target runtime and release maturity.
 
 As of 2026-07-03, the installed `flutter_scene` 0.18.1 target does not expose
 real transmission/glass or clearcoat support. The local audit found no public

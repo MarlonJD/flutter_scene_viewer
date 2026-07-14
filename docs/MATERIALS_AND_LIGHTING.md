@@ -13,6 +13,14 @@ Support core glTF metallic-roughness PBR:
 - emissive factor and texture;
 - alpha mode and double-sided where `flutter_scene` exposes them.
 
+The [generated capability matrix](generated/capability_matrix.md) is the
+current Plan 014 claim source for selected glTF extensions. Historical
+candidate screenshots and simulator runs remain contextual records; current
+Plan 014 target evidence remains `not run` for every selected feature/target
+row. Host parsing, intent preservation, codec output, rewrite validation, and
+Three.js reference captures are reported separately and do not establish
+flutter_scene target rendering.
+
 Transmission/glass is required before v1.0 release. It must mean real
 glTF-style transmission/refraction behavior with IOR and volume attenuation
 where requested, not an alpha-blended approximation. The current installed
@@ -23,9 +31,10 @@ glass fields return `unsupportedMaterialFeature` diagnostics and are not
 applied or persisted unless an opt-in material extension backend advertises
 real transmission, IOR, and volume support. The repository-owned
 `flutterSceneCustomShader` backend is a `candidate-only` implementation with
-iOS Simulator evidence `verified locally`. Shader preflight proves package
-shader availability and routing, not Khronos correctness or physical-device
-release readiness. The current implementation is bounded
+historical iOS Simulator evidence `verified locally`. Shader preflight proves
+package shader availability and routing, not Khronos correctness or
+physical-device release readiness, and the historical run is not current Plan
+014 target evidence. The current implementation is bounded
 screen-space refraction with IOR-derived Fresnel energy splitting,
 Beer-Lambert-style attenuation color/distance, thickness, and roughness
 trends; it is not nested glass, order-independent transparency, or full
@@ -40,8 +49,8 @@ roughness or boosts environment intensity. Clearcoat remains diagnostic-only
 by default. Task 011 added a lit package-local clearcoat candidate that
 preserves base PBR lighting and adds a bounded coating lobe from clearcoat
 factor, clearcoat roughness, clearcoat textures, and clearcoat normal inputs.
-It has local iOS Simulator shader-load and synthetic visual-matrix evidence,
-follow-up ToyCar evidence, and candidate acceptance metrics for the
+It has historical local iOS Simulator shader-load and synthetic visual-matrix
+evidence, follow-up ToyCar evidence, and candidate acceptance metrics for the
 `flutterSceneCustomShader` backend. The overlay keeps the source material in
 place, adds the coating response on top, and attenuates the visible base layer
 with a clearcoat Fresnel energy-loss term so the result behaves more like a
@@ -92,7 +101,8 @@ Experimental policy still uses `backendKind: packageLocalCandidate`.
 The backend must still report diagnostics rather than fall back to alpha blend
 or roughness changes when it cannot render the requested feature.
 
-Realistic glass is verified locally for iOS Simulator only. The repository
+Historical realistic-glass evidence is verified locally for iOS Simulator
+only; it is not a current Plan 014 target run. The repository
 contains a production-policy-gated transmission backend that uses a background
 `RenderTexture` and `RenderView.layerMask` separation for bounded screen-space
 refraction. Local GPU-gated verification loads the generated transmission
@@ -103,7 +113,8 @@ background energy with an IOR-based Fresnel term, applies attenuation as
 `attenuationColor^(thickness / attenuationDistance)`, and outputs
 premultiplied RGB for the alpha-blended pass. The same fixture GLB is compared
 directionally against a three.js reference render. The package-local backend
-remains `candidate-only` while its iOS Simulator evidence is `verified locally`;
+remains `candidate-only` while that historical iOS Simulator evidence is
+`verified locally`;
 physical iOS, Android material rendering, and Web material rendering remain
 `not run`.
 
@@ -125,11 +136,12 @@ uses the coat Fresnel term to attenuate base-layer energy before adding the
 clearcoat lobe. Local GPU-gated verification captures a
 visual matrix for clearcoat factor, clearcoat roughness, texture influence, and
 clearcoat normal highlight movement. The same fixture GLB is compared
-directionally against a three.js reference render. Follow-up ToyCar iOS
-Simulator evidence shows authored glass and clearcoat in one real GLB while
+directionally against a three.js reference render. Historical follow-up ToyCar
+iOS Simulator evidence shows authored glass and clearcoat in one real GLB while
 preserving the base material. GlassVaseFlowers and ClearCoatCarPaint are now
 required corpus references for visual acceptance against Khronos/three.js
-rendering direction. Its iOS Simulator evidence is `verified locally`;
+rendering direction. That historical iOS Simulator evidence is
+`verified locally`;
 physical iOS, Android material rendering, and Web material rendering remain
 `not run`.
 

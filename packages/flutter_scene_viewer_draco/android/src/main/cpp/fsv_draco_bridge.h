@@ -6,23 +6,7 @@
 #include <string>
 #include <vector>
 
-struct FsvDracoAccessorSchema {
-  int accessor_index = -1;
-  int component_type = 0;
-  std::string type;
-  int count = 0;
-  bool normalized = false;
-};
-
-struct FsvDracoPrimitiveRequest {
-  int mesh_index = -1;
-  int primitive_index = -1;
-  std::vector<uint8_t> compressed_bytes;
-  std::map<std::string, int> attributes;
-  std::map<std::string, FsvDracoAccessorSchema> attribute_accessors;
-  bool has_indices_accessor = false;
-  FsvDracoAccessorSchema indices_accessor;
-};
+#include "fsv_draco_budget.h"
 
 struct FsvDracoDecodedPrimitive {
   int mesh_index = -1;
@@ -32,22 +16,21 @@ struct FsvDracoDecodedPrimitive {
   std::vector<uint8_t> indices;
 };
 
-struct FsvDracoDiagnostic {
-  std::string status;
-  std::string message;
-  int mesh_index = -1;
-  int primitive_index = -1;
-  std::string attribute;
-};
-
 struct FsvDracoDecodeResult {
   std::vector<FsvDracoDecodedPrimitive> decoded_primitives;
   std::vector<FsvDracoDiagnostic> diagnostics;
 };
 
+struct FsvDracoDecodeTestingCounters {
+  uint64_t output_vector_allocations = 0;
+};
+
 bool FsvDracoDecoderLinked();
 bool FsvDracoPrimitiveDecodeAvailable();
 FsvDracoDecodeResult FsvDracoDecodePrimitives(
-    const std::vector<FsvDracoPrimitiveRequest>& requests);
+    const std::vector<FsvDracoPrimitiveRequest>& requests,
+    const FsvDracoDecodeBudgetMetadata& budget,
+    const FsvDracoDecodeBudgetState& state,
+    FsvDracoDecodeTestingCounters* testing_counters = nullptr);
 
 #endif  // FSV_DRACO_BRIDGE_H_

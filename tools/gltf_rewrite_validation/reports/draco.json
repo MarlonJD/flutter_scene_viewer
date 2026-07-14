@@ -1,0 +1,44 @@
+{
+  "validator": {
+    "package": "gltf-validator",
+    "version": "2.0.0-dev.3.10",
+    "sourceCommit": "bcd52cc4ba5f333b2999a58f67cc05ddf28b4fb1",
+    "license": "Apache-2.0"
+  },
+  "asset": {
+    "label": "draco",
+    "sha256": "ed046b12e6be838c8702a631edfe6807bbc8380dc3d15ca31977ec930487842b"
+  },
+  "issues": {
+    "errors": 0,
+    "warnings": 0,
+    "infos": 1,
+    "hints": 3,
+    "messages": [
+      {
+        "severity": 2,
+        "code": "UNUSED_OBJECT",
+        "message": "This object may be unused.",
+        "pointer": "/bufferViews/0"
+      },
+      {
+        "severity": 3,
+        "code": "BUFFER_VIEW_TARGET_MISSING",
+        "message": "bufferView.target should be set for vertex or index data.",
+        "pointer": "/meshes/0/primitives/0/attributes/NORMAL"
+      },
+      {
+        "severity": 3,
+        "code": "BUFFER_VIEW_TARGET_MISSING",
+        "message": "bufferView.target should be set for vertex or index data.",
+        "pointer": "/meshes/0/primitives/0/attributes/POSITION"
+      },
+      {
+        "severity": 3,
+        "code": "BUFFER_VIEW_TARGET_MISSING",
+        "message": "bufferView.target should be set for vertex or index data.",
+        "pointer": "/meshes/0/primitives/0/indices"
+      }
+    ]
+  }
+}

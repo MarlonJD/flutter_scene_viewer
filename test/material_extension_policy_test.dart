@@ -265,6 +265,32 @@ void main() {
 
     expect(diagnostics, isEmpty);
   });
+
+  test('pinned policies keep specular unavailable with separate status axes',
+      () {
+    for (final policy in <ViewerMaterialExtensionPolicy>[
+      const ViewerMaterialExtensionPolicy.diagnosticsOnly(),
+      const ViewerMaterialExtensionPolicy.experimentalShaders(),
+      const ViewerMaterialExtensionPolicy.productionShaders(),
+    ]) {
+      final support = policy.support;
+      final specular = support.supportFor(MaterialExtensionFeature.specular);
+
+      expect(specular.available, isFalse, reason: policy.mode.name);
+      for (final target in MaterialExtensionTarget.values) {
+        expect(
+          specular.maturityFor(target),
+          MaterialExtensionMaturity.diagnosticOnly,
+          reason: '${policy.mode.name}/${target.name}',
+        );
+        expect(
+          specular.evidenceFor(target),
+          MaterialExtensionEvidenceStatus.notRun,
+          reason: '${policy.mode.name}/${target.name}',
+        );
+      }
+    }
+  });
 }
 
 Map<MaterialExtensionFeature, MaterialExtensionFeatureSupport>

@@ -530,6 +530,24 @@ final class MaterialPatch {
     if (conflictDiagnostics.isNotEmpty) {
       return conflictDiagnostics;
     }
+    final intrinsicValueDiagnostics = <ViewerDiagnostic>[
+      if (!_isUnitInterval(metallic))
+        _rangeDiagnostic(address, 'metallic', metallic!),
+      if (!_isUnitInterval(roughness))
+        _rangeDiagnostic(address, 'roughness', roughness!),
+      if (!_isUnitInterval(occlusionStrength))
+        _rangeDiagnostic(address, 'occlusionStrength', occlusionStrength!),
+      if (!_isUnitInterval(specular))
+        _rangeDiagnostic(address, 'specular', specular!),
+      if (!_isNonNegativeFiniteRgb(specularColorFactor))
+        _specularColorFactorDiagnostic(address, specularColorFactor!),
+      if (!_isValidIor(ior)) _iorDiagnostic(address, ior!),
+      if (!_isUnitInterval(alphaCutoff))
+        _rangeDiagnostic(address, 'alphaCutoff', alphaCutoff!),
+    ];
+    if (intrinsicValueDiagnostics.isNotEmpty) {
+      return intrinsicValueDiagnostics;
+    }
     final unsupportedDiagnostics = <ViewerDiagnostic>[
       ..._glassSupportDiagnostics(address, support),
       if (hasClearcoatOverride &&
@@ -550,18 +568,7 @@ final class MaterialPatch {
     if (effectMaskDiagnostics.isNotEmpty) {
       return effectMaskDiagnostics;
     }
-    return <ViewerDiagnostic>[
-      if (!_isUnitInterval(metallic))
-        _rangeDiagnostic(address, 'metallic', metallic!),
-      if (!_isUnitInterval(roughness))
-        _rangeDiagnostic(address, 'roughness', roughness!),
-      if (!_isUnitInterval(occlusionStrength))
-        _rangeDiagnostic(address, 'occlusionStrength', occlusionStrength!),
-      if (!_isUnitInterval(specular))
-        _rangeDiagnostic(address, 'specular', specular!),
-      if (!_isUnitInterval(alphaCutoff))
-        _rangeDiagnostic(address, 'alphaCutoff', alphaCutoff!),
-    ];
+    return const <ViewerDiagnostic>[];
   }
 
   List<ViewerDiagnostic> _textureBindingConflictDiagnostics(
@@ -811,6 +818,11 @@ final class MaterialPatch {
     if (missingExtensions.isEmpty) {
       return const <ViewerDiagnostic>[];
     }
+    if (missingExtensions.length == 1 &&
+        missingExtensions.single == 'KHR_materials_ior' &&
+        hasOpaqueIorOverride) {
+      return <ViewerDiagnostic>[_opaqueIorUnsupportedDiagnostic(address)];
+    }
     return <ViewerDiagnostic>[
       _glassUnsupportedDiagnostic(
         address,
@@ -910,6 +922,14 @@ MaterialAlphaMode? _alphaMode(Object? value) {
 bool _isUnitInterval(double? value) =>
     value == null || (value >= 0 && value <= 1);
 
+bool _isNonNegativeFiniteRgb(List<double>? value) =>
+    value == null ||
+    (value.length == 3 &&
+        value.every((component) => component.isFinite && component >= 0));
+
+bool _isValidIor(double? value) =>
+    value == null || (value.isFinite && (value == 0 || value >= 1));
+
 ViewerDiagnostic _rangeDiagnostic(
   PartAddress address,
   String field,
@@ -928,6 +948,37 @@ ViewerDiagnostic _rangeDiagnostic(
   );
 }
 
+ViewerDiagnostic _specularColorFactorDiagnostic(
+  PartAddress address,
+  List<double> value,
+) {
+  return ViewerDiagnostic(
+    code: ViewerDiagnosticCode.invalidMaterialOverride,
+    message:
+        'Specular color factor must contain three finite, non-negative linear RGB values.',
+    details: <String, Object?>{
+      'part': address.debugPath,
+      'field': 'specularColorFactor',
+      'value': List<double>.of(value),
+      'components': 3,
+      'min': 0,
+    },
+  );
+}
+
+ViewerDiagnostic _iorDiagnostic(PartAddress address, double value) {
+  return ViewerDiagnostic(
+    code: ViewerDiagnosticCode.invalidMaterialOverride,
+    message: 'IOR must be finite and either exactly 0 or at least 1.',
+    details: <String, Object?>{
+      'part': address.debugPath,
+      'field': 'ior',
+      'value': value,
+      'allowed': '0 or >= 1',
+    },
+  );
+}
+
 ViewerDiagnostic _glassUnsupportedDiagnostic(
   PartAddress address, {
   required List<String> extensions,
@@ -939,6 +990,22 @@ ViewerDiagnostic _glassUnsupportedDiagnostic(
     details: <String, Object?>{
       'part': address.debugPath,
       'extensions': extensions,
+      'upstreamPackage': 'flutter_scene',
+      'status': 'unsupported',
+    },
+  );
+}
+
+ViewerDiagnostic _opaqueIorUnsupportedDiagnostic(PartAddress address) {
+  return ViewerDiagnostic(
+    code: ViewerDiagnosticCode.unsupportedMaterialFeature,
+    message:
+        'Opaque IOR material overrides require flutter_scene standard PBR support for KHR_materials_ior.',
+    details: <String, Object?>{
+      'part': address.debugPath,
+      'feature': 'opaqueIor',
+      'extensions': const <String>['KHR_materials_ior'],
+      'limitation': 'pinnedStandardPbrOpaqueIorContractMissing',
       'upstreamPackage': 'flutter_scene',
       'status': 'unsupported',
     },
