@@ -158,44 +158,41 @@ final class MaterialPatch {
 
   /// KHR_materials_clearcoat clearcoat factor.
   ///
-  /// This field is intentionally rejected by the current adapter until
-  /// flutter_scene exposes real clearcoat support.
+  /// Applied when the selected renderer backend reports native clearcoat
+  /// support.
   final double? clearcoat;
 
   /// KHR_materials_clearcoat clearcoat factor texture.
   ///
-  /// This field is intentionally rejected by the current adapter until
-  /// flutter_scene exposes real clearcoat support.
+  /// The renderer samples the red channel, following the glTF contract.
   final TextureSource? clearcoatTexture;
 
   final MaterialTextureBinding? clearcoatTextureBinding;
 
   /// KHR_materials_clearcoat clearcoat roughness factor.
   ///
-  /// This field is intentionally rejected by the current adapter until
-  /// flutter_scene exposes real clearcoat support.
+  /// Applied when the selected renderer backend reports native clearcoat
+  /// support.
   final double? clearcoatRoughness;
 
   /// KHR_materials_clearcoat clearcoat roughness texture.
   ///
-  /// This field is intentionally rejected by the current adapter until
-  /// flutter_scene exposes real clearcoat support.
+  /// The renderer samples the green channel, following the glTF contract.
   final TextureSource? clearcoatRoughnessTexture;
 
   final MaterialTextureBinding? clearcoatRoughnessTextureBinding;
 
   /// KHR_materials_clearcoat clearcoat normal texture.
   ///
-  /// This field is intentionally rejected by the current adapter until
-  /// flutter_scene exposes real clearcoat support.
+  /// This is independent from the base material normal map.
   final TextureSource? clearcoatNormalTexture;
 
   final MaterialTextureBinding? clearcoatNormalTextureBinding;
 
   /// KHR_materials_clearcoat clearcoat normal intensity.
   ///
-  /// This field is intentionally rejected by the current adapter until
-  /// flutter_scene exposes real clearcoat support.
+  /// Values must be finite. Negative values invert the tangent-space XY
+  /// components as permitted for glTF normal textures.
   final double? clearcoatNormalScale;
 
   /// KHR_materials_specular scalar strength.
@@ -537,6 +534,20 @@ final class MaterialPatch {
         _rangeDiagnostic(address, 'roughness', roughness!),
       if (!_isUnitInterval(occlusionStrength))
         _rangeDiagnostic(address, 'occlusionStrength', occlusionStrength!),
+      if (!_isUnitInterval(clearcoat))
+        _rangeDiagnostic(address, 'clearcoat', clearcoat!),
+      if (!_isUnitInterval(clearcoatRoughness))
+        _rangeDiagnostic(
+          address,
+          'clearcoatRoughness',
+          clearcoatRoughness!,
+        ),
+      if (!_isFinite(clearcoatNormalScale))
+        _finiteDiagnostic(
+          address,
+          'clearcoatNormalScale',
+          clearcoatNormalScale!,
+        ),
       if (!_isUnitInterval(specular))
         _rangeDiagnostic(address, 'specular', specular!),
       if (!_isNonNegativeFiniteRgb(specularColorFactor))
@@ -922,6 +933,8 @@ MaterialAlphaMode? _alphaMode(Object? value) {
 bool _isUnitInterval(double? value) =>
     value == null || (value >= 0 && value <= 1);
 
+bool _isFinite(double? value) => value == null || value.isFinite;
+
 bool _isNonNegativeFiniteRgb(List<double>? value) =>
     value == null ||
     (value.length == 3 &&
@@ -944,6 +957,22 @@ ViewerDiagnostic _rangeDiagnostic(
       'value': value,
       'min': 0,
       'max': 1,
+    },
+  );
+}
+
+ViewerDiagnostic _finiteDiagnostic(
+  PartAddress address,
+  String field,
+  double value,
+) {
+  return ViewerDiagnostic(
+    code: ViewerDiagnosticCode.invalidMaterialOverride,
+    message: 'Material override value must be finite.',
+    details: <String, Object?>{
+      'part': address.debugPath,
+      'field': field,
+      'value': value,
     },
   );
 }

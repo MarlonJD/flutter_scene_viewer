@@ -10,7 +10,7 @@ void main() {
   test('extended PBR preflight reports unavailable shader before mutation',
       () async {
     final backend = FlutterSceneExtendedPbrBackend(
-      loadShader: (_) async => null,
+      loadShader: (_, __) async => null,
     );
 
     final diagnostic = await backend.preflight(

@@ -2,5 +2,9 @@
   "FSViewerExtendedPbr": {
     "type": "fragment",
     "file": "shaders/fsviewer_extended_pbr.frag"
+  },
+  "FSViewerClearcoatExtendedPbr": {
+    "type": "fragment",
+    "file": "shaders/fsviewer_clearcoat_extended_pbr.frag"
   }
 }

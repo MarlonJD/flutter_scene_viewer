@@ -1,8 +1,8 @@
 # Exec plan: renderer-native transmission and volume follow-up
 
 > **Status (2026-07-13): deferred.** This is the explicit conditional
-> disposition from active
-> [Plan 014 Task 9](../active/014_selected_gltf_extension_support.md). It does
+> disposition from completed
+> [Plan 014 Task 9](../completed/014_selected_gltf_extension_support.md). It does
 > not make the package-local screen-space candidate production-ready and does
 > not unblock the v1 release gate.
 
@@ -18,8 +18,8 @@ evidence satisfy the Khronos semantics.
 - Khronos defines factor, texture-channel, alpha, thin-surface, volume,
   attenuation, transform, metal-isolation, and IOR semantics.
 - The pinned `flutter_scene` revision
-  `cd6760912fa38beb55f63e388655a1aeabd32fe4` defines current renderer
-  capability. It exposes scene-color render targets but no standard-material
+  `ccf7372428961ebe0abb053727fe443150547a74` defines current renderer
+  capability. It exposes native clearcoat and scene-color render targets but no standard-material
   transmission, volume, attenuation, or variable-IOR fields and no renderer-
   owned glTF refraction/compositing contract.
 - The repository-owned screen-space material remains a narrow

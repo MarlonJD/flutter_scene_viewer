@@ -28,29 +28,30 @@ a lit base material, and `forceUnlit` converts supported imported materials to
 an unlit base material. This is intentionally not a runtime material patch.
 
 `materialExtensionPolicy` controls whether advanced material extension fields
-are kept diagnostic-only or may be validated against a package-local shader
-backend. The default `ViewerMaterialExtensionPolicy.diagnosticsOnly()` rejects
-unsupported transmission/glass and clearcoat fields before they are applied or
-persisted. `ViewerMaterialExtensionPolicy.experimentalShaders()` opts into
-candidate transmission, IOR, and volume intent where the attached backend can
-honestly render it. `enableClearcoat` defaults to `false`; setting it to
-`true` opts into the candidate clearcoat shader backend.
+are kept diagnostic-only or may be validated against an available renderer or
+package-local shader backend. The default
+`ViewerMaterialExtensionPolicy.diagnosticsOnly()` rejects unsupported
+transmission/glass and clearcoat fields before they are applied or persisted.
+`ViewerMaterialExtensionPolicy.experimentalShaders()` opts into candidate
+transmission, IOR, and volume intent where the attached backend can honestly
+render it. `enableClearcoat` defaults to `false`; setting it to `true` permits
+the pinned renderer-native clearcoat contract.
 `ViewerMaterialExtensionPolicy.productionShaders()` opts into the
-repository-owned `flutter_scene` custom shader candidate while preserving the
-existing constructor name for source compatibility. After shader preflight
-passes, the backend reports `backendKind: flutterSceneCustomShader`; that proves
-shader availability and routing only, not Khronos correctness or physical-device
-release readiness. Per-feature release maturity and per-target evidence are
-separate: package-local features remain `candidate-only`, while historical iOS
-Simulator evidence is `verified locally`. The static policy itself records
-target evidence as `not run` and claims no release target. The policy does not permit
-fake fallbacks: if the backend cannot render the requested feature, it must
-report `unsupportedMaterialFeature`. Renderer-native upstream support remains
-a future integration path. Physical iOS, Android material rendering, and Web
-material rendering remain `not run`.
+renderer-native and repository-owned custom shader routes while preserving the
+existing constructor name for source compatibility. At pinned `flutter_scene`
+commit `ccf7372428961ebe0abb053727fe443150547a74`, clearcoat reports
+`backendKind: rendererNative`; candidate transmission, IOR, and volume continue
+to report `backendKind: flutterSceneCustomShader` only after shader preflight.
+Availability and routing do not prove Khronos correctness or physical-device
+release readiness. Per-feature release maturity and per-target evidence remain
+separate: native clearcoat is `release pending`, package-local glass remains
+`candidate-only`, and the static policy itself claims no release target. The
+policy does not permit fake fallbacks: if the backend cannot render the
+requested feature, it must report `unsupportedMaterialFeature`. Physical iOS,
+Android material rendering, and Web material rendering remain `not run`.
 
 The [generated capability matrix](generated/capability_matrix.md) is the
-current Plan 014 feature/target claim source. Plan 014 iOS Simulator evidence is `verified locally` for `KHR_texture_transform`, `KHR_materials_specular`, opaque `KHR_materials_ior`, and the A1B32 Draco load; physical iOS, Android, and Web remain `not run`. These are `candidate-only` target rows, not release or production-ready claims; host parser, codec, rewrite, and validator results do not promote any other row.
+completed Plan 014 feature/target closure snapshot. Plan 014 iOS Simulator evidence is `verified locally` for `KHR_texture_transform`, `KHR_materials_specular`, opaque `KHR_materials_ior`, and the A1B32 Draco load; physical iOS, Android, and Web remain `not run`. These are `candidate-only` target rows, not release or production-ready claims; host parser, codec, rewrite, and validator results do not promote any other row. Plan 017 owns migration to a non-plan-specific live capability source.
 
 `MaterialExtensionSupport.supportFor(MaterialExtensionFeature)` is the
 authoritative feature query. Each `MaterialExtensionFeatureSupport` keeps
@@ -316,29 +317,25 @@ surface reflection from transmitted background energy and applies
 attenuationColor/distance as local absorption, but it still remains a bounded
 screen-space implementation. Its maturity remains `candidate-only`.
 Historical iOS Simulator evidence is separately retained as
-`verified locally`, but it is not current Plan 014 target evidence; physical
+`verified locally`, but it is not part of completed Plan 014 target evidence; physical
 iOS, Android material rendering, and Web material rendering also remain
 `not run`.
 
 Clearcoat is a v1 release blocker for coated product materials such as car
 paint, varnished wood, and carbon fiber gloss coat. The clearcoat patch fields
-are serializable request intent for `KHR_materials_clearcoat`. With the default
-policy, requests using those fields return `unsupportedMaterialFeature`
-diagnostics and are not applied or persisted. Experimental policy keeps
-clearcoat disabled unless `enableClearcoat: true` is requested and the attached
-backend can load the candidate clearcoat shader. The source-compatible
-`productionShaders()` policy can route candidate clearcoat after shader
-preflight confirms availability. The
-current internal backend implements a lit, translucent clearcoat `.fmat`
-overlay that preserves the source primitive material and adds a separate
-coating lobe for clearcoat factor, clearcoat roughness, clearcoat texture, and
-clearcoat normal inputs. Lowering roughness must not be presented as
-clearcoat. Texture forms must still require authored UV0. The package-local
-backend has historical iOS Simulator shader-load, synthetic visual-matrix, and
-ToyCar real-asset evidence `verified locally` under
-`backendKind: flutterSceneCustomShader`; its maturity remains `candidate-only`.
-That historical record is not a current Plan 014 target run. Physical iOS,
-Android material rendering, and Web material rendering remain `not run`.
+are serializable request intent for `KHR_materials_clearcoat`. The stable Git
+dependency now pins published `flutter_scene` commit
+`ccf7372428961ebe0abb053727fe443150547a74`, whose importer, serialized scene
+path, material slots, and shared PBR lighting implement the complete native
+factor, red/green texture-channel, independent normal/scale, reset, and
+combined-core contract. The source-compatible `productionShaders()` policy
+routes clearcoat through `backendKind: rendererNative`; the default
+diagnostics-only policy remains opt-in safe. Lowering base roughness is never a
+clearcoat substitute, and texture forms still require authored UV0. iOS
+Simulator evidence is `verified locally`; release maturity remains `release
+pending`, production readiness is `false`, and physical iOS, Android material
+rendering, and Web material rendering remain `not run`. The older translucent
+package-local overlay is retained only as historical `candidate-only` evidence.
 
 Specular fields are serializable request intent for `KHR_materials_specular`.
 Authored GLB imports preserve `specularFactor`, `specularTexture`,

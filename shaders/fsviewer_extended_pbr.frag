@@ -5,7 +5,7 @@
 // varyings, normal preparation, IBL resources, shadows, fog, and output shape.
 //
 // The lighting/resource structure is adapted from flutter_scene revision
-// cd6760912fa38beb55f63e388655a1aeabd32fe4, principally
+// ccf7372428961ebe0abb053727fe443150547a74, principally
 // material_lighting.glsl and flutter_scene_standard.frag. flutter_scene is
 // Copyright (c) 2023 Brandon DeRosier and MIT licensed; the complete notice is
 // retained in THIRD_PARTY_NOTICES.md. Khronos equations are re-expressed from
@@ -198,15 +198,13 @@ vec4 EvaluateExtendedPbrLighting(MaterialInputs material) {
   vec3 irradiance =
       max(EvaluateDiffuseSH(sh_coefficients, env_normal), vec3(0.0));
   vec3 prefiltered_color =
-      SampleRadianceEnv(prefiltered_radiance, prefiltered_radiance_cube,
-                        env_reflection, roughness);
+      SamplePrimaryRadiance(env_reflection, roughness);
   float env_blend = frag_info.radiance_blend.x;
   if (env_blend > 0.0) {
     vec3 irradiance_b =
         max(EvaluateDiffuseSH(sh_coefficients_b, env_normal), vec3(0.0));
     vec3 prefiltered_b =
-        SampleRadianceEnv(prefiltered_radiance_b, prefiltered_radiance_cube_b,
-                          env_reflection, roughness);
+        SampleSecondaryRadiance(env_reflection, roughness);
     irradiance = mix(irradiance, irradiance_b, env_blend);
     prefiltered_color = mix(prefiltered_color, prefiltered_b, env_blend);
   }
@@ -277,15 +275,11 @@ vec4 EvaluateExtendedPbrLighting(MaterialInputs material) {
   if (fog.params0.y > 0.5 && fog.params0.w > 0.0) {
     const float kSkyFogRoughness = 0.0;
     vec3 sky_dir = environment_transform * normalize(-v_viewvector);
-    sky_fog_color = SampleRadianceEnv(
-        prefiltered_radiance, prefiltered_radiance_cube, sky_dir,
-        kSkyFogRoughness);
+    sky_fog_color = SamplePrimaryRadiance(sky_dir, kSkyFogRoughness);
     if (env_blend > 0.0) {
       sky_fog_color = mix(
           sky_fog_color,
-          SampleRadianceEnv(prefiltered_radiance_b,
-                            prefiltered_radiance_cube_b, sky_dir,
-                            kSkyFogRoughness),
+          SampleSecondaryRadiance(sky_dir, kSkyFogRoughness),
           env_blend);
     }
     sky_fog_color *= frag_info.environment_intensity;

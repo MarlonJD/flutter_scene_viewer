@@ -262,7 +262,7 @@ final class _GlbMaterialExtensionMapper {
     } else {
       final extension = transmissionExtension.value;
       if (extension != null) {
-        final factor = _doubleField(
+        final factor = _unitIntervalField(
           extension,
           'transmissionFactor',
           'KHR_materials_transmission',
@@ -359,7 +359,7 @@ final class _GlbMaterialExtensionMapper {
     } else {
       final extension = clearcoatExtension.value;
       if (extension != null) {
-        final factor = _doubleField(
+        final factor = _unitIntervalField(
           extension,
           'clearcoatFactor',
           'KHR_materials_clearcoat',
@@ -378,7 +378,7 @@ final class _GlbMaterialExtensionMapper {
         if (texture.requiresUv) {
           clearcoatTextureSlots.add('clearcoatTexture');
         }
-        final roughness = _doubleField(
+        final roughness = _unitIntervalField(
           extension,
           'clearcoatRoughnessFactor',
           'KHR_materials_clearcoat',
@@ -408,7 +408,7 @@ final class _GlbMaterialExtensionMapper {
         if (normalTexture.requiresUv) {
           clearcoatTextureSlots.add('clearcoatNormalTexture');
         }
-        final normalScale = _textureInfoDoubleField(
+        final normalScale = _finiteTextureInfoDoubleField(
           extension,
           'clearcoatNormalTexture',
           'scale',
@@ -992,6 +992,35 @@ final class _GlbMaterialExtensionMapper {
     return const _DoubleRead.invalid();
   }
 
+  _DoubleRead _finiteTextureInfoDoubleField(
+    Map<String, Object?> extension,
+    String textureField,
+    String field,
+    String extensionName,
+    int materialIndex,
+  ) {
+    final result = _textureInfoDoubleField(
+      extension,
+      textureField,
+      field,
+      extensionName,
+      materialIndex,
+    );
+    final value = result.value;
+    if (result.invalid || value == null || value.isFinite) {
+      return result;
+    }
+    diagnostics.add(
+      _invalidExtensionDiagnostic(
+        extensionName: extensionName,
+        field: '$textureField.$field',
+        materialIndex: materialIndex,
+        value: value,
+      ),
+    );
+    return const _DoubleRead.invalid();
+  }
+
   _TextureRead _textureField(
     Map<String, Object?> extension,
     String field,
@@ -1039,6 +1068,7 @@ final class _GlbMaterialExtensionMapper {
               'extension': extensionName,
               'field': field,
               'materialIndex': materialIndex,
+              ..._requirednessDetails(extensionName),
             },
           ),
         ),
@@ -1322,6 +1352,10 @@ final class _GlbMaterialExtensionMapper {
         'reason': reason,
         if (extension != null) 'requiredExtension': extension,
         if (uvSet != null) 'uvSet': uvSet,
+        ..._requirednessDetails(
+          extensionName,
+          dependencyExtension: extension,
+        ),
         ...details,
       },
     );
@@ -1342,8 +1376,28 @@ final class _GlbMaterialExtensionMapper {
         'extension': extensionName,
         'field': field,
         'value': value?.toString(),
+        ..._requirednessDetails(extensionName),
       },
     );
+  }
+
+  Map<String, Object?> _requirednessDetails(
+    String extensionName, {
+    String? dependencyExtension,
+  }) {
+    final requiredExtensions =
+        (_list(json['extensionsRequired']) ?? const <Object?>[])
+            .whereType<String>()
+            .toSet();
+    final required = requiredExtensions.contains(extensionName) ||
+        (dependencyExtension != null &&
+            requiredExtensions.contains(dependencyExtension));
+    return <String, Object?>{
+      'required': required,
+      'blocking': required,
+      'status': required ? 'malformedAsset' : 'optionalExtensionIgnored',
+      'fallback': required ? 'none' : 'coreMaterial',
+    };
   }
 
   GlbMaterialExtensionReaderResult _result(

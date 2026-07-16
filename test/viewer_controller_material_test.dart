@@ -528,7 +528,7 @@ void main() {
           Map<MaterialExtensionPatchGroup, MaterialPatch>>{},
       runtimeAdapter: FlutterSceneRuntimeAdapter(
         extendedPbrBackend: FlutterSceneExtendedPbrBackend(
-          loadShader: (_) async => null,
+          loadShader: (_, __) async => null,
         ),
       ),
     );
@@ -770,7 +770,7 @@ void main() {
         runtimeAdapter: FlutterSceneRuntimeAdapter(
           materialExtensionPolicy: policy,
           extendedPbrBackend: FlutterSceneExtendedPbrBackend(
-            loadShader: (_) async => null,
+            loadShader: (_, __) async => null,
           ),
         ),
       );
@@ -1685,6 +1685,15 @@ final class _NativePbrMaterial extends flutter_scene.PhysicallyBasedMaterial
 
   @override
   set clearcoatNormalScale(double value) {}
+
+  @override
+  set clearcoatTexture(Object? value) {}
+
+  @override
+  set clearcoatRoughnessTexture(Object? value) {}
+
+  @override
+  set clearcoatNormalTexture(Object? value) {}
 }
 
 final class _ControllerExtendedPbrBackend

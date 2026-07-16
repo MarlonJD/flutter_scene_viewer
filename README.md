@@ -92,12 +92,14 @@ Android material rendering, and Web material rendering remain `not run`.
 Clearcoat support is also a v1.0 release blocker for automotive paint,
 varnished wood, carbon fiber, and premium coated surfaces. It requires real
 `KHR_materials_clearcoat`-style behavior; the viewer must not present lower
-roughness as clearcoat. The repository-owned lit clearcoat `.fmat` overlay is
-a `candidate-only` path with iOS Simulator evidence `verified locally`.
-Preflight establishes shader availability and routing only; release maturity
-and target evidence are tracked separately. Renderer-native upstream clearcoat
-remains a future integration path. Physical iOS, Android material rendering,
-and Web material rendering remain `not run`.
+roughness as clearcoat. The stable dependency pins published `flutter_scene`
+commit `ccf7372428961ebe0abb053727fe443150547a74`, whose importer, material
+contract, texture slots, and shared PBR lighting implement the renderer-native
+second coat lobe. The source-compatible `productionShaders()` policy routes
+clearcoat as `rendererNative`; the older package-local overlay remains only
+historical candidate evidence. iOS Simulator application is `verified locally`.
+Release maturity is still `release pending`; physical iOS, Android material
+rendering, and Web material rendering remain `not run`.
 
 Explicit non-goals for v1:
 
@@ -125,13 +127,12 @@ before tessellation could even be considered.
 `flutter_scene_viewer` is in early development. The public API shape,
 documentation, tooling, and validation checks are in place; the
 `flutter_scene` adapter is still being implemented. Treat the package as
-pre-release until runtime adapter checks pass and the transmission/glass and
-clearcoat release blockers are resolved with production-ready evidence on each
-documented target scope or real upstream renderer support. As of Task 012,
-package-local glass and clearcoat remain `candidate-only` and have iOS
-Simulator evidence `verified locally` for the repo-owned
-`flutterSceneCustomShader` backend. Physical iOS, Android material rendering,
-and Web material rendering remain `not run`.
+pre-release until runtime adapter checks pass and the material release blockers
+have production-ready evidence on each documented target scope. Clearcoat is
+renderer-native at the immutable revision above and is `verified locally` on
+iOS Simulator, but remains `release pending`. Package-local glass remains
+`candidate-only`. Physical iOS, Android material rendering, and Web material
+rendering remain `not run`.
 
 ## Development
 

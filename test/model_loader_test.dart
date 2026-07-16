@@ -334,6 +334,76 @@ void main() {
     expect(required.diagnostic!.details['required'], isTrue);
   });
 
+  test('required malformed clearcoat fails while optional intent falls back',
+      () async {
+    Uint8List fixture({required bool required}) => _glb(<String, Object?>{
+          'asset': <String, Object?>{'version': '2.0'},
+          'extensionsUsed': <Object?>['KHR_materials_clearcoat'],
+          if (required)
+            'extensionsRequired': <Object?>['KHR_materials_clearcoat'],
+          'scene': 0,
+          'scenes': <Object?>[
+            <String, Object?>{
+              'nodes': <Object?>[0],
+            },
+          ],
+          'nodes': <Object?>[
+            <String, Object?>{'name': 'CoatedPanel', 'mesh': 0},
+          ],
+          'meshes': <Object?>[
+            <String, Object?>{
+              'primitives': <Object?>[
+                <String, Object?>{
+                  'attributes': <String, Object?>{'POSITION': 0},
+                  'material': 0,
+                },
+              ],
+            },
+          ],
+          'materials': <Object?>[
+            <String, Object?>{
+              'pbrMetallicRoughness': <String, Object?>{
+                'baseColorFactor': <Object?>[0.2, 0.3, 0.4, 1.0],
+              },
+              'extensions': <String, Object?>{
+                'KHR_materials_clearcoat': <String, Object?>{
+                  'clearcoatFactor': 1.2,
+                },
+              },
+            },
+          ],
+        });
+
+    final optionalAdapter = FakeFlutterSceneAdapter();
+    final optional = await ModelLoader(adapter: optionalAdapter).load(
+      ModelSource.bytes(
+        fixture(required: false),
+        debugName: 'optional-clearcoat.glb',
+      ),
+    );
+    expect(optional.isSuccess, isTrue);
+    expect(optionalAdapter.loadedBytes, hasLength(1));
+    expect(optional.authoredExtensionMaterialPatches, isEmpty);
+    expect(optional.diagnostics.single.details['required'], isFalse);
+    expect(optional.diagnostics.single.details['blocking'], isFalse);
+    expect(optional.diagnostics.single.details['fallback'], 'coreMaterial');
+
+    final requiredAdapter = FakeFlutterSceneAdapter();
+    final required = await ModelLoader(adapter: requiredAdapter).load(
+      ModelSource.bytes(
+        fixture(required: true),
+        debugName: 'required-clearcoat.glb',
+      ),
+    );
+    expect(required.isSuccess, isFalse);
+    expect(requiredAdapter.loadedBytes, isEmpty);
+    expect(required.diagnostic!.code,
+        ViewerDiagnosticCode.invalidMaterialOverride);
+    expect(required.diagnostic!.details['required'], isTrue);
+    expect(required.diagnostic!.details['blocking'], isTrue);
+    expect(required.diagnostic!.details['fallback'], 'none');
+  });
+
   test('missing effective UV diagnoses once without blocking adapter import',
       () async {
     final adapter = FakeFlutterSceneAdapter();

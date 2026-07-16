@@ -14,7 +14,7 @@ Support core glTF metallic-roughness PBR:
 - alpha mode and double-sided where `flutter_scene` exposes them.
 
 The [generated capability matrix](generated/capability_matrix.md) is the
-current Plan 014 claim source for selected glTF extensions. Plan 014 iOS Simulator evidence is `verified locally` for `KHR_texture_transform`, `KHR_materials_specular`, opaque `KHR_materials_ior`, and the A1B32 Draco load; physical iOS, Android, and Web remain `not run`. The extended material path remains `candidate-only`, and host parsing, intent preservation, codec output, rewrite validation, or Three.js captures alone do not establish target rendering.
+completed Plan 014 claim snapshot for selected glTF extensions. Plan 014 iOS Simulator evidence is `verified locally` for `KHR_texture_transform`, `KHR_materials_specular`, opaque `KHR_materials_ior`, and the A1B32 Draco load; physical iOS, Android, and Web remain `not run`. The extended material path remains `candidate-only`, and host parsing, intent preservation, codec output, rewrite validation, or Three.js captures alone do not establish target rendering. Plans 015-017 own the deferred renderer-native and release-evidence work.
 
 Supported lit materials automatically route through one internal
 `FSViewerExtendedPbr` material when they contain a nonidentity UV0 transform on
@@ -39,8 +39,8 @@ real transmission, IOR, and volume support. The repository-owned
 `flutterSceneCustomShader` backend is a `candidate-only` implementation with
 historical iOS Simulator evidence `verified locally`. Shader preflight proves
 package shader availability and routing, not Khronos correctness or
-physical-device release readiness, and the historical run is not current Plan
-014 target evidence. The current implementation is bounded
+physical-device release readiness, and the historical run is not part of the
+completed Plan 014 target evidence. The current implementation is bounded
 screen-space refraction with IOR-derived Fresnel energy splitting,
 Beer-Lambert-style attenuation color/distance, thickness, and roughness
 trends; it is not nested glass, order-independent transparency, or full
@@ -61,9 +61,16 @@ evidence, follow-up ToyCar evidence, and candidate acceptance metrics for the
 place, adds the coating response on top, and attenuates the visible base layer
 with a clearcoat Fresnel energy-loss term so the result behaves more like a
 thin coat over the base material rather than an unrelated highlight pass.
-Upstream renderer-native `flutter_scene` clearcoat remains a future integration
-path. Physical iOS, Android material rendering, and Web material rendering
-remain `not run`.
+Plan 015 now has a complete renderer-native implementation in published,
+Git-pinned `flutter_scene` revision
+`ccf7372428961ebe0abb053727fe443150547a74`. It maps the Khronos factors,
+red/green texture channels, independent coat normal/scale, and UV metadata into
+an energy-aware second dielectric lobe inside the standard renderer lighting
+path. The viewer adapter and combined transformed-core shader path are verified
+locally on the iOS Simulator. The stable viewer dependency resolves the same
+immutable published commit without a path override. Release maturity remains
+`release pending`, production readiness is `false`, and physical iOS, Android,
+and Web remain `not run`.
 
 PBR and lit/unlit are separate concepts. PBR describes the material parameter
 model and available inputs such as base color, metallic, roughness, normal,
@@ -108,7 +115,7 @@ The backend must still report diagnostics rather than fall back to alpha blend
 or roughness changes when it cannot render the requested feature.
 
 Historical realistic-glass evidence is verified locally for iOS Simulator
-only; it is not a current Plan 014 target run. The repository
+only; it is not part of the completed Plan 014 target run. The repository
 contains a production-policy-gated transmission backend that uses a background
 `RenderTexture` and `RenderView.layerMask` separation for bounded screen-space
 refraction. Local GPU-gated verification loads the generated transmission
@@ -196,12 +203,24 @@ diagnosing the missing decoder.
 
 ## Excluded from v1
 
-- sheen;
+- sheen, with post-v1 diagnostic, candidate, and renderer-native work owned by
+  [Plan 018](exec-plans/deferred/018_khr_materials_sheen.md);
 - subsurface scattering;
 - parallax mapping;
 - displacement mapping;
 - world-aligned textures;
 - custom network shader code.
+
+Plan 018 does not make sheen part of the v1 release gate. Until its diagnostic
+slice lands, authored optional `KHR_materials_sheen` may fall back to the core
+material without a feature-specific diagnostic; that gap must not be described
+as rendered sheen support.
+
+The remaining modern-glTF gaps are assigned to deferred Plans 019-027 in the
+[roadmap](ROADMAP.md). Those plans cover punctual lights, variants, emissive
+strength, anisotropy, iridescence, diffuse transmission, dispersion, subsurface
+research, and archived specular-glossiness compatibility. Their existence does
+not change v1 scope or capability claims.
 
 ## Subsurface scattering note
 

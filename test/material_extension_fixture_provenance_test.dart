@@ -304,7 +304,10 @@ void main() {
       <String>[_toolPath, '--verify-metadata'],
     );
     expect(verify.exitCode, 0, reason: '${verify.stdout}\n${verify.stderr}');
-    expect(verify.stdout, contains('6 fixture records: OK'));
+    expect(
+      verify.stdout,
+      contains('6 fixture records and 3 Plan 015 clearcoat records: OK'),
+    );
 
     final temporaryDirectory =
         await Directory.systemTemp.createTemp('fsv_a1b32_provenance_');
@@ -317,6 +320,69 @@ void main() {
     );
     expect(rejected.exitCode, isNot(0));
     expect(rejected.stderr, contains('byteLength mismatch'));
+  });
+
+  test('Plan 015 clearcoat corpus is pinned and release-honest', () {
+    final manifest = Map<String, Object?>.from(
+      jsonDecode(File(_manifestPath).readAsStringSync()) as Map,
+    );
+    final corpus = Map<String, Object?>.from(
+      manifest['plan015ClearcoatCorpus']! as Map,
+    );
+
+    expect(corpus['schemaVersion'], 1);
+    expect(corpus['sourceRepository'], _repository);
+    expect(corpus['renderer'], <String, Object?>{
+      'package': 'flutter_scene',
+      'revision': 'ccf7372428961ebe0abb053727fe443150547a74',
+      'reachability':
+          'published at https://github.com/MarlonJD/flutter_scene/tree/plan015-clearcoat and pinned by immutable commit',
+    });
+    expect(
+      corpus['runtimeCapability'],
+      'verified locally on iOS Simulator; the viewer dependency resolves the '
+      'published immutable renderer commit',
+    );
+    expect(corpus['releaseMaturity'], 'release pending');
+    expect(corpus['productionReady'], isFalse);
+
+    final fixtures =
+        (corpus['fixtures']! as List<Object?>).cast<Map<String, Object?>>();
+    expect(
+      fixtures.map((fixture) => fixture['id']),
+      orderedEquals(<String>[
+        'clearcoat_test',
+        'clearcoat_car_paint',
+        'toycar',
+      ]),
+    );
+    expect(
+      fixtures.map((fixture) => fixture['sourceSha256']),
+      orderedEquals(<String>[
+        'c3a1cbe318cd043b937130af4eb83ec2ea0b03613387b1b7d769dfab4ac15948',
+        '4d4b32f2ef6d341191f6b6d6834f2b192762c878cd25d44e6b4b14514cd4be93',
+        '01a60862de55cd4b9f3acfab0b0def86451800f9c42467fcd61052c16cb9838c',
+      ]),
+    );
+    final targets = (corpus['targetEvidence']! as List<Object?>)
+        .cast<Map<String, Object?>>()
+        .toList(growable: false);
+    expect(targets.first, <String, Object?>{
+      'target': 'iOS Simulator',
+      'status': 'verified locally',
+      'backend': 'rendererNative',
+      'renderer': 'Impeller Metal',
+      'device': 'iPhone 17 Simulator',
+      'os': 'iOS 26.5',
+      'captureRoot': 'tools/out/material_extension_acceptance/'
+          'plan015_renderer_native_clearcoat/ios_simulator',
+      'evidenceRecord':
+          'docs/references/material_extension_platform_evidence.md',
+    });
+    expect(
+      targets.skip(1).map((target) => target['status']),
+      everyElement('not run'),
+    );
   });
 
   test('A1B32 four-view reference evidence stays reference-only', () {

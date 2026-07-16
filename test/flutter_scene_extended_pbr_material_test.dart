@@ -98,6 +98,9 @@ void main() {
       ..roughnessFactor = 0.55
       ..normalScale = 0.65
       ..occlusionStrength = 0.75
+      ..clearcoatFactor = 0.6
+      ..clearcoatRoughnessFactor = 0.35
+      ..clearcoatNormalScale = 0.8
       ..emissiveFactor = vm.Vector4(0.8, 0.7, 0.6, 1)
       ..alphaMode = flutter_scene.AlphaMode.mask
       ..alphaCutoff = 0.25
@@ -115,6 +118,9 @@ void main() {
     expect(target.roughnessFactor, 0.55);
     expect(target.normalScale, 0.65);
     expect(target.occlusionStrength, 0.75);
+    expect(target.clearcoatFactor, source.clearcoatFactor);
+    expect(target.clearcoatRoughnessFactor, source.clearcoatRoughnessFactor);
+    expect(target.clearcoatNormalScale, source.clearcoatNormalScale);
     expect(target.emissiveFactor, source.emissiveFactor);
     expect(target.emissiveFactor, isNot(same(source.emissiveFactor)));
     expect(target.alphaMode, flutter_scene.AlphaMode.mask);
@@ -221,6 +227,9 @@ void main() {
     expect(source, contains('vec3 dielectric_f90'));
     expect(source, contains('mix(dielectric_f0, albedo, metallic)'));
     expect(source, contains('mix(dielectric_f90, vec3(1.0), metallic)'));
+    expect(source, contains('SamplePrimaryRadiance'));
+    expect(source, contains('SampleSecondaryRadiance'));
+    expect(source, isNot(contains('SampleRadianceEnv(')));
 
     final bundle = File(
       'build/shaderbundles/fsviewer_extended_pbr.shaderbundle',
@@ -306,6 +315,30 @@ void main() {
     }
   });
 
+  test('clearcoat transform variant delegates layered lighting upstream', () {
+    final source = File(
+      'shaders/fsviewer_clearcoat_extended_pbr.frag',
+    ).readAsStringSync();
+
+    expect(source, contains('uniform sampler2D clearcoat_texture;'));
+    expect(source, contains('uniform sampler2D clearcoat_roughness_texture;'));
+    expect(source, contains('uniform sampler2D clearcoat_normal_texture;'));
+    expect(source, contains('texture(clearcoat_texture, v_texture_coords).r'));
+    expect(
+      source,
+      contains('texture(clearcoat_roughness_texture, v_texture_coords).g'),
+    );
+    expect(source, contains('frag_color = EvaluateLighting(material);'));
+    expect(
+      source,
+      isNot(contains('uniform sampler2D specular_factor_texture;')),
+    );
+    expect(
+      source,
+      isNot(contains('uniform sampler2D specular_color_texture;')),
+    );
+  });
+
   test('build hook packages only the combined extended PBR route', () {
     final hook = File('hook/build.dart').readAsStringSync();
 
@@ -323,7 +356,7 @@ void main() {
 
     expect(
       source,
-      contains('cd6760912fa38beb55f63e388655a1aeabd32fe4'),
+      contains('ccf7372428961ebe0abb053727fe443150547a74'),
     );
     expect(source, contains('THIRD_PARTY_NOTICES.md'));
     expect(notices, contains('flutter_scene'));

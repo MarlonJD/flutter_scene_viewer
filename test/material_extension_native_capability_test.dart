@@ -18,9 +18,7 @@ void main() {
     expect(capability.diagnostics.single.details['backendKind'], 'none');
   });
 
-  test(
-      'reports renderer native support only when every production field exists',
-      () {
+  test('reports each renderer-native production field independently', () {
     final capability = detectNativeMaterialExtensionCapability(
       rendererProbe: const FakeRendererMaterialExtensionProbe(
         hasTransmission: true,
@@ -53,11 +51,51 @@ void main() {
     expect(capability.diagnostics, isEmpty);
   });
 
-  test('default native probe reports current renderer unsupported', () {
+  test('reports partial renderer-native clearcoat support independently', () {
+    final capability = detectNativeMaterialExtensionCapability(
+      rendererProbe: const FakeRendererMaterialExtensionProbe(
+        hasTransmission: false,
+        hasIor: false,
+        hasVolume: false,
+        hasClearcoat: true,
+      ),
+    );
+
+    expect(
+      capability.support.backendKind,
+      MaterialExtensionBackendKind.rendererNative,
+    );
+    expect(
+      capability.support
+          .supportFor(MaterialExtensionFeature.clearcoat)
+          .available,
+      isTrue,
+    );
+    for (final feature in <MaterialExtensionFeature>[
+      MaterialExtensionFeature.transmission,
+      MaterialExtensionFeature.ior,
+      MaterialExtensionFeature.volume,
+    ]) {
+      expect(capability.support.supportFor(feature).available, isFalse);
+    }
+    expect(capability.diagnostics, isEmpty);
+  });
+
+  test('default native probe reports current renderer clearcoat support', () {
     final capability = detectNativeMaterialExtensionCapability();
 
-    expect(capability.support, MaterialExtensionSupport.unsupported);
-    expect(capability.diagnostics.single.details['backendKind'], 'none');
+    expect(
+      capability.support.backendKind,
+      MaterialExtensionBackendKind.rendererNative,
+    );
+    expect(
+      capability.support
+          .supportFor(MaterialExtensionFeature.clearcoat)
+          .available,
+      isTrue,
+    );
+    expect(capability.support.productionReady, isFalse);
+    expect(capability.support.claimedReleaseTargets, isEmpty);
   });
 }
 

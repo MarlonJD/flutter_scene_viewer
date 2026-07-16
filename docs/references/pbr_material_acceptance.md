@@ -13,13 +13,20 @@ The fixed wrapper-owned capture configuration is
 It is evidence configuration, not viewer API, and it does not add renderer
 controls.
 
+Plan 015 cross-renderer evidence uses the stricter
+[`plan015_controlled_comparison_state.json`](../../tools/material_extension_acceptance/fixtures/plan015_controlled_comparison_state.json).
+It freezes canonical per-model camera frames, exact generated HDR bytes,
+separate direct/IBL/combined passes, PBR Neutral, sRGB output, and the complete
+renderer coordinate mapping. It supplements rather than silently changes the
+general `reference_state.json` contract.
+
 ## Authority and ownership
 
 | Question | Owner and evidence |
 | --- | --- |
 | glTF fields, defaults, channels, color spaces, and extension semantics | Khronos [glTF 2.0 Materials](https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#materials) and the applicable ratified Khronos extension |
 | Viewer configuration, validation, persistence, diagnostics, and evidence labels | `flutter_scene_viewer` public types, adapter, tests, and acceptance fixtures |
-| Current BRDF, IBL, exposure, tone mapping, and GPU implementation | `flutter_scene` 0.18.1 pinned at `cd6760912fa38beb55f63e388655a1aeabd32fe4` in `pubspec.lock`, plus target evidence |
+| Current BRDF, IBL, exposure, tone mapping, and GPU implementation | `flutter_scene` 0.18.1 pinned at `ccf7372428961ebe0abb053727fe443150547a74`, plus target evidence |
 | Real-time shading audit direction | Filament material-system documentation and Karis, *Real Shading in Unreal Engine 4* (2013) |
 | Atmosphere and participating-media direction | Frostbite sky/cloud references only; never glTF material definitions |
 
@@ -30,14 +37,20 @@ Neutral tone mapping, GGX/Smith/Schlick direct lighting, and roughness-aware
 split-sum IBL. These are renderer facts, not proof that Filament or Unreal
 Engine is the backend:
 
-- [`flutter_scene` platform identity](https://github.com/bdero/flutter_scene/blob/cd6760912fa38beb55f63e388655a1aeabd32fe4/packages/flutter_scene/README.md#L39-L79)
-- [`Scene` environment, exposure, and tone-mapping defaults](https://github.com/bdero/flutter_scene/blob/cd6760912fa38beb55f63e388655a1aeabd32fe4/packages/flutter_scene/lib/src/scene.dart#L385-L475)
-- [procedural `EnvironmentMap.studio()`](https://github.com/bdero/flutter_scene/blob/cd6760912fa38beb55f63e388655a1aeabd32fe4/packages/flutter_scene/lib/src/material/environment.dart#L377-L405)
-- [direct and split-sum lighting](https://github.com/bdero/flutter_scene/blob/cd6760912fa38beb55f63e388655a1aeabd32fe4/packages/flutter_scene/shaders/material_lighting.glsl#L248-L378)
-- [GGX, correlated Smith visibility, and Schlick Fresnel helpers](https://github.com/bdero/flutter_scene/blob/cd6760912fa38beb55f63e388655a1aeabd32fe4/packages/flutter_scene/shaders/pbr.glsl#L23-L57)
+- [`flutter_scene` platform identity](https://github.com/MarlonJD/flutter_scene/blob/ccf7372428961ebe0abb053727fe443150547a74/packages/flutter_scene/README.md)
+- [`Scene` environment, exposure, and tone-mapping defaults](https://github.com/MarlonJD/flutter_scene/blob/ccf7372428961ebe0abb053727fe443150547a74/packages/flutter_scene/lib/src/scene.dart)
+- [procedural `EnvironmentMap.studio()`](https://github.com/MarlonJD/flutter_scene/blob/ccf7372428961ebe0abb053727fe443150547a74/packages/flutter_scene/lib/src/material/environment.dart)
+- [direct, split-sum, and clearcoat lighting](https://github.com/MarlonJD/flutter_scene/blob/ccf7372428961ebe0abb053727fe443150547a74/packages/flutter_scene/shaders/material_lighting.glsl)
+- [GGX, correlated Smith visibility, and Schlick Fresnel helpers](https://github.com/MarlonJD/flutter_scene/blob/ccf7372428961ebe0abb053727fe443150547a74/packages/flutter_scene/shaders/pbr.glsl)
 
 Re-check these pinned paths whenever the dependency revision changes. A
 reference paper or a matching equation never proves behavior on a target.
+
+Plan 015 evidence uses published `flutter_scene` revision
+`ccf7372428961ebe0abb053727fe443150547a74`, which is also the viewer's
+immutable Git dependency. That revision is the renderer authority for the
+recorded clearcoat captures; Simulator evidence still does not establish
+physical-device or cross-platform release capability.
 
 ## Fixed capture state
 
@@ -90,6 +103,17 @@ base-layer attenuation. They must not hide a contradictory source image or use
 an unexplained global brightness threshold as a physical-correctness gate.
 Cross-renderer differences in environment processing, precision, exposure,
 tone mapping, and approximations are expected.
+
+For the Plan 015 controlled state, a displaced analytic-light point is a
+camera/light/coordinate failure because roughness filtering is not involved in
+its direction. A small displacement or shape change in an IBL softbox is not
+equivalent evidence: stock Three.js mixes rough reflection directions toward
+the normal and prefilters with PMREM, while flutter_scene uses its independent
+reflection-direction and GGX radiance prefilter path. Use the `directOnly`
+pass to validate camera and light alignment, a zero-roughness mirror probe to
+validate raw environment direction, and the authored `iblOnly`/`combined`
+passes to evaluate directional clearcoat behavior. Do not relabel those stock
+renderer differences as pixel parity.
 
 GPU and visual rows without an executed target capture remain `not run`.
 Package-local extension shaders remain `candidate-only` unless a later release

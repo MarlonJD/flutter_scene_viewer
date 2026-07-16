@@ -491,6 +491,149 @@ void main() {
       expect(sourceMaterial.roughnessFactor, 0.7);
     });
 
+    test('native clearcoat delta keeps the active transformed PBR state',
+        () async {
+      final textureFactory = _RecordingTextureFactory();
+      final extendedBackend = _RecordingExtendedPbrBackend();
+      final sourceMaterial = flutter_scene.PhysicallyBasedMaterial();
+      final root = flutter_scene.Node(
+        name: 'Body',
+        mesh: flutter_scene.Mesh(_UvStubGeometry(), sourceMaterial),
+      );
+      final runtimeAdapter = FlutterSceneRuntimeAdapter(
+        materialExtensionPolicy:
+            const ViewerMaterialExtensionPolicy.productionShaders(),
+        textureFactory: textureFactory,
+        extendedPbrBackend: extendedBackend,
+      );
+      final address = PartAddress(
+        nodePath: const <String>['Body'],
+        primitiveIndex: 0,
+      );
+      final transformedBaseColor = MaterialTextureBinding(
+        source: TextureSource.bytes(_onePixelPng, debugName: 'repeat-2.5'),
+        transform: TextureTransform(scale: const <double>[2.5, 2.5]),
+      );
+      final support = MaterialExtensionSupport(
+        backendKind: MaterialExtensionBackendKind.rendererNative,
+        features: <MaterialExtensionFeature, MaterialExtensionFeatureSupport>{
+          MaterialExtensionFeature.clearcoat:
+              MaterialExtensionFeatureSupport(available: true),
+        },
+      );
+
+      final initialDiagnostics = await debugApplyMaterialPatchToRoot(
+        root,
+        address,
+        MaterialPatch(baseColorTextureBinding: transformedBaseColor),
+        materialExtensionSupport: support,
+        runtimeAdapter: runtimeAdapter,
+      );
+      final clearcoatDiagnostics = await debugApplyMaterialPatchToRoot(
+        root,
+        address,
+        const MaterialPatch(clearcoat: 0.8, clearcoatRoughness: 0.2),
+        materialExtensionSupport: support,
+        runtimeAdapter: runtimeAdapter,
+      );
+
+      expect(initialDiagnostics, isEmpty);
+      expect(clearcoatDiagnostics, isEmpty);
+      expect(extendedBackend.configs, hasLength(2));
+      expect(
+        extendedBackend.configs.last.transforms[MaterialTextureSlot.baseColor],
+        transformedBaseColor.transform,
+      );
+      expect(extendedBackend.configs.last.source.clearcoatFactor, 0.8);
+      expect(
+        extendedBackend.configs.last.source.clearcoatRoughnessFactor,
+        0.2,
+      );
+      final material = root.mesh!.primitives.single.material;
+      expect(material, isA<FlutterSceneExtendedPbrState>());
+      expect(
+        (material as FlutterSceneExtendedPbrState)
+            .transforms[MaterialTextureSlot.baseColor],
+        transformedBaseColor.transform,
+      );
+      expect(
+        (material as flutter_scene.PhysicallyBasedMaterial).clearcoatFactor,
+        0.8,
+      );
+      expect(sourceMaterial.clearcoatFactor, 0.0);
+    });
+
+    test('failed native clearcoat composition keeps transformed state atomic',
+        () async {
+      final textureFactory = _RecordingTextureFactory();
+      final extendedBackend = _FailingSecondExtendedPbrBackend();
+      final sourceMaterial = flutter_scene.PhysicallyBasedMaterial();
+      final root = flutter_scene.Node(
+        name: 'Body',
+        mesh: flutter_scene.Mesh(_UvStubGeometry(), sourceMaterial),
+      );
+      final runtimeAdapter = FlutterSceneRuntimeAdapter(
+        materialExtensionPolicy:
+            const ViewerMaterialExtensionPolicy.productionShaders(),
+        textureFactory: textureFactory,
+        extendedPbrBackend: extendedBackend,
+      );
+      final address = PartAddress(
+        nodePath: const <String>['Body'],
+        primitiveIndex: 0,
+      );
+      final transformedBaseColor = MaterialTextureBinding(
+        source: TextureSource.bytes(_onePixelPng, debugName: 'repeat-2.5'),
+        transform: TextureTransform(scale: const <double>[2.5, 2.5]),
+      );
+      final support = MaterialExtensionSupport(
+        backendKind: MaterialExtensionBackendKind.rendererNative,
+        features: <MaterialExtensionFeature, MaterialExtensionFeatureSupport>{
+          MaterialExtensionFeature.clearcoat:
+              MaterialExtensionFeatureSupport(available: true),
+        },
+      );
+
+      final initialDiagnostics = await debugApplyMaterialPatchToRoot(
+        root,
+        address,
+        MaterialPatch(baseColorTextureBinding: transformedBaseColor),
+        materialExtensionSupport: support,
+        runtimeAdapter: runtimeAdapter,
+      );
+      final transformedMaterial = root.mesh!.primitives.single.material;
+      final clearcoatDiagnostics = await debugApplyMaterialPatchToRoot(
+        root,
+        address,
+        const MaterialPatch(clearcoat: 0.8),
+        materialExtensionSupport: support,
+        runtimeAdapter: runtimeAdapter,
+      );
+
+      expect(initialDiagnostics, isEmpty);
+      expect(clearcoatDiagnostics, hasLength(1));
+      expect(
+        clearcoatDiagnostics.single.details['limitation'],
+        'extendedPbrMaterialConstructionFailed',
+      );
+      expect(
+        clearcoatDiagnostics.single.details['materialReplaced'],
+        isFalse,
+      );
+      expect(root.mesh!.primitives.single.material, same(transformedMaterial));
+      expect(
+        (transformedMaterial as FlutterSceneExtendedPbrState)
+            .transforms[MaterialTextureSlot.baseColor],
+        transformedBaseColor.transform,
+      );
+      expect(
+        (transformedMaterial as flutter_scene.PhysicallyBasedMaterial)
+            .clearcoatFactor,
+        0.0,
+      );
+      expect(sourceMaterial.clearcoatFactor, 0.0);
+    });
+
     test('identity core texture stays on the native material', () async {
       final textureFactory = _RecordingTextureFactory();
       final extendedBackend = _RecordingExtendedPbrBackend();
@@ -648,7 +791,7 @@ void main() {
     }
   });
 
-  test('native preflight rejects advertised extension texture bindings', () {
+  test('native preflight accepts clearcoat textures only', () {
     const policy = ViewerMaterialExtensionPolicy.productionShaders();
     final support = _materialExtensionSupport(
       MaterialExtensionBackendKind.rendererNative,
@@ -665,6 +808,18 @@ void main() {
           source: const TextureSource.asset('assets/thickness.png'),
         ),
       ),
+    ]) {
+      expect(
+        debugUsesNativeMaterialExtensionApplierFor(
+          policy,
+          patch,
+          support: support,
+        ),
+        isFalse,
+      );
+    }
+
+    for (final patch in <MaterialPatch>[
       MaterialPatch(
         clearcoatTextureBinding: MaterialTextureBinding(
           source: const TextureSource.asset('assets/clearcoat.png'),
@@ -687,7 +842,7 @@ void main() {
           patch,
           support: support,
         ),
-        isFalse,
+        isTrue,
       );
     }
   });
@@ -2836,6 +2991,151 @@ void main() {
     expect(pbr.baseColorFactor.b, 0);
     expect(pbr.alphaMode, flutter_scene.AlphaMode.opaque);
   });
+
+  test('native clearcoat applies textures with combined core PBR state',
+      () async {
+    final textureFactory = _RecordingTextureFactory();
+    final sourceMaterial = flutter_scene.PhysicallyBasedMaterial();
+    final root = flutter_scene.Node(
+      name: 'Paint',
+      mesh: flutter_scene.Mesh(_UvStubGeometry(), sourceMaterial),
+    );
+    final support = MaterialExtensionSupport(
+      backendKind: MaterialExtensionBackendKind.rendererNative,
+      features: <MaterialExtensionFeature, MaterialExtensionFeatureSupport>{
+        MaterialExtensionFeature.clearcoat:
+            MaterialExtensionFeatureSupport(available: true),
+      },
+    );
+
+    final diagnostics = await debugApplyMaterialPatchToRoot(
+      root,
+      PartAddress(nodePath: const <String>['Paint'], primitiveIndex: 0),
+      MaterialPatch(
+        baseColorFactor: const <double>[0.2, 0.3, 0.4, 1.0],
+        clearcoat: 1.0,
+        clearcoatRoughness: 0.18,
+        clearcoatNormalScale: 0.7,
+        clearcoatTextureBinding: MaterialTextureBinding(
+          source: const TextureSource.asset('assets/clearcoat.png'),
+        ),
+        clearcoatRoughnessTextureBinding: MaterialTextureBinding(
+          source: const TextureSource.asset('assets/clearcoat-roughness.png'),
+        ),
+        clearcoatNormalTextureBinding: MaterialTextureBinding(
+          source: const TextureSource.asset('assets/clearcoat-normal.png'),
+        ),
+      ),
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.productionShaders(),
+      materialExtensionSupport: support,
+      textureFactory: textureFactory,
+    );
+
+    expect(diagnostics, isEmpty);
+    final material = root.mesh!.primitives.single.material
+        as flutter_scene.PhysicallyBasedMaterial;
+    expect(material.baseColorFactor.r, closeTo(0.2, 1e-6));
+    expect(material.baseColorFactor.g, closeTo(0.3, 1e-6));
+    expect(material.baseColorFactor.b, closeTo(0.4, 1e-6));
+    expect(material.clearcoatFactor, 1.0);
+    expect(material.clearcoatRoughnessFactor, 0.18);
+    expect(material.clearcoatNormalScale, 0.7);
+    expect(material.clearcoatTexture, same(textureFactory.createdSources[0]));
+    expect(
+      material.clearcoatRoughnessTexture,
+      same(textureFactory.createdSources[1]),
+    );
+    expect(
+      material.clearcoatNormalTexture,
+      same(textureFactory.createdSources[2]),
+    );
+  });
+
+  test('native clearcoat invalid patch fails before any material mutation',
+      () async {
+    final sourceMaterial = flutter_scene.PhysicallyBasedMaterial();
+    final root = flutter_scene.Node(
+      name: 'Paint',
+      mesh: flutter_scene.Mesh(_UvStubGeometry(), sourceMaterial),
+    );
+    final support = MaterialExtensionSupport(
+      backendKind: MaterialExtensionBackendKind.rendererNative,
+      features: <MaterialExtensionFeature, MaterialExtensionFeatureSupport>{
+        MaterialExtensionFeature.clearcoat:
+            MaterialExtensionFeatureSupport(available: true),
+      },
+    );
+
+    final diagnostics = await debugApplyMaterialPatchToRoot(
+      root,
+      PartAddress(nodePath: const <String>['Paint'], primitiveIndex: 0),
+      MaterialPatch(
+        baseColorFactor: const <double>[1.0, 0.0, 0.0, 1.0],
+        clearcoat: 1.2,
+      ),
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.productionShaders(),
+      materialExtensionSupport: support,
+    );
+
+    expect(diagnostics, hasLength(1));
+    expect(
+      diagnostics.single.code,
+      ViewerDiagnosticCode.invalidMaterialOverride,
+    );
+    expect(root.mesh!.primitives.single.material, same(sourceMaterial));
+    expect(sourceMaterial.baseColorFactor.r, 1.0);
+    expect(sourceMaterial.baseColorFactor.g, 1.0);
+    expect(sourceMaterial.clearcoatFactor, 0.0);
+  });
+
+  test('native clearcoat reset restores the original material identity',
+      () async {
+    final sourceMaterial = flutter_scene.PhysicallyBasedMaterial();
+    final root = flutter_scene.Node(
+      name: 'Paint',
+      mesh: flutter_scene.Mesh(_UvStubGeometry(), sourceMaterial),
+    );
+    final address = PartAddress(
+      nodePath: const <String>['Paint'],
+      primitiveIndex: 0,
+    );
+    final runtimeAdapter = FlutterSceneRuntimeAdapter(
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.productionShaders(),
+    );
+    final support = MaterialExtensionSupport(
+      backendKind: MaterialExtensionBackendKind.rendererNative,
+      features: <MaterialExtensionFeature, MaterialExtensionFeatureSupport>{
+        MaterialExtensionFeature.clearcoat:
+            MaterialExtensionFeatureSupport(available: true),
+      },
+    );
+
+    final diagnostics = await debugApplyMaterialPatchToRoot(
+      root,
+      address,
+      const MaterialPatch(clearcoat: 1.0, clearcoatRoughness: 0.1),
+      materialExtensionSupport: support,
+      runtimeAdapter: runtimeAdapter,
+    );
+    expect(diagnostics, isEmpty);
+    final patchedMaterial = root.mesh!.primitives.single.material;
+    expect(patchedMaterial, isNot(same(sourceMaterial)));
+    expect(
+      (patchedMaterial as flutter_scene.PhysicallyBasedMaterial)
+          .clearcoatFactor,
+      1.0,
+    );
+    expect(sourceMaterial.clearcoatFactor, 0.0);
+
+    final resetDiagnostics = await runtimeAdapter.resetMaterial(address);
+
+    expect(resetDiagnostics, isEmpty);
+    expect(root.mesh!.primitives.single.material, same(sourceMaterial));
+    expect(sourceMaterial.clearcoatFactor, 0.0);
+  });
 }
 
 final Uint8List _onePixelPng = Uint8List.fromList(
@@ -2973,6 +3273,12 @@ final class _TestExtendedPbrMaterial extends flutter_scene
     emissiveFactor = config.source.emissiveFactor.clone();
     occlusionTexture = config.source.occlusionTexture;
     occlusionStrength = config.source.occlusionStrength;
+    clearcoatTexture = config.source.clearcoatTexture;
+    clearcoatFactor = config.source.clearcoatFactor;
+    clearcoatRoughnessTexture = config.source.clearcoatRoughnessTexture;
+    clearcoatRoughnessFactor = config.source.clearcoatRoughnessFactor;
+    clearcoatNormalTexture = config.source.clearcoatNormalTexture;
+    clearcoatNormalScale = config.source.clearcoatNormalScale;
     metallicFactor = config.source.metallicFactor;
     roughnessFactor = config.source.roughnessFactor;
     environment = config.source.environment;
@@ -3011,6 +3317,28 @@ final class _InvalidExtendedPbrBackend
     FlutterSceneExtendedPbrMaterialConfig config,
   ) async =>
       flutter_scene.PhysicallyBasedMaterial();
+}
+
+final class _FailingSecondExtendedPbrBackend
+    implements FlutterSceneExtendedPbrMaterialBackend {
+  int createCount = 0;
+
+  @override
+  bool get isReady => true;
+
+  @override
+  Future<ViewerDiagnostic?> preflight(PartAddress address) async => null;
+
+  @override
+  Future<flutter_scene.PhysicallyBasedMaterial> createMaterial(
+    FlutterSceneExtendedPbrMaterialConfig config,
+  ) async {
+    createCount += 1;
+    if (createCount == 2) {
+      throw StateError('clearcoat variant construction failed');
+    }
+    return _TestExtendedPbrMaterial(config);
+  }
 }
 
 final class _UnavailableExtendedPbrBackend

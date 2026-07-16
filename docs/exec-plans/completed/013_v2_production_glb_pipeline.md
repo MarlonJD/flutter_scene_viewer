@@ -3,8 +3,10 @@
 > **Status (2026-07-10): completed for the original bounded GLB ingestion and
 > compression baseline.** The checked acceptance criteria below do not mean
 > that selected material, texture-transform, sampler, or cross-platform
-> extension support is complete. Follow-up work is owned by
-> [`014_selected_gltf_extension_support.md`](../active/014_selected_gltf_extension_support.md).
+> extension support is complete. The bounded successor is recorded in
+> [`014_selected_gltf_extension_support.md`](014_selected_gltf_extension_support.md);
+> its renderer-native and release remainder is owned by deferred Plans 015,
+> 016, and 017.
 
 ## Goal
 
@@ -974,5 +976,5 @@ diagnostic support around the `flutter_scene` runtime importer.
   `KHR_materials_ior`, `KHR_materials_specular`, `KHR_texture_basisu` / KTX2,
   `EXT_meshopt_compression`, and `KHR_texture_transform`, plus runtime
   texture repeat/offset/rotation controls instead of generated tiled textures.
-  This follow-up is now the canonical active plan at
-  `docs/exec-plans/active/014_selected_gltf_extension_support.md`.
+  That follow-up is recorded as completed at
+  `docs/exec-plans/completed/014_selected_gltf_extension_support.md`.

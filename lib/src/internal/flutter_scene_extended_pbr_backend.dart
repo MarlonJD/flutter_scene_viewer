@@ -9,7 +9,7 @@ import '../texture_binding.dart';
 import 'flutter_scene_extended_pbr_material.dart';
 
 typedef LoadFlutterSceneExtendedPbrShader = Future<flutter_scene_gpu.Shader?>
-    Function(String assetPath);
+    Function(String assetPath, String shaderName);
 
 final class FlutterSceneExtendedPbrMaterialConfig {
   FlutterSceneExtendedPbrMaterialConfig({
@@ -50,6 +50,8 @@ final class FlutterSceneExtendedPbrBackend
   }) : _loadShader = loadShader ?? _loadShaderFromBundle;
 
   static const String shaderName = flutterSceneExtendedPbrShaderName;
+  static const String clearcoatShaderName =
+      flutterSceneClearcoatExtendedPbrShaderName;
   static const List<String> shaderBundleAssets = <String>[
     'flutter_gpu_shaders/shaderbundles/fsviewer_extended_pbr.shaderbundle',
     'packages/flutter_scene_viewer/flutter_gpu_shaders/shaderbundles/fsviewer_extended_pbr.shaderbundle',
@@ -57,51 +59,75 @@ final class FlutterSceneExtendedPbrBackend
     'packages/flutter_scene_viewer/build/shaderbundles/fsviewer_extended_pbr.shaderbundle',
   ];
 
-  static const List<String> _requiredUniformSlots = <String>[
-    'FragInfo',
-    flutterSceneExtendedPbrUniformBlockName,
-    'FogInfo',
-    'RadianceLayoutInfo',
-    'base_color_texture',
-    'emissive_texture',
-    'metallic_roughness_texture',
-    'normal_texture',
-    'occlusion_texture',
-    'specular_factor_texture',
-    'specular_color_texture',
-    'prefiltered_radiance',
-    'prefiltered_radiance_cube',
-    'brdf_lut',
-    'shadow_map',
-    'sh_coefficients',
-    'prefiltered_radiance_b',
-    'prefiltered_radiance_cube_b',
-    'sh_coefficients_b',
-    'ssao_texture',
-  ];
+  static List<String> _requiredUniformSlots(String shaderName) => <String>[
+        'FragInfo',
+        flutterSceneExtendedPbrUniformBlockName,
+        'FogInfo',
+        'RadianceLayoutInfo',
+        'base_color_texture',
+        'emissive_texture',
+        'metallic_roughness_texture',
+        'normal_texture',
+        'occlusion_texture',
+        if (shaderName == clearcoatShaderName) ...<String>[
+          'clearcoat_texture',
+          'clearcoat_roughness_texture',
+          'clearcoat_normal_texture',
+        ] else ...<String>[
+          'specular_factor_texture',
+          'specular_color_texture',
+        ],
+        if (flutter_scene_gpu.usesCubeRadianceShader)
+          'prefiltered_radiance_cube'
+        else
+          'prefiltered_radiance',
+        'brdf_lut',
+        'shadow_map',
+        'sh_coefficients',
+        if (flutter_scene_gpu.usesCubeRadianceShader)
+          'prefiltered_radiance_cube_b'
+        else
+          'prefiltered_radiance_b',
+        'sh_coefficients_b',
+        'ssao_texture',
+      ];
 
   final LoadFlutterSceneExtendedPbrShader _loadShader;
-  flutter_scene_gpu.Shader? _shader;
+  final Map<String, flutter_scene_gpu.Shader> _shaders =
+      <String, flutter_scene_gpu.Shader>{};
 
   @override
-  bool get isReady => _shader != null;
+  bool get isReady =>
+      _shaders.containsKey(shaderName) &&
+      _shaders.containsKey(clearcoatShaderName);
 
   @override
   Future<ViewerDiagnostic?> preflight(PartAddress address) async {
-    if (_shader != null) {
+    if (isReady) {
       return null;
     }
     Object? lastError;
     for (final assetPath in shaderBundleAssets) {
       try {
-        final shader = await _loadShader(assetPath);
-        if (shader == null) {
+        final loaded = <String, flutter_scene_gpu.Shader>{};
+        var missingEntry = false;
+        for (final name in <String>[shaderName, clearcoatShaderName]) {
+          final shader = await _loadShader(assetPath, name);
+          if (shader == null) {
+            missingEntry = true;
+            break;
+          }
+          for (final slot in _requiredUniformSlots(name)) {
+            shader.getUniformSlot(slot);
+          }
+          loaded[name] = shader;
+        }
+        if (missingEntry) {
           continue;
         }
-        for (final slot in _requiredUniformSlots) {
-          shader.getUniformSlot(slot);
-        }
-        _shader = shader;
+        _shaders
+          ..clear()
+          ..addAll(loaded);
         return null;
       } on Object catch (error) {
         lastError = error;
@@ -130,13 +156,23 @@ final class FlutterSceneExtendedPbrBackend
   Future<flutter_scene.PhysicallyBasedMaterial> createMaterial(
     FlutterSceneExtendedPbrMaterialConfig config,
   ) async {
-    final shader = _shader;
+    final usesClearcoatShader = _hasClearcoatState(config.source);
+    if (usesClearcoatShader && _hasExtendedSpecularState(config)) {
+      throw UnsupportedError(
+        'FSViewerClearcoatExtendedPbr cannot combine clearcoat with '
+        'specular textures, non-default specular factors, or non-default IOR '
+        'within the 16-sampler backend floor.',
+      );
+    }
+    final selectedName = usesClearcoatShader ? clearcoatShaderName : shaderName;
+    final shader = _shaders[selectedName];
     if (shader == null) {
       throw StateError('FSViewerExtendedPbr must pass preflight before use.');
     }
     return FlutterSceneExtendedPbrMaterial(
       fragmentShader: shader,
       source: config.source,
+      usesClearcoatShader: usesClearcoatShader,
       transforms: config.transforms,
       specularFactor: config.specularFactor,
       specularColorFactor: config.specularColorFactor,
@@ -148,9 +184,27 @@ final class FlutterSceneExtendedPbrBackend
 
   static Future<flutter_scene_gpu.Shader?> _loadShaderFromBundle(
     String assetPath,
+    String shaderName,
   ) async {
     final library =
         await flutter_scene_gpu_public.loadShaderLibraryAsync(assetPath);
     return library?[shaderName];
   }
 }
+
+bool _hasClearcoatState(flutter_scene.PhysicallyBasedMaterial material) =>
+    material.clearcoatFactor != 0 ||
+    material.clearcoatRoughnessFactor != 0 ||
+    material.clearcoatTexture != null ||
+    material.clearcoatRoughnessTexture != null ||
+    material.clearcoatNormalTexture != null;
+
+bool _hasExtendedSpecularState(FlutterSceneExtendedPbrMaterialConfig config) =>
+    config.specularFactor != 1 ||
+    config.specularColorFactor.length != 3 ||
+    config.specularColorFactor[0] != 1 ||
+    config.specularColorFactor[1] != 1 ||
+    config.specularColorFactor[2] != 1 ||
+    config.ior != 1.5 ||
+    config.specularFactorTexture != null ||
+    config.specularColorTexture != null;

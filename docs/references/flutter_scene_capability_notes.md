@@ -25,6 +25,43 @@ V1 release-blocker capability to verify:
 Adapter implementation must keep direct `flutter_scene` imports isolated so API
 breakage is easy to repair.
 
+## 2026-07-16 Plan 015 renderer-native clearcoat
+
+Published `flutter_scene` commit
+`ccf7372428961ebe0abb053727fe443150547a74` adds the complete selected
+`KHR_materials_clearcoat` contract without editing pub-cache. The material,
+runtime and offline importers, serialized scene path, standard surface, and
+engine lighting consume factor; red-channel factor texture; roughness factor;
+green-channel roughness texture; independent tangent-space coat normal/scale;
+and texture UV metadata. The lighting path attenuates base direct, IBL, and
+emission by coat Fresnel before adding the direct and prefiltered-environment
+coat lobes. It shares the existing shadow, double-sided, fog, tone-map, and
+alpha paths and adds no extra light or heuristic highlight.
+
+The complete standard material exceeded Metal's 16-sampler fragment floor when
+both 2D and cube radiance representations were declared. The follow-up commit
+compiles one radiance sampler type per backend, preserves Web's 2D mip layout,
+and lets custom PBR subclasses explicitly omit clearcoat slots only when their
+fragment omits the coat contract. The viewer therefore packages separate
+extended-core variants: transformed/specular/IOR and transformed/native
+clearcoat. Clearcoat can follow an existing transformed-core patch without
+losing state; construction failure leaves the live material unchanged.
+
+Upstream focused and full tests plus analysis are `verified locally`. The same
+immutable Git revision was run on the iPhone 17 iOS 26.5 Simulator through
+Impeller Metal against Khronos ClearCoatTest, ClearCoatCarPaint, and ToyCar. All clearcoat
+materials rendered without clearcoat diagnostics or binding exceptions;
+ToyCar retained one expected diagnostic for its optional unsupported
+`KHR_materials_transmission` request. The exact corpus and screenshot hashes
+are recorded in `tools/material_extension_acceptance/manifest.json` and
+`material_extension_platform_evidence.md`.
+
+The stable dependency pin resolves the published commit from
+`https://github.com/MarlonJD/flutter_scene`. Runtime capability is `verified
+locally` on the iOS Simulator; release maturity is `release pending`,
+production readiness is `false`, and physical iOS, Android, and Web are `not
+run`.
+
 ## 2026-07-14 Plan 014 extended-PBR amendment
 
 This amendment supersedes the 2026-07-13 UV-transform, specular, and opaque-IOR
@@ -329,7 +366,7 @@ locally; 12 GPU/Impeller tests, post-change Khronos sample captures, iOS
 Simulator recapture, physical iOS, Android material rendering, Web material
 rendering, packaging, and release evidence are `not run`. Renderer-native
 clearcoat is deferred in
-[`015_renderer_native_clearcoat.md`](../exec-plans/deferred/015_renderer_native_clearcoat.md),
+[`015_renderer_native_clearcoat.md`](../exec-plans/completed/015_renderer_native_clearcoat.md),
 and the v1 clearcoat release gate remains blocked.
 
 ## 2026-07-13 pinned transmission and volume audit

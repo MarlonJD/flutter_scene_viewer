@@ -73,7 +73,7 @@ garbage-collectible after stack unwind; deterministic collection is not
 guaranteed. Meshopt still has no external cancellation signal.
 
 Native decoder timeout is enforced only at the Dart MethodChannel result
-boundary in current Plan 014 code. A late Draco or BasisU response is discarded
+boundary in the completed Plan 014 implementation. A late Draco or BasisU response is discarded
 without GLB rewrite, tracker commit, or adapter import. This does not stop the
 synchronous native codec call or guarantee native resource release. The pinned
 Draco and BasisU entrypoints plus their one-shot MethodChannel bridges expose no
@@ -339,7 +339,7 @@ Simulator evidence is separately labeled `verified locally`. Physical iOS,
 Android material rendering, and Web material rendering remain `not run`.
 
 The [generated capability matrix](generated/capability_matrix.md) is the
-current Plan 014 feature/target claim source. Plan 014 iOS Simulator evidence is `verified locally` for `KHR_texture_transform`, `KHR_materials_specular`, opaque `KHR_materials_ior`, and the A1B32 Draco load; physical iOS, Android, and Web remain `not run`. Other historical runs remain context, and host decoder, rewrite, validator, or reference-renderer results remain separate from target runtime and release maturity.
+completed Plan 014 feature/target closure snapshot. Plan 014 iOS Simulator evidence is `verified locally` for `KHR_texture_transform`, `KHR_materials_specular`, opaque `KHR_materials_ior`, and the A1B32 Draco load; physical iOS, Android, and Web remain `not run`. Other historical runs remain context, and host decoder, rewrite, validator, or reference-renderer results remain separate from target runtime and release maturity. Plan 017 owns decoder lifecycle, authored-mip, physical-target, packaging, and release-evidence follow-up.
 
 As of 2026-07-03, the installed `flutter_scene` 0.18.1 target does not expose
 real transmission/glass or clearcoat support. The local audit found no public
@@ -361,6 +361,19 @@ accepted as a glass substitute,
 and low roughness is not accepted as a clearcoat substitute. Upstream
 renderer-native material fields remain useful future PR candidates rather than
 the active production gate.
+
+Plan 015 supersedes that historical clearcoat implementation conclusion with a
+renderer-native path. Published and pinned `flutter_scene` revision
+`ccf7372428961ebe0abb053727fe443150547a74` parses, validates, copies,
+imports, binds, and shades every selected `KHR_materials_clearcoat` field in the
+standard PBR lighting path. The viewer stages native clearcoat and core PBR
+state before one atomic replacement, retains transformed-core state across
+later clearcoat deltas, and uses a bounded combined shader variant where the
+standard 16-sampler floor requires it. Khronos ClearCoatTest,
+ClearCoatCarPaint, and ToyCar are `verified locally` on the iOS Simulator
+with the immutable Git dependency, without a path override. This closes the
+renderer-native clearcoat implementation and pin gate; it does not promote
+release maturity or production readiness for untested targets.
 
 Upstream `flutter_scene` PR candidates:
 

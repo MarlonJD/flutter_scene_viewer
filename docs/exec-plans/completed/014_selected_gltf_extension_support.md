@@ -1,5 +1,21 @@
 # Selected glTF Material, Texture, and Compression Extension Support Implementation Plan
 
+> **Status (2026-07-15): completed for the bounded Plan 014 scope.** The
+> accepted implementation covers the verified `FSViewerExtendedPbr`
+> UV-transform/specular/opaque-IOR path, bounded compression rewrites,
+> diagnostics, and durable iOS Simulator evidence. Physical iOS, Android, Web,
+> release packaging, and aggregate `production-ready` evidence remain `not run`
+> or `release pending`; this closure does not promote those claims.
+>
+> Unchecked Task 8-11 steps are retained as historical disposition, not hidden
+> completion. Renderer-native clearcoat is owned by
+> [Plan 015](015_renderer_native_clearcoat.md), renderer-native
+> transmission/volume by
+> [Plan 016](../deferred/016_renderer_native_transmission_volume.md), and
+> native decoder cancellation/resource control, authored KTX2 mip chains,
+> physical-target, packaging, and release evidence by
+> [Plan 017](../deferred/017_decoder_control_mip_chains_and_release_evidence.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use
 > `superpowers:subagent-driven-development` (recommended) or
 > `superpowers:executing-plans` to implement this plan task-by-task. Use the
@@ -93,9 +109,11 @@ reproducible target evidence.
 
 ---
 
-## Status and lineage
+## Closure status and lineage
 
-This is the only canonical active plan for the selected extension work.
+This file is the completed closure snapshot for the selected extension work.
+No successor is active at closure; future work must be promoted from the
+linked deferred plans before implementation.
 
 - Completed Plan 013 supplies the bounded ingestion/compression baseline:
   [`013_v2_production_glb_pipeline.md`](../completed/013_v2_production_glb_pipeline.md).
@@ -103,7 +121,12 @@ This is the only canonical active plan for the selected extension work.
 - Deferred Plan 012 preserves historical package-local shader work and iOS
   Simulator evidence:
   [`012_material_extension_production_readiness.md`](../deferred/012_material_extension_production_readiness.md).
-  Its unfinished correctness, ownership, and release work is absorbed here.
+  Its bounded implementation and evidence were reconciled here; remaining
+  renderer-native and release work is explicitly owned by Plans 015-017.
+- Deferred Plan 015 owns renderer-native clearcoat, Plan 016 owns
+  renderer-native transmission/volume, and Plan 017 owns decoder lifecycle,
+  authored mip-chain, target, packaging, and release evidence. Their open work
+  is not claimed complete by this snapshot.
 - The former parallel
   `docs/superpowers/plans/2026-07-05-full-gltf-extension-support.md` source was
   promoted into this file and removed to avoid two sources of truth.
@@ -167,33 +190,43 @@ The repo-local reference package is
 
 ## Milestones and execution order
 
-Plan 014 remains the only active plan, but its tasks are reviewed through five
-independent milestones so unrelated renderer and decoder work does not share a
-single acceptance decision:
+Plan 014 was reviewed through five independent milestones so unrelated
+renderer and decoder work did not share a single acceptance decision:
 
 | Milestone | Tasks | Independently testable result |
 | --- | --- | --- |
 | M1: truthful baseline | 1, 2, then 5 | Capability/evidence claims are honest, authored patch families are isolated, asset-specific mutation is removed, and the fixed lighting state exists. |
 | M2: texture binding | 3, 4, then 6 | Public bindings preserve slot, UV, transform, and sampler intent; automatic `FSViewerExtendedPbr` routing applies the official Glorvia albedo 2.5/normal 1.0 contract through a real renderer path or the milestone remains `blocked`. |
 | M3: A1B32 material gate | 7 | The same bounded extended path renders Draco-backed A1B32 specular and opaque IOR without material hacks under the fixed state. |
-| M4: layered and transmissive materials | 8 and 9 | Clearcoat and glass are renderer-native or remain explicitly deferred without a production claim. |
-| M5: decoder and release evidence | 10 and 11 | Decoder budgets/conformance and durable target-specific evidence are complete. |
+| M4: layered and transmissive materials | 8 and 9 | Candidate paths were audited and the renderer-native remainder was explicitly deferred to Plans 015 and 016 without a production claim. |
+| M5: decoder and release evidence | 10 and 11 | Bounded wrapper budgets/conformance, rewritten-GLB validation, and durable Simulator evidence were accepted; codec-internal control, authored mips, physical targets, packaging, and release evidence were explicitly deferred to Plan 017. |
 
 Do not start M2 renderer integration before M1 is complete. Tasks 3 and 4 may
 prepare the wrapper model before renderer work, but Task 6 cannot be accepted
 on parsing, compiler, or persistence evidence alone. Task 7 cannot be accepted
 on semantic CPU tests alone.
 
+Closure disposition:
+
+| Milestone | Plan 014 disposition |
+| --- | --- |
+| M1 | Complete: capability truth, patch-family isolation, fixed lighting state, and removal of asset-specific production mutation are verified locally. |
+| M2 | Complete: slot-aware bindings and automatic `FSViewerExtendedPbr` routing apply the Glorvia 2.5/1.0 UV contract with durable iOS Simulator evidence. |
+| M3 | Complete: A1B32 loads through Draco, preserves hierarchy/picking/material intent, and applies specular plus opaque IOR with durable iOS Simulator evidence. |
+| M4 | Dispositioned: candidate-only clearcoat and transmission paths remain non-production; renderer-native completion is deferred to Plans 015 and 016. |
+| M5 | Dispositioned: bounded host/plugin conformance and validator gates are verified locally; native in-codec control, authored KTX2 mip chains, physical targets, packaging, and release maturity are deferred to Plan 017. |
+
 ## Closure and release gates
 
-Plan completion and `production-ready` are different claims:
+This completed bounded plan and `production-ready` remain different claims:
 
 | Gate | Required to move Plan 014 to `completed` | Required for a `production-ready` feature/target claim |
 | --- | --- | --- |
 | A1B32 | Specular and opaque IOR are applied through `FSViewerExtendedPbr` with iOS Simulator evidence `verified locally`; hierarchy, picking, authored metallic/material intent, and fixed-state response invariants pass. Until real application evidence exists, Plan 014 remains `blocked`. | The exact physical iOS, Android, or Web row being claimed has real runtime evidence, release packaging evidence, and no open correctness blocker. |
 | Glorvia | Base-color applies repeat 2.5 and normal applies repeat 1.0 without generated image bytes through automatic `FSViewerExtendedPbr` routing, with iOS Simulator evidence `verified locally`. If the path is unavailable or silently degrades to identity, Plan 014 remains `blocked`. | Each claimed physical target applies the sampler/transform contract and has durable target evidence. |
 | Clearcoat and transmission/volume | Tasks 8 and 9 either integrate a conformant renderer path or move the remaining candidate work to an explicit deferred plan. Candidate-only completion keeps the v1 release gate blocked and must not be described as feature support. | Every claimed feature/target row passes normative, visual, packaging, and physical-runtime gates. |
-| Meshopt, Draco, and BasisU | Shared budgets, declared conformance cases, rewritten-GLB validation, and honest platform labels pass. | Only targets with real decoder/runtime evidence may be labeled `production-ready`; other rows remain `not run` or `candidate-only`. |
+| Meshopt, Draco, and BasisU | Bounded wrapper budgets, declared conformance cases, addressing, rewritten-GLB validation, and honest platform labels pass. Codec-internal cancellation/working-allocation control and authored KTX2 mip chains may close only by explicit deferral to Plan 017. | Only targets with real decoder/runtime evidence may be labeled `production-ready`; other rows remain `not run`, `candidate-only`, or `release pending`. |
+| Target and release evidence | Durable host and iOS Simulator records exist, while every unexecuted physical iOS, Android, Web, and packaging row is explicitly `not run` or `release pending` and owned by Plan 017. | The exact physical/runtime target and packaged artifact being claimed must pass Plan 017; Simulator or host evidence is insufficient. |
 
 An aggregate package or backend readiness claim is allowed only when every
 feature in the claimed set is `production-ready` for every target in the
@@ -1490,7 +1523,7 @@ Important findings after two RED-first remediations. Focused CPU suites and the
 exact three-file Task 8 command pass, but 12 GPU/Impeller tests are explicit
 skips and no post-change Khronos/target capture exists. Renderer-native work is
 deferred to
-[Plan 015](../deferred/015_renderer_native_clearcoat.md). Step 3, Step 4, Step
+[Plan 015](015_renderer_native_clearcoat.md). Step 3, Step 4, Step
 5, Task 8, M4, the v1 clearcoat release gate, and production-ready target rows
 remain `blocked`/`not run`.
 
@@ -2263,10 +2296,14 @@ evidence remain incomplete.
       volume thickness uses green and attenuation/IOR behavior passes normative
       tests. Otherwise it remains explicitly deferred and keeps the v1 release
       gate blocked.
-- [ ] BasisU/KTX2 layout, color-role, mip, budget, and platform boundaries are
-      explicit.
-- [ ] Meshopt and Draco rewrites pass conformance, budget, addressing, and
-      validator gates.
+- [x] BasisU/KTX2 layout, color-role, mip, budget, and platform boundaries are
+      explicit for the bounded single-level compatibility path. Authored mip
+      preservation, codec-internal control, physical targets, and packaging
+      remain open under Plan 017 and are not claimed by this checkbox.
+- [x] Meshopt and Draco rewrites pass the bounded conformance, wrapper-budget,
+      addressing, and validator gates. Externally observable cancellation,
+      codec working-allocation enforcement, physical targets, and packaging
+      remain open under Plan 017 and are not claimed by this checkbox.
 - [x] A1B32 loads, renders, picks, preserves hierarchy, applies specular and
       opaque IOR, and does not receive material hacks.
 - [x] Glorvia applies base-color repeat 2.5 and normal repeat 1.0 through
@@ -2284,6 +2321,18 @@ evidence remain incomplete.
 - [x] `git diff --check` passes.
 
 ## Progress log
+
+- 2026-07-15: At the user's explicit direction, closed Plan 014 at its verified
+  bounded scope and recorded the remaining work rather than treating missing
+  physical evidence as an implementation failure. M1-M3 are complete with
+  focused/full test and durable iOS Simulator evidence. M4 is dispositioned to
+  deferred Plans 015 and 016; M5's codec-internal cancellation/resource
+  control, authored KTX2 mip chains, physical iOS, Android, Web, packaging,
+  and release evidence are dispositioned to deferred Plan 017. Physical iOS,
+  Android, and Web remain `not run`; packaging and production readiness remain
+  `release pending` or unclaimed. The unchecked Task 8-11 steps remain visible
+  as historical open work. No physical-target or aggregate
+  `production-ready` claim is made by moving this plan to `completed`.
 
 - 2026-07-14: Commit/push handoff authorized by the user for the current Plan
   014 follow-up diff on `main`. The intended scope is the eight tracked files
@@ -3060,7 +3109,7 @@ evidence remain incomplete.
   still cannot independently weight coat energy and base Fresnel attenuation,
   so it remains non-conformant `candidate-only`; post-change GPU/visual and
   target evidence is `not run`. The explicit renderer-native follow-up is
-  [deferred Plan 015](../deferred/015_renderer_native_clearcoat.md). Only Task
+  [Plan 015](015_renderer_native_clearcoat.md). Only Task
   8 Step 2 and the conditional deferred-disposition acceptance item are
   complete; Task 8, M4, the v1 release gate, and Plan completion remain open.
 - 2026-07-13: Independent review approved the complete safe in-repo Task 7
@@ -3373,6 +3422,17 @@ evidence remain incomplete.
   explicit A1B32, Glorvia, deferral, and release closure gates.
 
 ## Verification log
+
+- 2026-07-15: Bounded closure documentation passed the full repository
+  harness. The first sandboxed `bash tools/run_checks.sh` attempt stopped at
+  Flutter SDK cache stamp writes with `Operation not permitted`; the permitted
+  rerun passed repo lint, formatted 88 files with zero changes, completed
+  dependency resolution, reported `No issues found!`, and completed the full
+  suite at `+503 ~16`. The skips remain the existing explicitly labelled
+  plain-process Flutter-GPU/Impeller gates and do not establish physical iOS,
+  Android, Web, packaging, or release evidence. Post-log
+  `python3 tools/repo_lint.py` and `git diff --check` are recorded separately
+  by the final repository audit; no device or release command was run.
 
 - 2026-07-14: The initial-material regression was established RED-first. The
   focused widget test initially failed compilation because

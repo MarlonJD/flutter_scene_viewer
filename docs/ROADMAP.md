@@ -58,8 +58,9 @@ Candidate scope:
   textures, normal maps, and data maps such as metallic-roughness/occlusion are
   downsampled with the correct color, vector, or linear-data rules;
 - imported material-extension coverage needed by real configurator assets,
-  including `KHR_materials_specular` and `KHR_materials_ior` in addition to the
-  V1 glass/clearcoat material-extension path;
+  including `KHR_materials_specular`, `KHR_materials_ior`, and
+  `KHR_materials_sheen` in addition to the V1 glass/clearcoat
+  material-extension path;
 - A1B32-style compressed textile/fashion assets as a V2 acceptance gate:
   Draco-compressed primitives, specular/IOR materials, texture maps, hierarchy,
   picking, and diagnostics must work without manual asset preprocessing;
@@ -82,10 +83,43 @@ decoded image payloads back to the root Dart GLB rewrite path before
 the V2 validation pass.
 
 The bounded ingestion/compression baseline is recorded in completed
-[Plan 013](exec-plans/completed/013_v2_production_glb_pipeline.md). The single
-canonical follow-up for selected glTF material, texture, sampler, and
-compression extension correctness is active
-[Plan 014](exec-plans/active/014_selected_gltf_extension_support.md).
+[Plan 013](exec-plans/completed/013_v2_production_glb_pipeline.md). Selected
+glTF material, texture, sampler, and compression extension correctness is
+recorded in completed
+[Plan 014](exec-plans/completed/014_selected_gltf_extension_support.md).
+Renderer-native clearcoat implementation and pin closure are recorded in completed
+[Plan 015](exec-plans/completed/015_renderer_native_clearcoat.md); native
+transmission/volume remains deferred in
+[Plan 016](exec-plans/deferred/016_renderer_native_transmission_volume.md).
+Decoder cancellation/resource control, authored KTX2 mip chains, physical
+targets, packaging, and release evidence remain deferred in
+[Plan 017](exec-plans/deferred/017_decoder_control_mip_chains_and_release_evidence.md).
+Sheen diagnostics, a bounded package-local candidate, controlled textile/ToyCar
+evidence, and the renderer-native release path remain deferred in
+[Plan 018](exec-plans/deferred/018_khr_materials_sheen.md).
+
+The approved modern-glTF follow-up sequence is split into independent deferred
+plans. Numeric order is the planning order, not permission to activate more
+than one plan at a time:
+
+| Plan | Capability | Khronos status on 2026-07-16 | Activation gate |
+| --- | --- | --- | --- |
+| [018](exec-plans/deferred/018_khr_materials_sheen.md) | `KHR_materials_sheen` | ratified | Plan 015 complete; diagnostic → candidate-only → renderer-native gates. |
+| [019](exec-plans/deferred/019_khr_lights_punctual.md) | `KHR_lights_punctual` | ratified | Plan 015 complete; establish the shared directional/point/spot direct-light loop before later directional lobes. |
+| [020](exec-plans/deferred/020_khr_materials_variants.md) | `KHR_materials_variants` | ratified | Finish the active plan; keep source-material selection separate from runtime overrides. |
+| [021](exec-plans/deferred/021_khr_materials_emissive_strength.md) | `KHR_materials_emissive_strength` | ratified | Finish the active plan; require native HDR emission and tone-mapping evidence. |
+| [022](exec-plans/deferred/022_khr_materials_anisotropy.md) | `KHR_materials_anisotropy` | ratified | Plans 015 and 019 complete; renderer-native tangent, direct, and IBL paths required. |
+| [023](exec-plans/deferred/023_khr_materials_iridescence.md) | `KHR_materials_iridescence` | ratified | Plans 015 and 019 complete; renderer-native thin-film direct and IBL paths required. |
+| [024](exec-plans/deferred/024_khr_materials_diffuse_transmission.md) | `KHR_materials_diffuse_transmission` | Release Candidate | Re-audit/pin the spec and approve renderer feasibility before freezing public API. |
+| [025](exec-plans/deferred/025_khr_materials_dispersion.md) | `KHR_materials_dispersion` | ratified | Complete Plan 016 native transmission/volume first. |
+| [026](exec-plans/deferred/026_khr_materials_subsurface.md) | `KHR_materials_subsurface` | Initial Draft | Research only until spec, product, renderer, and measured target gates pass. |
+| [027](exec-plans/deferred/027_khr_materials_pbr_specular_glossiness_compatibility.md) | archived `KHR_materials_pbrSpecularGlossiness` input | archived/ratified | Compatibility last; bounded conversion or typed fallback, never a new authoring workflow. |
+
+Filament and Three.js are implementation/reference renderers for this sequence,
+not automatic proof of viewer support. Every comparison pins the reference
+version and verifies that its importer and shader actually consume the tested
+extension. The same camera, model transform, HDRI, direct lights, exposure,
+tone mapping, output color space, and viewport are mandatory.
 
 Already-built raw HDR/EXR and Poly Haven environment paths may remain if they
 work, and they may be completed as bounded advanced opt-in environment sources.

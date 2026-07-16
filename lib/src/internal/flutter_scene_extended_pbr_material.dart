@@ -8,6 +8,8 @@ import 'package:flutter_scene/src/gpu/gpu.dart' as flutter_scene_gpu;
 import '../texture_binding.dart';
 
 const String flutterSceneExtendedPbrShaderName = 'FSViewerExtendedPbr';
+const String flutterSceneClearcoatExtendedPbrShaderName =
+    'FSViewerClearcoatExtendedPbr';
 const String flutterSceneExtendedPbrUniformBlockName = 'ExtendedPbrParams';
 
 const List<MaterialTextureSlot> _coreSlots = <MaterialTextureSlot>[
@@ -173,6 +175,12 @@ void _copyPbrState(
     ..metallicRoughnessTexture = source.metallicRoughnessTexture
     ..normalTexture = source.normalTexture
     ..occlusionTexture = source.occlusionTexture
+    ..clearcoatTexture = source.clearcoatTexture
+    ..clearcoatFactor = source.clearcoatFactor
+    ..clearcoatRoughnessTexture = source.clearcoatRoughnessTexture
+    ..clearcoatRoughnessFactor = source.clearcoatRoughnessFactor
+    ..clearcoatNormalTexture = source.clearcoatNormalTexture
+    ..clearcoatNormalScale = source.clearcoatNormalScale
     ..emissiveTexture = source.emissiveTexture
     ..baseColorFactor = source.baseColorFactor.clone()
     ..vertexColorWeight = source.vertexColorWeight
@@ -208,6 +216,7 @@ final class FlutterSceneExtendedPbrMaterial extends flutter_scene
   FlutterSceneExtendedPbrMaterial({
     required flutter_scene_gpu.Shader fragmentShader,
     required flutter_scene.PhysicallyBasedMaterial source,
+    required this.usesClearcoatShader,
     Map<MaterialTextureSlot, TextureTransform> transforms =
         const <MaterialTextureSlot, TextureTransform>{},
     this.specularFactor = 1,
@@ -240,6 +249,10 @@ final class FlutterSceneExtendedPbrMaterial extends flutter_scene
   final flutter_scene.TextureSource? specularFactorTexture;
   @override
   final flutter_scene.TextureSource? specularColorTexture;
+  final bool usesClearcoatShader;
+
+  @override
+  bool get bindsClearcoatTextureSlots => usesClearcoatShader;
 
   static final flutter_scene_gpu.SamplerOptions _repeatSampler =
       flutter_scene_gpu.SamplerOptions(
@@ -266,16 +279,18 @@ final class FlutterSceneExtendedPbrMaterial extends flutter_scene
       fragmentShader.getUniformSlot(flutterSceneExtendedPbrUniformBlockName),
       transientsBuffer.emplace(ByteData.sublistView(parameters)),
     );
-    _bindSpecularTexture(
-      pass,
-      'specular_factor_texture',
-      specularFactorTexture,
-    );
-    _bindSpecularTexture(
-      pass,
-      'specular_color_texture',
-      specularColorTexture,
-    );
+    if (!usesClearcoatShader) {
+      _bindSpecularTexture(
+        pass,
+        'specular_factor_texture',
+        specularFactorTexture,
+      );
+      _bindSpecularTexture(
+        pass,
+        'specular_color_texture',
+        specularColorTexture,
+      );
+    }
   }
 
   void _bindSpecularTexture(

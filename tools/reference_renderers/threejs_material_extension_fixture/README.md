@@ -75,3 +75,37 @@ are visible in a repeatable screenshot.
 The comparison is trend-based. It checks that transmission, IOR, clearcoat
 factor, and clearcoat roughness move in the same visible direction as the
 Flutter visual matrices; it is not a pixel-perfect renderer comparison.
+
+## Plan 015 Controlled Clearcoat Comparison
+
+Plan 015 adds a stricter reference that uses the exact same generated HDR
+bytes, canonical per-model camera frames, analytic directional light,
+exposure, PBR Neutral tone mapping, and sRGB output in Three.js and the iOS
+Simulator harness:
+
+```sh
+npm run test:plan015-controlled
+npm run capture:plan015-controlled
+npm run record:plan015-controlled-ios
+npm run capture:plan015-controlled-board
+```
+
+The state is tracked at
+`tools/material_extension_acceptance/fixtures/plan015_controlled_comparison_state.json`.
+The Three.js harness applies one Z mirror to the camera, directional-light
+travel direction, and HDR longitude so those inputs represent the same world
+as flutter_scene's mirrored imported-glTF root. Applying that correction to
+only the HDR is invalid and is rejected by the contract.
+
+Outputs live under the ignored
+`tools/out/material_extension_acceptance/plan015_controlled_comparison/`
+directory. `threejs/evidence.json` and `ios_simulator/evidence.json` retain the
+state, renderer mapping, source hashes, artifact hashes, and diagnostics. The
+comparison board is `clearcoat_car_paint_comparison_board.png`.
+
+The direct-only point highlight is colocated in both renderers. IBL panel
+orientation also aligns, but small differences in panel center, blur, and
+brightness are not a camera-state failure: Three.js and flutter_scene retain
+independent rough-reflection and PMREM/GGX prefilter implementations. The
+result is controlled stock-renderer comparison evidence, not a pixel-parity
+claim.

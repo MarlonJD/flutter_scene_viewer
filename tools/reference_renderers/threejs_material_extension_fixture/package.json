@@ -5,7 +5,12 @@
   "scripts": {
     "render": "node render_reference.mjs",
     "capture:a1b32-plan014": "node render_plan014_a1b32_reference.mjs",
-    "test:plan014-capture": "node --test plan014_capture_contract.test.mjs"
+    "capture:plan015-controlled": "node render_plan015_controlled_comparison.mjs",
+    "capture:plan015-controlled-board": "node render_plan015_controlled_comparison_board.mjs",
+    "record:plan015-controlled-ios": "node record_plan015_ios_simulator_evidence.mjs",
+    "test:plan014-capture": "node --test plan014_capture_contract.test.mjs",
+    "hash:plan015-controlled-hdri": "node generate_plan015_controlled_hdri.mjs",
+    "test:plan015-controlled": "node --test plan015_controlled_comparison.test.mjs"
   },
   "dependencies": {
     "three": "^0.167.0",

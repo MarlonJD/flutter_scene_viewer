@@ -9,20 +9,41 @@ void main() {
 
   test('applies clearcoat patch to native material fields', () {
     final material = FakeNativeMaterialExtensionMaterial();
+    final clearcoatTexture = Object();
+    final clearcoatRoughnessTexture = Object();
+    final clearcoatNormalTexture = Object();
     final diagnostics = applyNativeMaterialExtensionPatch(
       material: material,
-      patch: const MaterialPatch(
+      patch: MaterialPatch(
         clearcoat: 1.0,
         clearcoatRoughness: 0.12,
         clearcoatNormalScale: 0.8,
+        clearcoatTextureBinding: MaterialTextureBinding(
+          source: const TextureSource.asset('assets/clearcoat.png'),
+        ),
+        clearcoatRoughnessTextureBinding: MaterialTextureBinding(
+          source: const TextureSource.asset('assets/clearcoat-roughness.png'),
+        ),
+        clearcoatNormalTextureBinding: MaterialTextureBinding(
+          source: const TextureSource.asset('assets/clearcoat-normal.png'),
+        ),
       ),
       support: rendererNativeSupport,
+      clearcoatTexture: clearcoatTexture,
+      clearcoatRoughnessTexture: clearcoatRoughnessTexture,
+      clearcoatNormalTexture: clearcoatNormalTexture,
     );
 
     expect(diagnostics, isEmpty);
     expect(material.clearcoatValue, 1.0);
     expect(material.clearcoatRoughnessValue, 0.12);
     expect(material.clearcoatNormalScaleValue, 0.8);
+    expect(material.clearcoatTextureValue, same(clearcoatTexture));
+    expect(
+      material.clearcoatRoughnessTextureValue,
+      same(clearcoatRoughnessTexture),
+    );
+    expect(material.clearcoatNormalTextureValue, same(clearcoatNormalTexture));
   });
 
   test('applies transmission ior and volume patch to native material fields',
@@ -64,7 +85,7 @@ void main() {
     expect(material.transmissionValue, isNull);
   });
 
-  test('rejects every extension texture binding before native setters', () {
+  test('rejects extension textures without a native renderer contract', () {
     final cases = <({String slot, MaterialPatch patch})>[
       (
         slot: 'transmission',
@@ -79,32 +100,6 @@ void main() {
         patch: MaterialPatch(
           thicknessTextureBinding: MaterialTextureBinding(
             source: const TextureSource.asset('assets/thickness.png'),
-          ),
-        ),
-      ),
-      (
-        slot: 'clearcoat',
-        patch: MaterialPatch(
-          clearcoatTextureBinding: MaterialTextureBinding(
-            source: const TextureSource.asset('assets/clearcoat.png'),
-          ),
-        ),
-      ),
-      (
-        slot: 'clearcoatRoughness',
-        patch: MaterialPatch(
-          clearcoatRoughnessTextureBinding: MaterialTextureBinding(
-            source: const TextureSource.asset(
-              'assets/clearcoat-roughness.png',
-            ),
-          ),
-        ),
-      ),
-      (
-        slot: 'clearcoatNormal',
-        patch: MaterialPatch(
-          clearcoatNormalTextureBinding: MaterialTextureBinding(
-            source: const TextureSource.asset('assets/clearcoat-normal.png'),
           ),
         ),
       ),
@@ -223,6 +218,22 @@ void main() {
     expect(material.setterCalls, isEmpty);
     expect(material.transmissionValue, isNull);
   });
+
+  test('mixed core and native clearcoat patch is accepted', () {
+    final material = FakeNativeMaterialExtensionMaterial();
+
+    final diagnostics = applyNativeMaterialExtensionPatch(
+      material: material,
+      patch: MaterialPatch(
+        baseColorFactor: const <double>[0.2, 0.3, 0.4, 1.0],
+        clearcoat: 0.75,
+      ),
+      support: rendererNativeSupport,
+    );
+
+    expect(diagnostics, isEmpty);
+    expect(material.clearcoatValue, 0.75);
+  });
 }
 
 MaterialExtensionSupport _materialExtensionSupport({
@@ -254,6 +265,9 @@ final class FakeNativeMaterialExtensionMaterial
   double? _clearcoatFactor;
   double? _clearcoatRoughnessFactor;
   double? _clearcoatNormalScale;
+  Object? _clearcoatTexture;
+  Object? _clearcoatRoughnessTexture;
+  Object? _clearcoatNormalTexture;
 
   double? get transmissionValue => _transmissionFactor;
   double? get iorValue => _ior;
@@ -263,6 +277,9 @@ final class FakeNativeMaterialExtensionMaterial
   double? get clearcoatValue => _clearcoatFactor;
   double? get clearcoatRoughnessValue => _clearcoatRoughnessFactor;
   double? get clearcoatNormalScaleValue => _clearcoatNormalScale;
+  Object? get clearcoatTextureValue => _clearcoatTexture;
+  Object? get clearcoatRoughnessTextureValue => _clearcoatRoughnessTexture;
+  Object? get clearcoatNormalTextureValue => _clearcoatNormalTexture;
 
   @override
   set transmissionFactor(double value) {
@@ -310,5 +327,23 @@ final class FakeNativeMaterialExtensionMaterial
   set clearcoatNormalScale(double value) {
     setterCalls.add('clearcoatNormalScale');
     _clearcoatNormalScale = value;
+  }
+
+  @override
+  set clearcoatTexture(Object? value) {
+    setterCalls.add('clearcoatTexture');
+    _clearcoatTexture = value;
+  }
+
+  @override
+  set clearcoatRoughnessTexture(Object? value) {
+    setterCalls.add('clearcoatRoughnessTexture');
+    _clearcoatRoughnessTexture = value;
+  }
+
+  @override
+  set clearcoatNormalTexture(Object? value) {
+    setterCalls.add('clearcoatNormalTexture');
+    _clearcoatNormalTexture = value;
   }
 }

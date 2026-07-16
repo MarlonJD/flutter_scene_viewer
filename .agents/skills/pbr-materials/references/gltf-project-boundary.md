@@ -11,10 +11,27 @@ belong in `flutter_scene`, and which remain capability-gated.
 - [KHR_materials_ior](https://github.com/KhronosGroup/glTF/tree/main/extensions/2.0/Khronos/KHR_materials_ior)
 - [KHR_materials_volume](https://github.com/KhronosGroup/glTF/tree/main/extensions/2.0/Khronos/KHR_materials_volume)
 - [KHR_materials_specular](https://github.com/KhronosGroup/glTF/tree/main/extensions/2.0/Khronos/KHR_materials_specular)
+- [KHR_materials_sheen](https://github.com/KhronosGroup/glTF/tree/main/extensions/2.0/Khronos/KHR_materials_sheen)
+- [KHR_lights_punctual](https://github.com/KhronosGroup/glTF/tree/main/extensions/2.0/Khronos/KHR_lights_punctual)
+- [KHR_materials_variants](https://github.com/KhronosGroup/glTF/tree/main/extensions/2.0/Khronos/KHR_materials_variants)
+- [KHR_materials_emissive_strength](https://github.com/KhronosGroup/glTF/tree/main/extensions/2.0/Khronos/KHR_materials_emissive_strength)
+- [KHR_materials_anisotropy](https://github.com/KhronosGroup/glTF/tree/main/extensions/2.0/Khronos/KHR_materials_anisotropy)
+- [KHR_materials_iridescence](https://github.com/KhronosGroup/glTF/tree/main/extensions/2.0/Khronos/KHR_materials_iridescence)
+- [KHR_materials_diffuse_transmission](https://github.com/KhronosGroup/glTF/tree/main/extensions/2.0/Khronos/KHR_materials_diffuse_transmission)
+- [KHR_materials_dispersion](https://github.com/KhronosGroup/glTF/tree/main/extensions/2.0/Khronos/KHR_materials_dispersion)
+- [KHR_materials_subsurface draft PR](https://github.com/KhronosGroup/glTF/pull/1928)
+- [Archived KHR_materials_pbrSpecularGlossiness](https://github.com/KhronosGroup/glTF/tree/main/extensions/2.0/Archived/KHR_materials_pbrSpecularGlossiness)
 - [KHR_texture_transform](https://github.com/KhronosGroup/glTF/tree/main/extensions/2.0/Khronos/KHR_texture_transform)
 
 Use the ratified extension text, not renderer-specific property names, for
 public serialization and validation semantics.
+
+Status recorded 2026-07-16: punctual lights, variants, emissive strength,
+anisotropy, iridescence, dispersion, sheen, clearcoat, specular, IOR,
+transmission, and volume are ratified; diffuse transmission is Release
+Candidate; subsurface is Initial Draft; specular-glossiness is archived. Re-read
+the registry and pin an exact source revision before implementing an in-progress
+extension.
 
 ## Core material contract
 
@@ -43,10 +60,29 @@ public serialization and validation semantics.
 - Volume thickness texture uses its green channel.
 - Specular and specular-color are separate dielectric controls and must not be
   inferred from the older UE4 `Specular` or `Cavity` terminology.
+- Sheen color factor/texture and roughness factor/texture form an independent
+  cloth/fiber lobe. Color texture RGB uses sRGB transfer while roughness uses
+  linear alpha; clearcoat, when present, is layered above sheen.
 
 Before changing an extension path, inspect range validation, texture channels,
 color-space selection, UV handling, combined base-plus-extension patches,
 double-sided state, reset/persistence behavior, and unsupported diagnostics.
+
+## Reference-renderer policy
+
+- Filament is a PBR implementation and gltfio reference, not this package's
+  backend. Pin its version and verify gltfio support before using it as an
+  importer reference. Its material figures/shaders may still inform renderer
+  design when an extension importer is absent, but must be labeled as such.
+- Pin Three.js exactly and add a pre-capture assertion that GLTFLoader or the
+  selected plugin consumed every tested field. The current repository harness
+  resolved `three@0.167.1`; a floating semver range is not durable evidence.
+- Three.js variants require an external plugin; current built-in GLTFLoader
+  does not advertise diffuse transmission or subsurface; specular-glossiness
+  support was removed in r147. Do not treat those as ordinary Three.js
+  reference renders.
+- Reference output establishes direction and regression evidence, not
+  automatic pixel parity or proof that the Flutter renderer applied a feature.
 
 ## Renderer identity
 
@@ -59,8 +95,8 @@ The dependency pinned by this repository is not backed by Google Filament:
 
 Primary evidence:
 
-- [Pinned flutter_scene README](https://github.com/bdero/flutter_scene/blob/cd6760912fa38beb55f63e388655a1aeabd32fe4/packages/flutter_scene/README.md#L39-L79)
-- [Pinned PBR helpers](https://github.com/bdero/flutter_scene/blob/cd6760912fa38beb55f63e388655a1aeabd32fe4/packages/flutter_scene/shaders/pbr.glsl#L5-L57)
+- [Pinned flutter_scene README](https://github.com/MarlonJD/flutter_scene/blob/ccf7372428961ebe0abb053727fe443150547a74/packages/flutter_scene/README.md#L39-L79)
+- [Pinned PBR helpers](https://github.com/MarlonJD/flutter_scene/blob/ccf7372428961ebe0abb053727fe443150547a74/packages/flutter_scene/shaders/pbr.glsl#L5-L57)
 
 Always re-read `pubspec.lock` before citing the commit; update pinned links in
 this note when the dependency revision changes.

@@ -18,6 +18,134 @@
     ],
     "comparison": "directional-not-pixel-parity"
   },
+  "plan015ClearcoatCorpus": {
+    "schemaVersion": 1,
+    "sourceRepository": {
+      "name": "KhronosGroup/glTF-Sample-Assets",
+      "commit": "2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf",
+      "commitUrl": "https://github.com/KhronosGroup/glTF-Sample-Assets/commit/2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf"
+    },
+    "renderer": {
+      "package": "flutter_scene",
+      "revision": "ccf7372428961ebe0abb053727fe443150547a74",
+      "reachability": "published at https://github.com/MarlonJD/flutter_scene/tree/plan015-clearcoat and pinned by immutable commit"
+    },
+    "referenceState": {
+      "path": "tools/material_extension_acceptance/fixtures/reference_state.json",
+      "schemaVersion": 1,
+      "requiredViews": [
+        "front",
+        "left",
+        "right",
+        "back"
+      ],
+      "comparison": "directional-not-pixel-parity"
+    },
+    "stagingToolPath": "tools/stage_material_extension_fixtures.py",
+    "stagingRoot": "tools/out/material_extension_acceptance/plan015_renderer_native_clearcoat",
+    "fixtures": [
+      {
+        "id": "clearcoat_test",
+        "name": "ClearCoatTest",
+        "role": "factor-texture-roughness-normal-matrix",
+        "sourcePath": "Models/ClearCoatTest/glTF-Binary/ClearCoatTest.glb",
+        "sourceSha256": "c3a1cbe318cd043b937130af4eb83ec2ea0b03613387b1b7d769dfab4ac15948",
+        "byteLength": 258048,
+        "extensionsUsed": [
+          "KHR_materials_clearcoat"
+        ],
+        "extensionsRequired": [],
+        "license": {
+          "assetSpdx": "CC-BY-4.0",
+          "metadataSpdx": "CC-BY-4.0",
+          "evidencePath": "Models/ClearCoatTest/LICENSE.md",
+          "evidenceSha256": "4af69dbcddb15dda2711af88095c26b4d0672948dc81b6b02d7dcacb124ef8ae",
+          "evidenceByteLength": 719
+        }
+      },
+      {
+        "id": "clearcoat_car_paint",
+        "name": "ClearCoatCarPaint",
+        "role": "clearcoat-over-rough-base",
+        "sourcePath": "Models/ClearCoatCarPaint/glTF-Binary/ClearCoatCarPaint.glb",
+        "sourceSha256": "4d4b32f2ef6d341191f6b6d6834f2b192762c878cd25d44e6b4b14514cd4be93",
+        "byteLength": 116948,
+        "extensionsUsed": [
+          "KHR_texture_transform",
+          "KHR_materials_clearcoat"
+        ],
+        "extensionsRequired": [
+          "KHR_texture_transform",
+          "KHR_materials_clearcoat"
+        ],
+        "license": {
+          "assetSpdx": "CC0-1.0",
+          "metadataSpdx": "CC-BY-4.0",
+          "evidencePath": "Models/ClearCoatCarPaint/LICENSE.md",
+          "evidenceSha256": "a73932543e63a5d882f18bb7623e05ac2725907b0acc3a3e3551468803e57809",
+          "evidenceByteLength": 709
+        }
+      },
+      {
+        "id": "toycar",
+        "name": "ToyCar",
+        "role": "combined-clearcoat-and-optional-glass",
+        "sourcePath": "Models/ToyCar/glTF-Binary/ToyCar.glb",
+        "sourceSha256": "01a60862de55cd4b9f3acfab0b0def86451800f9c42467fcd61052c16cb9838c",
+        "byteLength": 5422412,
+        "extensionsUsed": [
+          "KHR_texture_transform",
+          "KHR_materials_clearcoat",
+          "KHR_materials_transmission",
+          "KHR_materials_sheen"
+        ],
+        "extensionsRequired": [],
+        "license": {
+          "assetSpdx": "CC0-1.0",
+          "metadataSpdx": "CC-BY-4.0",
+          "evidencePath": "Models/ToyCar/LICENSE.md",
+          "evidenceSha256": "b6b2c8a062107e8a3140e7d65a815b5964d96e71b04dbdafd4df1c0efc1cddc1",
+          "evidenceByteLength": 819
+        }
+      }
+    ],
+    "passCriteria": [
+      "ClearCoatTest preserves factor zero/full, red-channel factor texture, green-channel roughness trend, and independent coat normal response.",
+      "ClearCoatCarPaint preserves the rough microflake base beneath a smoother clearcoat lobe.",
+      "ToyCar preserves authored coated paint while unsupported optional transmission and sheen remain diagnostic-only core fallback.",
+      "No capture uses forced roughness, environment intensity changes, extra directional highlights, baked textures, generated UVs, or asset-specific material patches."
+    ],
+    "targetEvidence": [
+      {
+        "target": "iOS Simulator",
+        "status": "verified locally",
+        "backend": "rendererNative",
+        "renderer": "Impeller Metal",
+        "device": "iPhone 17 Simulator",
+        "os": "iOS 26.5",
+        "captureRoot": "tools/out/material_extension_acceptance/plan015_renderer_native_clearcoat/ios_simulator",
+        "evidenceRecord": "docs/references/material_extension_platform_evidence.md"
+      },
+      {
+        "target": "physical iOS",
+        "status": "not run",
+        "backend": "rendererNative"
+      },
+      {
+        "target": "Android",
+        "status": "not run",
+        "backend": "rendererNative"
+      },
+      {
+        "target": "Web",
+        "status": "not run",
+        "backend": "rendererNative"
+      }
+    ],
+    "runtimeCapability": "verified locally on iOS Simulator; the viewer dependency resolves the published immutable renderer commit",
+    "releaseMaturity": "release pending",
+    "productionReady": false
+  },
   "rewriteValidation": {
     "schemaVersion": 1,
     "validator": {

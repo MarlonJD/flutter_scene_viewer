@@ -26,21 +26,21 @@ NativeMaterialExtensionCapability detectNativeMaterialExtensionCapability({
   RendererMaterialExtensionProbe rendererProbe =
       const CurrentFlutterSceneMaterialExtensionProbe(),
 }) {
-  if (rendererProbe.hasTransmission &&
-      rendererProbe.hasIor &&
-      rendererProbe.hasVolume &&
-      rendererProbe.hasClearcoat) {
+  final availability = <MaterialExtensionFeature, bool>{
+    MaterialExtensionFeature.transmission: rendererProbe.hasTransmission,
+    MaterialExtensionFeature.ior: rendererProbe.hasIor,
+    MaterialExtensionFeature.volume: rendererProbe.hasVolume,
+    MaterialExtensionFeature.clearcoat: rendererProbe.hasClearcoat,
+  };
+  if (availability.values.any((available) => available)) {
     return NativeMaterialExtensionCapability(
       support: MaterialExtensionSupport(
         backendKind: MaterialExtensionBackendKind.rendererNative,
         features: <MaterialExtensionFeature, MaterialExtensionFeatureSupport>{
-          for (final feature in <MaterialExtensionFeature>[
-            MaterialExtensionFeature.transmission,
-            MaterialExtensionFeature.ior,
-            MaterialExtensionFeature.volume,
-            MaterialExtensionFeature.clearcoat,
-          ])
-            feature: MaterialExtensionFeatureSupport(available: true),
+          for (final entry in availability.entries)
+            entry.key: entry.value
+                ? MaterialExtensionFeatureSupport(available: true)
+                : MaterialExtensionFeatureSupport.unsupported,
         },
       ),
     );
@@ -69,8 +69,10 @@ NativeMaterialExtensionCapability detectNativeMaterialExtensionCapability({
 
 /// Current installed renderer probe.
 ///
-/// Keep this unsupported until the concrete renderer material API exposes
-/// native fields for transmission, IOR, volume, and clearcoat.
+/// Plan 015's renderer revision exposes the complete selected clearcoat
+/// contract and the stable dependency pin now resolves that published commit.
+/// The remaining extension fields stay unavailable until their own upstream
+/// plans land.
 final class CurrentFlutterSceneMaterialExtensionProbe
     implements RendererMaterialExtensionProbe {
   const CurrentFlutterSceneMaterialExtensionProbe();
@@ -85,5 +87,5 @@ final class CurrentFlutterSceneMaterialExtensionProbe
   bool get hasVolume => false;
 
   @override
-  bool get hasClearcoat => false;
+  bool get hasClearcoat => true;
 }

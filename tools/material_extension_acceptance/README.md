@@ -71,6 +71,15 @@ so evidence cannot drift silently. The complete ownership and visual-trend
 contract is documented in
 [`docs/references/pbr_material_acceptance.md`](../../docs/references/pbr_material_acceptance.md).
 
+Plan 015's stricter cross-renderer audit uses
+`fixtures/plan015_controlled_comparison_state.json`. It freezes one canonical
+per-model bounding sphere, a generated hash-pinned Radiance HDR, three
+lighting passes (`directOnly`, `iblOnly`, and `combined`), PBR Neutral tone
+mapping, sRGB output, and the Z-mirror coordinate conversion between
+flutter_scene's imported-glTF world and Three.js. This state exists because
+independent automatic bounds fits and numerically identical yaw values are not
+enough when the renderers use different world handedness.
+
 ## Evidence Rules
 
 Passing the manifest coverage test only proves the corpus roles are defined.
@@ -106,3 +115,29 @@ established. The captures are `verified locally` as Three.js reference
 direction only. iOS Simulator, physical iOS, Android, and Web target evidence
 remain `not run`; runtime capability and release maturity remain
 `not established`.
+
+## Plan 015 Controlled Three.js Comparison
+
+After staging the Plan 015 assets, generate and verify the Three.js reference,
+record the iOS Simulator artifacts, and build the zoomed comparison board:
+
+```sh
+npm run test:plan015-controlled \
+  --prefix tools/reference_renderers/threejs_material_extension_fixture
+npm run capture:plan015-controlled \
+  --prefix tools/reference_renderers/threejs_material_extension_fixture
+npm run record:plan015-controlled-ios \
+  --prefix tools/reference_renderers/threejs_material_extension_fixture
+npm run capture:plan015-controlled-board \
+  --prefix tools/reference_renderers/threejs_material_extension_fixture
+```
+
+The ignored output root is
+`tools/out/material_extension_acceptance/plan015_controlled_comparison/`.
+Both renderer evidence files hash every source and capture. The
+ClearCoatCarPaint board shows that the analytic-light highlight and HDR panel
+orientation align after the shared coordinate mapping. Small IBL panel-center,
+blur, and brightness differences remain expected because stock Three.js bends
+rough reflections toward the normal and uses its own PMREM implementation,
+while flutter_scene uses its own GGX prefilter and reflection-direction path.
+This is controlled directional evidence, not pixel parity.

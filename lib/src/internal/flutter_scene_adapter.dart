@@ -487,10 +487,29 @@ final class FlutterSceneRuntimeAdapter implements FlutterSceneAdapter {
       patch,
       support: materialExtensionSupport,
     );
-    final usesExtendedPbr = !usesNativeMaterialExtensionApplier &&
+    final needsExtendedPbr =
         _usesExtendedPbrFor(target.primitive.material, patch);
+    final combinesNativeClearcoatWithExtendedPbr =
+        usesNativeMaterialExtensionApplier &&
+            patch.hasClearcoatOverride &&
+            !patch.hasGlassOverride &&
+            needsExtendedPbr;
+    final usesExtendedPbr = needsExtendedPbr &&
+        (!usesNativeMaterialExtensionApplier ||
+            combinesNativeClearcoatWithExtendedPbr);
+    if (usesNativeMaterialExtensionApplier) {
+      final validationDiagnostics = patch.validate(
+        address,
+        support: materialExtensionSupport,
+      );
+      if (validationDiagnostics.isNotEmpty) {
+        return validationDiagnostics;
+      }
+    }
     if (usesExtendedPbr) {
-      if (patch.hasGlassOverride || patch.hasClearcoatOverride) {
+      if (patch.hasGlassOverride ||
+          (patch.hasClearcoatOverride &&
+              !combinesNativeClearcoatWithExtendedPbr)) {
         return <ViewerDiagnostic>[
           _extendedPbrCombinationUnavailable(address, patch),
         ];
@@ -914,6 +933,19 @@ final class FlutterSceneRuntimeAdapter implements FlutterSceneAdapter {
         occlusionTexture: loadedOcclusionTexture?.texture,
         rawNormalTexture: true,
       );
+      if (combinesNativeClearcoatWithExtendedPbr) {
+        final diagnostics = applyNativeMaterialExtensionPatch(
+          material: _FlutterSceneNativeClearcoatMaterial(stagedSource),
+          patch: patch,
+          support: materialExtensionSupport,
+          clearcoatTexture: loadedClearcoatTexture?.texture,
+          clearcoatRoughnessTexture: loadedClearcoatRoughnessTexture?.texture,
+          clearcoatNormalTexture: loadedClearcoatNormalTexture?.texture,
+        );
+        if (diagnostics.isNotEmpty) {
+          return diagnostics;
+        }
+      }
       final FlutterSceneExtendedPbrState? currentExtended =
           source is FlutterSceneExtendedPbrState
               ? source as FlutterSceneExtendedPbrState
@@ -992,18 +1024,46 @@ final class FlutterSceneRuntimeAdapter implements FlutterSceneAdapter {
     if (patch.visible != null) {
       _applyPrimitiveVisibility(target, patch.visible!, address);
     }
-    if (_usesNativeMaterialExtensionApplierFor(
-      materialExtensionPolicy,
-      patch,
-      support: materialExtensionSupport,
-    )) {
-      final nativeMaterial = material;
-      if (nativeMaterial is NativeMaterialExtensionMaterial) {
+    if (usesNativeMaterialExtensionApplier) {
+      if (material is NativeMaterialExtensionMaterial) {
         return applyNativeMaterialExtensionPatch(
-          material: nativeMaterial as NativeMaterialExtensionMaterial,
+          material: material as NativeMaterialExtensionMaterial,
           patch: patch,
           support: materialExtensionSupport,
+          clearcoatTexture: loadedClearcoatTexture?.texture,
+          clearcoatRoughnessTexture: loadedClearcoatRoughnessTexture?.texture,
+          clearcoatNormalTexture: loadedClearcoatNormalTexture?.texture,
         );
+      }
+      if (material is flutter_scene.PhysicallyBasedMaterial &&
+          patch.hasClearcoatOverride &&
+          !patch.hasGlassOverride &&
+          patch.ior == null) {
+        final stagedMaterial = _copyPbrMaterial(material);
+        final diagnostics = applyNativeMaterialExtensionPatch(
+          material: _FlutterSceneNativeClearcoatMaterial(stagedMaterial),
+          patch: patch,
+          support: materialExtensionSupport,
+          clearcoatTexture: loadedClearcoatTexture?.texture,
+          clearcoatRoughnessTexture: loadedClearcoatRoughnessTexture?.texture,
+          clearcoatNormalTexture: loadedClearcoatNormalTexture?.texture,
+        );
+        if (diagnostics.isNotEmpty) {
+          return diagnostics;
+        }
+        _applyCorePbrState(
+          stagedMaterial,
+          patch,
+          baseColorTexture: loadedBaseColorTexture?.texture,
+          metallicRoughnessTexture: loadedMetallicRoughnessTexture?.texture,
+          normalTexture: loadedNormalTexture?.texture,
+          emissiveTexture: loadedEmissiveTexture?.texture,
+          occlusionTexture: loadedOcclusionTexture?.texture,
+          rawNormalTexture: true,
+        );
+        target.primitive.material = stagedMaterial;
+        _refreshMountedMesh(target.node);
+        return const <ViewerDiagnostic>[];
       }
       return <ViewerDiagnostic>[_nativeMaterialContractUnavailable(address)];
     }
@@ -1426,6 +1486,15 @@ final class FlutterSceneRuntimeAdapter implements FlutterSceneAdapter {
       // ignore: invalid_use_of_internal_member
       ..occlusionTexture = source.occlusionTextureSource
       ..occlusionStrength = source.occlusionStrength
+      // ignore: invalid_use_of_internal_member
+      ..clearcoatTexture = source.clearcoatTextureSource
+      ..clearcoatFactor = source.clearcoatFactor
+      // ignore: invalid_use_of_internal_member
+      ..clearcoatRoughnessTexture = source.clearcoatRoughnessTextureSource
+      ..clearcoatRoughnessFactor = source.clearcoatRoughnessFactor
+      // ignore: invalid_use_of_internal_member
+      ..clearcoatNormalTexture = source.clearcoatNormalTextureSource
+      ..clearcoatNormalScale = source.clearcoatNormalScale
       ..environment = source.environment
       ..alphaMode = source.alphaMode
       ..alphaCutoff = source.alphaCutoff
@@ -1950,6 +2019,57 @@ ViewerDiagnostic? _glassNodeIsolationDiagnostic({
       'authoring': 'separateGlassNode',
     },
   );
+}
+
+final class _FlutterSceneNativeClearcoatMaterial
+    implements NativeMaterialExtensionMaterial {
+  _FlutterSceneNativeClearcoatMaterial(this.material);
+
+  final flutter_scene.PhysicallyBasedMaterial material;
+
+  @override
+  set clearcoatFactor(double value) => material.clearcoatFactor = value;
+
+  @override
+  set clearcoatRoughnessFactor(double value) =>
+      material.clearcoatRoughnessFactor = value;
+
+  @override
+  set clearcoatNormalScale(double value) =>
+      material.clearcoatNormalScale = value;
+
+  @override
+  set clearcoatTexture(Object? value) =>
+      material.clearcoatTexture = value as flutter_scene.TextureSource?;
+
+  @override
+  set clearcoatRoughnessTexture(Object? value) =>
+      material.clearcoatRoughnessTexture =
+          value as flutter_scene.TextureSource?;
+
+  @override
+  set clearcoatNormalTexture(Object? value) =>
+      material.clearcoatNormalTexture = value as flutter_scene.TextureSource?;
+
+  @override
+  set transmissionFactor(double value) =>
+      throw UnsupportedError('Renderer-native transmission is unavailable.');
+
+  @override
+  set ior(double value) =>
+      throw UnsupportedError('Renderer-native IOR is unavailable.');
+
+  @override
+  set thicknessFactor(double value) =>
+      throw UnsupportedError('Renderer-native volume is unavailable.');
+
+  @override
+  set attenuationDistance(double value) =>
+      throw UnsupportedError('Renderer-native volume is unavailable.');
+
+  @override
+  set attenuationColor(List<double> value) =>
+      throw UnsupportedError('Renderer-native volume is unavailable.');
 }
 
 final class _FlutterSceneRenderScene implements AdapterRenderScene {
@@ -2519,7 +2639,7 @@ ViewerDiagnostic? _pinnedStandardPbrExtensionDiagnostic(
         'limitation': 'pinnedStandardPbrSpecularContractMissing',
         'backendKind': backendKind.name,
         'upstreamPackage': 'flutter_scene',
-        'upstreamRevision': 'cd6760912fa38beb55f63e388655a1aeabd32fe4',
+        'upstreamRevision': 'ccf7372428961ebe0abb053727fe443150547a74',
         'status': 'unsupported',
         'productionBlocker': 'rendererNativeSpecularContractMissing',
         'nextStep': 'implementRendererNativeSpecularContract',
@@ -2538,7 +2658,7 @@ ViewerDiagnostic? _pinnedStandardPbrExtensionDiagnostic(
         'limitation': 'pinnedStandardPbrOpaqueIorContractMissing',
         'backendKind': backendKind.name,
         'upstreamPackage': 'flutter_scene',
-        'upstreamRevision': 'cd6760912fa38beb55f63e388655a1aeabd32fe4',
+        'upstreamRevision': 'ccf7372428961ebe0abb053727fe443150547a74',
         'status': 'unsupported',
         'productionBlocker': 'rendererNativeOpaqueIorContractMissing',
         'nextStep': 'implementRendererNativeOpaqueIorContract',
@@ -2638,7 +2758,7 @@ bool _hasAvailableMaterialExtensionBackendFeatures(
       MaterialExtensionFeature.ior,
       MaterialExtensionFeature.volume,
       MaterialExtensionFeature.clearcoat,
-    }.every((feature) => support.supportFor(feature).available);
+    }.any((feature) => support.supportFor(feature).available);
 
 MaterialExtensionSupport _withExtendedPbrSupport(
   MaterialExtensionSupport base,

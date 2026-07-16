@@ -33,6 +33,14 @@ def _load_provenance() -> dict[str, object]:
     return provenance
 
 
+def _load_plan015_clearcoat() -> dict[str, object]:
+    manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+    corpus = manifest.get("plan015ClearcoatCorpus")
+    if not isinstance(corpus, dict):
+        raise FixtureError("manifest plan015ClearcoatCorpus must be an object")
+    return corpus
+
+
 def _require_sha256(value: object, label: str) -> str:
     if not isinstance(value, str) or SHA256_RE.fullmatch(value) is None:
         raise FixtureError(f"{label} must be a lowercase SHA-256 digest")
@@ -153,6 +161,57 @@ def _verify_metadata(provenance: dict[str, object]) -> list[dict[str, object]]:
     return records
 
 
+def _verify_plan015_clearcoat_metadata(
+    corpus: dict[str, object],
+) -> list[dict[str, object]]:
+    if corpus.get("schemaVersion") != 1:
+        raise FixtureError("plan015ClearcoatCorpus.schemaVersion must equal 1")
+    repository = corpus.get("sourceRepository")
+    if not isinstance(repository, dict):
+        raise FixtureError("plan015ClearcoatCorpus.sourceRepository must be an object")
+    commit = repository.get("commit")
+    if not isinstance(commit, str) or COMMIT_RE.fullmatch(commit) is None:
+        raise FixtureError("plan015 clearcoat source commit must be full")
+    fixtures = corpus.get("fixtures")
+    if not isinstance(fixtures, list) or len(fixtures) != 3:
+        raise FixtureError("plan015 clearcoat corpus must contain exactly 3 fixtures")
+
+    records: list[dict[str, object]] = []
+    expected_ids = ["clearcoat_test", "clearcoat_car_paint", "toycar"]
+    for index, raw in enumerate(fixtures):
+        if not isinstance(raw, dict):
+            raise FixtureError("each plan015 clearcoat fixture must be an object")
+        record = dict(raw)
+        fixture_id = record.get("id")
+        if fixture_id != expected_ids[index]:
+            raise FixtureError("plan015 clearcoat fixture order or id changed")
+        source_path = record.get("sourcePath")
+        if not isinstance(source_path, str) or not source_path.endswith(".glb"):
+            raise FixtureError(f"{fixture_id}.sourcePath must identify a GLB")
+        _require_sha256(record.get("sourceSha256"), f"{fixture_id}.sourceSha256")
+        if not isinstance(record.get("byteLength"), int) or record["byteLength"] <= 0:
+            raise FixtureError(f"{fixture_id}.byteLength must be positive")
+        license_record = record.get("license")
+        if not isinstance(license_record, dict):
+            raise FixtureError(f"{fixture_id}.license must be an object")
+        license_path = license_record.get("evidencePath")
+        if not isinstance(license_path, str) or not license_path.endswith("LICENSE.md"):
+            raise FixtureError(f"{fixture_id}.license.evidencePath is invalid")
+        _require_sha256(
+            license_record.get("evidenceSha256"),
+            f"{fixture_id}.license.evidenceSha256",
+        )
+        if (
+            not isinstance(license_record.get("evidenceByteLength"), int)
+            or license_record["evidenceByteLength"] <= 0
+        ):
+            raise FixtureError(
+                f"{fixture_id}.license.evidenceByteLength must be positive"
+            )
+        records.append(record)
+    return records
+
+
 def _digest(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
@@ -234,6 +293,36 @@ def _fetch_khronos(records: list[dict[str, object]]) -> None:
         print(f"{fixture_id}: OK")
 
 
+def _fetch_plan015_clearcoat(
+    corpus: dict[str, object], records: list[dict[str, object]]
+) -> None:
+    repository = dict(corpus["sourceRepository"])
+    commit = str(repository["commit"])
+    staging_root = REPO_ROOT / str(corpus["stagingRoot"])
+    raw_root = (
+        "https://raw.githubusercontent.com/KhronosGroup/"
+        f"glTF-Sample-Assets/{commit}"
+    )
+    for record in records:
+        fixture_id = str(record["id"])
+        source_path = str(record["sourcePath"])
+        source = _download(f"{raw_root}/{source_path}")
+        _verify_bytes(source, record, fixture_id)
+        license_record = dict(record["license"])
+        license_bytes = _download(
+            f"{raw_root}/{license_record['evidencePath']}"
+        )
+        expected_license_sha = str(license_record["evidenceSha256"])
+        if _digest(license_bytes) != expected_license_sha:
+            raise FixtureError(f"{fixture_id} license SHA-256 mismatch")
+        if len(license_bytes) != license_record["evidenceByteLength"]:
+            raise FixtureError(f"{fixture_id} license byteLength mismatch")
+        destination = staging_root / fixture_id
+        _write_atomic(destination / Path(source_path).name, source)
+        _write_atomic(destination / "LICENSE.md", license_bytes)
+        print(f"plan015/{fixture_id}: OK")
+
+
 def _glb_json(data: bytes) -> dict[str, object]:
     if len(data) < 20 or data[:4] != b"glTF":
         raise FixtureError("a1b32 is not a GLB container")
@@ -279,15 +368,25 @@ def main(argv: list[str]) -> int:
     actions = parser.add_mutually_exclusive_group(required=True)
     actions.add_argument("--verify-metadata", action="store_true")
     actions.add_argument("--fetch-khronos", action="store_true")
+    actions.add_argument("--fetch-plan015-clearcoat", action="store_true")
     actions.add_argument("--stage-a1b32", type=Path, metavar="SOURCE_GLB")
     args = parser.parse_args(argv)
 
     provenance = _load_provenance()
     records = _verify_metadata(provenance)
     if args.verify_metadata:
-        print(f"{len(records)} fixture records: OK")
+        corpus = _load_plan015_clearcoat()
+        clearcoat_records = _verify_plan015_clearcoat_metadata(corpus)
+        print(
+            f"{len(records)} fixture records and "
+            f"{len(clearcoat_records)} Plan 015 clearcoat records: OK"
+        )
     elif args.fetch_khronos:
         _fetch_khronos(records)
+    elif args.fetch_plan015_clearcoat:
+        corpus = _load_plan015_clearcoat()
+        clearcoat_records = _verify_plan015_clearcoat_metadata(corpus)
+        _fetch_plan015_clearcoat(corpus, clearcoat_records)
     else:
         a1b32 = next(record for record in records if record["id"] == "a1b32")
         _stage_a1b32(args.stage_a1b32, a1b32)

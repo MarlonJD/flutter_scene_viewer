@@ -1,5 +1,114 @@
 # Material Extension Platform Evidence
 
+## Plan 015 renderer-native clearcoat
+
+The complete `KHR_materials_clearcoat` contract was verified locally on the
+`iPhone 17` iOS 26.5 Simulator (`10C2CF77-CBA8-4948-ADD5-24C49D375059`)
+through Impeller Metal. The temporary harness used this package by path while
+the viewer resolved published `flutter_scene` revision
+`ccf7372428961ebe0abb053727fe443150547a74` from its immutable Git dependency.
+This is target evidence for that exact renderer revision; it is not evidence
+for a physical iOS device, Android, Web, packaging, or release readiness.
+
+The fixed state used authored material shading, the repository's studio
+lighting and environment defaults, environment intensity `1`, exposure `1`,
+no ambient occlusion, and no shadow-casting key light, matching
+`tools/material_extension_acceptance/fixtures/reference_state.json`. No
+asset-specific material patch, forced roughness, extra highlight, environment
+boost, texture bake, or generated UV was applied.
+
+Reproduction commands:
+
+```sh
+python3 tools/stage_material_extension_fixtures.py --fetch-plan015-clearcoat
+cd /private/tmp/plan015_clearcoat_harness
+flutter run -d 10C2CF77-CBA8-4948-ADD5-24C49D375059 --enable-impeller --dart-define=MODEL_ID=clearcoat_test
+flutter run -d 10C2CF77-CBA8-4948-ADD5-24C49D375059 --enable-impeller --dart-define=MODEL_ID=clearcoat_car_paint
+flutter run -d 10C2CF77-CBA8-4948-ADD5-24C49D375059 --enable-impeller --dart-define=MODEL_ID=toycar
+xcrun simctl io 10C2CF77-CBA8-4948-ADD5-24C49D375059 screenshot <capture-path>
+```
+
+The temporary app also set `FLTEnableFlutterGPU=true` in its iOS
+`Info.plist`. ClearCoatTest and ClearCoatCarPaint used the adapter's asset-bounds
+fit. ToyCar's authored root scale exposed a separate bounds-fit framing defect,
+so its four views used the fixed target `[0, 0, 0]` and distance `0.085`; this
+changed framing only, not the material, lighting, environment, or renderer
+state. All three assets loaded and rendered without an exception or a
+clearcoat diagnostic:
+
+| Asset | Runtime facts | Result |
+| --- | --- | --- |
+| ClearCoatTest | 33 nodes, 27 meshes, 19 materials, 27 addressable parts, 0 diagnostics | Factor zero/full, factor texture, roughness texture, and independent coat-normal matrix rendered through the native contract. |
+| ClearCoatCarPaint | 1 node, 1 mesh, 1 material, 1 addressable part, 0 diagnostics | Rough microflake base remained visible beneath the smoother coat response. |
+| ToyCar | 11 nodes, 3 meshes, 3 materials, 1 diagnostic | Coated paint and transformed core textures rendered together. The sole diagnostic was the asset's optional unsupported `KHR_materials_transmission` request on `Glass#0`; it used the permitted core fallback and was not a clearcoat failure. |
+
+The source GLBs are pinned in the manifest to Khronos Sample Assets commit
+`2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf`. Captures are 1206 × 2622 PNGs
+under
+`tools/out/material_extension_acceptance/plan015_renderer_native_clearcoat/ios_simulator/`:
+
+| Capture | SHA-256 |
+| --- | --- |
+| `clearcoat_test_front.png` | `528a6cb8c110c84aaa8a320cbd9615137750dcc5987984a3f8886b4207344364` |
+| `clearcoat_test_left.png` | `528a6cb8c110c84aaa8a320cbd9615137750dcc5987984a3f8886b4207344364` |
+| `clearcoat_test_right.png` | `91b1d7180c9c1997faee42c7a01fcef5e74cccb37a644fe3c1852581f63f1769` |
+| `clearcoat_test_back.png` | `91b1d7180c9c1997faee42c7a01fcef5e74cccb37a644fe3c1852581f63f1769` |
+| `clearcoat_car_paint_front.png` | `e8e2db36a139325f59bf19efe458d43a23da90f6196718d5c41fa98f56cf7123` |
+| `clearcoat_car_paint_left.png` | `e8e2db36a139325f59bf19efe458d43a23da90f6196718d5c41fa98f56cf7123` |
+| `clearcoat_car_paint_right.png` | `7dfe32cf3619e99c93a58d76dfd7dc72999fd1624878d1376bab7fcc25bde77c` |
+| `clearcoat_car_paint_back.png` | `7dfe32cf3619e99c93a58d76dfd7dc72999fd1624878d1376bab7fcc25bde77c` |
+| `toycar_front.png` | `7459fcaecf08597407f009d9021df0fd653c47de1b44069ec6dec347d6b8c3b3` |
+| `toycar_left.png` | `659db951f770c3bf71f966c053453e2bb7f33689d19b93b969467340e51747d3` |
+| `toycar_right.png` | `1f95e7ecbf42c1a94c33873d6f0ddd009b257c8920ccfe08946ceaa3d76aa529` |
+| `toycar_back.png` | `5b9da53e8a2d8c4cbf6a7bdb0dfdc447c4b0d81c6b24d1948ae096030be02840` |
+
+Literal status: renderer capability at the published immutable Git pin is
+`verified locally` on the iOS Simulator; release maturity is `release
+pending`; production readiness is `false`; physical iOS, Android, and Web are
+`not run`.
+
+### Controlled Three.js comparison
+
+A follow-up audit froze the stricter
+`tools/material_extension_acceptance/fixtures/plan015_controlled_comparison_state.json`
+and rendered all three assets in `directOnly`, `iblOnly`, and `combined`
+passes with both stock Three.js r167 and the iPhone 17 Simulator. Both sides
+used the same model bytes, canonical per-model bounding sphere, 60° vertical
+FOV, yaw `pi/4`, pitch `pi/12`, generated Radiance HDR bytes, directional
+light, exposure `1`, disabled AO and shadows, PBR Neutral, and sRGB output.
+
+flutter_scene mirrors imported glTF roots on Z. The Three.js reference
+therefore mirrors the camera, directional-light travel direction, and HDR
+longitude together. The audit rejected two earlier invalid comparisons: a
+Three.js fit padding of `1.0` instead of the viewer's `1.15`, and an HDR-only
+handedness correction. ToyCar also exposed the viewer's known authored-root-
+scale bounds-fit defect; the final comparison supplies the same canonical
+frame directly to both renderers instead of accepting their independent
+automatic bounds calculations.
+
+The resulting ClearCoatCarPaint `directOnly` highlight is colocated and has
+the same lobe trend. The three synthetic HDR panels have the same orientation
+and ordering in `iblOnly` and remain consistent in `combined`. Their centers,
+blur, and brightness are not pixel-identical because stock Three.js uses a
+roughness-dependent reflection-vector bend plus PMREM, while flutter_scene
+uses its own reflection direction and GGX prefilter. That boundary is recorded
+as controlled directional evidence, not hidden as a pixel-parity claim.
+
+Evidence and the zoomed board are under
+`tools/out/material_extension_acceptance/plan015_controlled_comparison/`:
+
+- `threejs/evidence.json`: Three.js source state, renderer mapping, model and
+  HDR hashes, and nine capture hashes.
+- `ios_simulator/evidence.json`: Impeller Metal target facts, the same state,
+  nine capture hashes, and exact diagnostics.
+- `clearcoat_car_paint_comparison_board.png`: direct/IBL/combined comparison.
+
+ClearCoatTest and ClearCoatCarPaint retained zero diagnostics in every pass.
+ToyCar retained exactly one explicit unsupported
+`KHR_materials_transmission` diagnostic on `Glass#0`; it remains useful for
+clearcoat composition and camera framing, but it is not a clean transmission-
+parity reference.
+
 ## 011 Target
 
 | Target | Flutter renderer | Glass shader load | Glass visual matrix | Clearcoat shader load | Clearcoat visual matrix | Real-asset status | Status | Notes |

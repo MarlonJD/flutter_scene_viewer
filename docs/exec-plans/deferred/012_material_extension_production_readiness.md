@@ -2,14 +2,13 @@
 
 > **Status (2026-07-10): deferred and superseded, not completed.** This file
 > preserves Task 012 implementation history and iOS Simulator evidence. Its
-> remaining correctness, renderer-ownership, platform-evidence, and release
-> work is owned by the canonical active plan:
-> [`014_selected_gltf_extension_support.md`](../active/014_selected_gltf_extension_support.md).
-> Package-local glass and clearcoat shader results below are historical
-> `verified locally` evidence and remain `candidate-only` until Plan 014's
-> Khronos/Filament audit and target gates pass. Other platforms remain
-> `not run`. Do not use older `production` wording in this history as current
-> capability truth.
+> bounded implementation history was reconciled by the completed plan:
+> [`014_selected_gltf_extension_support.md`](../completed/014_selected_gltf_extension_support.md).
+> Remaining renderer-native and release work is owned by deferred Plans 015,
+> 016, and 017. Package-local glass and clearcoat shader results below are
+> historical `verified locally` evidence and remain `candidate-only`. Other
+> platforms remain `not run`. Do not use older `production` wording in this
+> history as current capability truth.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use
 > `superpowers:subagent-driven-development` or

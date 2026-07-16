@@ -245,6 +245,35 @@ void main() {
     expect(diagnostics, isEmpty);
   });
 
+  test('MaterialPatch validation rejects malformed clearcoat atomically', () {
+    final support = MaterialExtensionSupport(
+      backendKind: MaterialExtensionBackendKind.rendererNative,
+      features: _availableFeatures(
+        const <MaterialExtensionFeature>[
+          MaterialExtensionFeature.clearcoat,
+        ],
+      ),
+    );
+    final address = PartAddress(
+      nodePath: const <String>['Root', 'Paint'],
+      primitiveIndex: 0,
+    );
+
+    for (final patch in <MaterialPatch>[
+      const MaterialPatch(clearcoat: -0.01),
+      const MaterialPatch(clearcoat: 1.01),
+      const MaterialPatch(clearcoatRoughness: double.nan),
+      const MaterialPatch(clearcoatNormalScale: double.infinity),
+    ]) {
+      final diagnostics = patch.validate(address, support: support);
+      expect(diagnostics, hasLength(1), reason: patch.toJson().toString());
+      expect(
+        diagnostics.single.code,
+        ViewerDiagnosticCode.invalidMaterialOverride,
+      );
+    }
+  });
+
   test('MaterialPatch validation accepts supported specular intent', () {
     const patch = MaterialPatch(
       specular: 0.4,

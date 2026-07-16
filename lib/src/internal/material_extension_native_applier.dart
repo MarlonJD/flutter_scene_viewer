@@ -14,12 +14,18 @@ abstract interface class NativeMaterialExtensionMaterial {
   set clearcoatFactor(double value);
   set clearcoatRoughnessFactor(double value);
   set clearcoatNormalScale(double value);
+  set clearcoatTexture(Object? value);
+  set clearcoatRoughnessTexture(Object? value);
+  set clearcoatNormalTexture(Object? value);
 }
 
 List<ViewerDiagnostic> applyNativeMaterialExtensionPatch({
   required NativeMaterialExtensionMaterial material,
   required MaterialPatch patch,
   required MaterialExtensionSupport support,
+  Object? clearcoatTexture,
+  Object? clearcoatRoughnessTexture,
+  Object? clearcoatNormalTexture,
 }) {
   final diagnostic = nativeMaterialExtensionPatchDiagnostic(
     support: support,
@@ -61,6 +67,15 @@ List<ViewerDiagnostic> applyNativeMaterialExtensionPatch({
   if (clearcoatNormalScale != null) {
     material.clearcoatNormalScale = clearcoatNormalScale;
   }
+  if (patch.textureBindingFor(MaterialTextureSlot.clearcoat) != null) {
+    material.clearcoatTexture = clearcoatTexture;
+  }
+  if (patch.textureBindingFor(MaterialTextureSlot.clearcoatRoughness) != null) {
+    material.clearcoatRoughnessTexture = clearcoatRoughnessTexture;
+  }
+  if (patch.textureBindingFor(MaterialTextureSlot.clearcoatNormal) != null) {
+    material.clearcoatNormalTexture = clearcoatNormalTexture;
+  }
 
   return const <ViewerDiagnostic>[];
 }
@@ -96,9 +111,6 @@ ViewerDiagnostic? nativeMaterialExtensionPatchDiagnostic({
     for (final slot in const <MaterialTextureSlot>[
       MaterialTextureSlot.transmission,
       MaterialTextureSlot.thickness,
-      MaterialTextureSlot.clearcoat,
-      MaterialTextureSlot.clearcoatRoughness,
-      MaterialTextureSlot.clearcoatNormal,
       MaterialTextureSlot.specular,
       MaterialTextureSlot.specularColor,
     ])
@@ -143,7 +155,7 @@ ViewerDiagnostic? nativeMaterialExtensionPatchDiagnostic({
     );
   }
   final coreFields = _mixedCorePatchFields(patch);
-  if (coreFields.isNotEmpty && _hasNativeScalarExtensionIntent(patch)) {
+  if (coreFields.isNotEmpty && _hasNonClearcoatNativeIntent(patch)) {
     return ViewerDiagnostic(
       code: ViewerDiagnosticCode.unsupportedMaterialFeature,
       message:
@@ -191,15 +203,14 @@ ViewerDiagnostic? nativeMaterialExtensionPatchDiagnostic({
   return null;
 }
 
-bool _hasNativeScalarExtensionIntent(MaterialPatch patch) =>
+bool _hasNonClearcoatNativeIntent(MaterialPatch patch) =>
     patch.transmission != null ||
+    patch.textureBindingFor(MaterialTextureSlot.transmission) != null ||
     patch.ior != null ||
     patch.thickness != null ||
+    patch.textureBindingFor(MaterialTextureSlot.thickness) != null ||
     patch.attenuationColor != null ||
-    patch.attenuationDistance != null ||
-    patch.clearcoat != null ||
-    patch.clearcoatRoughness != null ||
-    patch.clearcoatNormalScale != null;
+    patch.attenuationDistance != null;
 
 List<String> _mixedCorePatchFields(MaterialPatch patch) => <String>[
       if (patch.baseColorFactor != null) 'baseColorFactor',
