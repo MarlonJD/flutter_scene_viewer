@@ -497,6 +497,18 @@ final class FlutterSceneRuntimeAdapter implements FlutterSceneAdapter {
     final usesExtendedPbr = needsExtendedPbr &&
         (!usesNativeMaterialExtensionApplier ||
             combinesNativeClearcoatWithExtendedPbr);
+    if (usesExtendedPbr &&
+        target.primitive.material is flutter_scene.PhysicallyBasedMaterial &&
+        _hasNativeTransmissionVolumeState(
+          target.primitive.material as flutter_scene.PhysicallyBasedMaterial,
+        )) {
+      return <ViewerDiagnostic>[
+        _extendedPbrNativeTransmissionVolumeCombinationUnavailable(
+          address,
+          patch,
+        ),
+      ];
+    }
     if (usesNativeMaterialExtensionApplier) {
       final validationDiagnostics = patch.validate(
         address,
@@ -656,6 +668,8 @@ final class FlutterSceneRuntimeAdapter implements FlutterSceneAdapter {
         slot,
         address,
         allowExtendedPbrCoreTransform: usesExtendedPbr,
+        allowNativeTransmissionVolumeTransform:
+            usesNativeMaterialExtensionApplier,
       );
       textureBindingPlans[slot] = plan;
       final diagnostic = plan.diagnostic;
@@ -971,7 +985,7 @@ final class FlutterSceneRuntimeAdapter implements FlutterSceneAdapter {
             specularColorFactor: patch.specularColorFactor ??
                 currentExtended?.specularColorFactor ??
                 const <double>[1, 1, 1],
-            ior: patch.ior ?? currentExtended?.ior ?? 1.5,
+            ior: patch.ior ?? currentExtended?.ior ?? source.ior,
             specularFactorTexture: loadedSpecularTexture?.texture ??
                 currentExtended?.specularFactorTexture,
             specularColorTexture: loadedSpecularColorTexture?.texture ??
@@ -1030,20 +1044,21 @@ final class FlutterSceneRuntimeAdapter implements FlutterSceneAdapter {
           material: material as NativeMaterialExtensionMaterial,
           patch: patch,
           support: materialExtensionSupport,
+          transmissionTexture: loadedTransmissionTexture?.texture,
+          thicknessTexture: loadedThicknessTexture?.texture,
           clearcoatTexture: loadedClearcoatTexture?.texture,
           clearcoatRoughnessTexture: loadedClearcoatRoughnessTexture?.texture,
           clearcoatNormalTexture: loadedClearcoatNormalTexture?.texture,
         );
       }
-      if (material is flutter_scene.PhysicallyBasedMaterial &&
-          patch.hasClearcoatOverride &&
-          !patch.hasGlassOverride &&
-          patch.ior == null) {
+      if (material is flutter_scene.PhysicallyBasedMaterial) {
         final stagedMaterial = _copyPbrMaterial(material);
         final diagnostics = applyNativeMaterialExtensionPatch(
           material: _FlutterSceneNativeClearcoatMaterial(stagedMaterial),
           patch: patch,
           support: materialExtensionSupport,
+          transmissionTexture: loadedTransmissionTexture?.texture,
+          thicknessTexture: loadedThicknessTexture?.texture,
           clearcoatTexture: loadedClearcoatTexture?.texture,
           clearcoatRoughnessTexture: loadedClearcoatRoughnessTexture?.texture,
           clearcoatNormalTexture: loadedClearcoatNormalTexture?.texture,
@@ -1486,6 +1501,17 @@ final class FlutterSceneRuntimeAdapter implements FlutterSceneAdapter {
       // ignore: invalid_use_of_internal_member
       ..occlusionTexture = source.occlusionTextureSource
       ..occlusionStrength = source.occlusionStrength
+      // ignore: invalid_use_of_internal_member
+      ..transmissionTexture = source.transmissionTextureSource
+      ..transmissionFactor = source.transmissionFactor
+      ..transmissionTextureTransform = source.transmissionTextureTransform
+      ..ior = source.ior
+      // ignore: invalid_use_of_internal_member
+      ..thicknessTexture = source.thicknessTextureSource
+      ..thicknessFactor = source.thicknessFactor
+      ..thicknessTextureTransform = source.thicknessTextureTransform
+      ..attenuationDistance = source.attenuationDistance
+      ..attenuationColor = source.attenuationColor.clone()
       // ignore: invalid_use_of_internal_member
       ..clearcoatTexture = source.clearcoatTextureSource
       ..clearcoatFactor = source.clearcoatFactor
@@ -2052,25 +2078,48 @@ final class _FlutterSceneNativeClearcoatMaterial
       material.clearcoatNormalTexture = value as flutter_scene.TextureSource?;
 
   @override
-  set transmissionFactor(double value) =>
-      throw UnsupportedError('Renderer-native transmission is unavailable.');
+  set transmissionFactor(double value) => material.transmissionFactor = value;
 
   @override
-  set ior(double value) =>
-      throw UnsupportedError('Renderer-native IOR is unavailable.');
+  set transmissionTexture(Object? value) =>
+      material.transmissionTexture = value as flutter_scene.TextureSource?;
 
   @override
-  set thicknessFactor(double value) =>
-      throw UnsupportedError('Renderer-native volume is unavailable.');
+  set transmissionTextureTransform(TextureTransform value) =>
+      material.transmissionTextureTransform = _flutterSceneTransform(value);
 
   @override
-  set attenuationDistance(double value) =>
-      throw UnsupportedError('Renderer-native volume is unavailable.');
+  set ior(double value) => material.ior = value;
+
+  @override
+  set thicknessFactor(double value) => material.thicknessFactor = value;
+
+  @override
+  set thicknessTexture(Object? value) =>
+      material.thicknessTexture = value as flutter_scene.TextureSource?;
+
+  @override
+  set thicknessTextureTransform(TextureTransform value) =>
+      material.thicknessTextureTransform = _flutterSceneTransform(value);
+
+  @override
+  set attenuationDistance(double value) => material.attenuationDistance = value;
 
   @override
   set attenuationColor(List<double> value) =>
-      throw UnsupportedError('Renderer-native volume is unavailable.');
+      material.attenuationColor = vm.Vector3(value[0], value[1], value[2]);
 }
+
+flutter_scene.MaterialTextureTransform _flutterSceneTransform(
+  TextureTransform value,
+) =>
+    flutter_scene.MaterialTextureTransform(
+      offsetX: value.offsetX,
+      offsetY: value.offsetY,
+      rotation: value.rotation,
+      scaleX: value.scaleX,
+      scaleY: value.scaleY,
+    );
 
 final class _FlutterSceneRenderScene implements AdapterRenderScene {
   const _FlutterSceneRenderScene(
@@ -2440,12 +2489,15 @@ FlutterSceneTextureBindingPlan _flutterSceneTextureBindingPlan(
   MaterialTextureSlot slot,
   PartAddress address, {
   bool allowExtendedPbrCoreTransform = false,
+  bool allowNativeTransmissionVolumeTransform = false,
 }) {
   final diagnostic = flutterSceneTextureBindingDiagnostic(
     address: address,
     slot: slot,
     binding: binding,
     allowExtendedPbrCoreTransform: allowExtendedPbrCoreTransform,
+    allowNativeTransmissionVolumeTransform:
+        allowNativeTransmissionVolumeTransform,
   );
   if (diagnostic != null) {
     return (sampling: null, diagnostic: diagnostic);
@@ -2590,6 +2642,53 @@ bool _isIdentityTransform(TextureTransform transform) =>
     transform.scaleY == 1 &&
     transform.rotation == 0;
 
+bool _hasNativeTransmissionVolumeState(
+  flutter_scene.PhysicallyBasedMaterial material,
+) =>
+    material.transmissionFactor != 0 ||
+    material.transmissionTexture != null ||
+    material.thicknessFactor != 0 ||
+    material.thicknessTexture != null ||
+    material.attenuationDistance.isFinite ||
+    material.attenuationColor.x != 1 ||
+    material.attenuationColor.y != 1 ||
+    material.attenuationColor.z != 1;
+
+ViewerDiagnostic _extendedPbrNativeTransmissionVolumeCombinationUnavailable(
+  PartAddress address,
+  MaterialPatch patch,
+) =>
+    ViewerDiagnostic(
+      code: ViewerDiagnosticCode.unsupportedMaterialFeature,
+      message:
+          'FSViewerExtendedPbr cannot replace a renderer-native transmission or volume material without losing its glass state.',
+      details: <String, Object?>{
+        'part': address.debugPath,
+        'feature': flutterSceneExtendedPbrShaderName,
+        'limitation':
+            'extendedPbrNativeTransmissionVolumeCombinationUnsupported',
+        'specular': patch.hasSpecularOverride,
+        'transformedCore': _extendedPbrCoreSlots.any((slot) {
+          final binding = patch.textureBindingFor(slot);
+          return binding != null && !_isIdentityTransform(binding.transform);
+        }),
+        'preservedFields': const <String>[
+          'transmissionFactor',
+          'transmissionTexture',
+          'transmissionTextureTransform',
+          'ior',
+          'thicknessFactor',
+          'thicknessTexture',
+          'thicknessTextureTransform',
+          'attenuationDistance',
+          'attenuationColor',
+        ],
+        'status': 'blocked',
+        'materialReplaced': false,
+        'nextStep': 'implementCombinedRendererNativeExtendedPbrContract',
+      },
+    );
+
 ViewerDiagnostic _extendedPbrCombinationUnavailable(
   PartAddress address,
   MaterialPatch patch,
@@ -2639,7 +2738,7 @@ ViewerDiagnostic? _pinnedStandardPbrExtensionDiagnostic(
         'limitation': 'pinnedStandardPbrSpecularContractMissing',
         'backendKind': backendKind.name,
         'upstreamPackage': 'flutter_scene',
-        'upstreamRevision': 'ccf7372428961ebe0abb053727fe443150547a74',
+        'upstreamRevision': '5dcf6fce7dc36719e64e536faba9538fe9fa1022',
         'status': 'unsupported',
         'productionBlocker': 'rendererNativeSpecularContractMissing',
         'nextStep': 'implementRendererNativeSpecularContract',
@@ -2658,7 +2757,7 @@ ViewerDiagnostic? _pinnedStandardPbrExtensionDiagnostic(
         'limitation': 'pinnedStandardPbrOpaqueIorContractMissing',
         'backendKind': backendKind.name,
         'upstreamPackage': 'flutter_scene',
-        'upstreamRevision': 'ccf7372428961ebe0abb053727fe443150547a74',
+        'upstreamRevision': '5dcf6fce7dc36719e64e536faba9538fe9fa1022',
         'status': 'unsupported',
         'productionBlocker': 'rendererNativeOpaqueIorContractMissing',
         'nextStep': 'implementRendererNativeOpaqueIorContract',

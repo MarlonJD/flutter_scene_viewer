@@ -81,19 +81,39 @@ void main() {
     expect(capability.diagnostics, isEmpty);
   });
 
-  test('default native probe reports current renderer clearcoat support', () {
+  test('default native probe reports the complete selected renderer contract',
+      () {
     final capability = detectNativeMaterialExtensionCapability();
 
     expect(
       capability.support.backendKind,
       MaterialExtensionBackendKind.rendererNative,
     );
-    expect(
-      capability.support
-          .supportFor(MaterialExtensionFeature.clearcoat)
-          .available,
-      isTrue,
-    );
+    for (final feature in <MaterialExtensionFeature>[
+      MaterialExtensionFeature.transmission,
+      MaterialExtensionFeature.ior,
+      MaterialExtensionFeature.volume,
+      MaterialExtensionFeature.clearcoat,
+    ]) {
+      final support = capability.support.supportFor(feature);
+      expect(support.available, isTrue);
+      expect(
+        support.maturityFor(MaterialExtensionTarget.iosSimulator),
+        MaterialExtensionMaturity.releasePending,
+      );
+      expect(
+        support.evidenceFor(MaterialExtensionTarget.iosSimulator),
+        MaterialExtensionEvidenceStatus.verifiedLocally,
+      );
+      expect(
+        support.maturityFor(MaterialExtensionTarget.iosPhysical),
+        MaterialExtensionMaturity.diagnosticOnly,
+      );
+      expect(
+        support.evidenceFor(MaterialExtensionTarget.iosPhysical),
+        MaterialExtensionEvidenceStatus.notRun,
+      );
+    }
     expect(capability.support.productionReady, isFalse);
     expect(capability.support.claimedReleaseTargets, isEmpty);
   });

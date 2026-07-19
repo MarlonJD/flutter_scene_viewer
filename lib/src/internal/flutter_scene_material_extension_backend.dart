@@ -37,6 +37,7 @@ ViewerDiagnostic? flutterSceneTextureBindingDiagnostic({
   required MaterialTextureSlot slot,
   required MaterialTextureBinding binding,
   bool allowExtendedPbrCoreTransform = false,
+  bool allowNativeTransmissionVolumeTransform = false,
 }) {
   if (binding.sampler.wrapS != binding.sampler.wrapT) {
     return ViewerDiagnostic(
@@ -50,14 +51,16 @@ ViewerDiagnostic? flutterSceneTextureBindingDiagnostic({
         'slot': slot.name,
         'sampler': binding.sampler.toJson(),
         'upstreamPackage': 'flutter_scene',
-        'rendererRevision': 'ccf7372428961ebe0abb053727fe443150547a74',
+        'rendererRevision': '5dcf6fce7dc36719e64e536faba9538fe9fa1022',
         'status': 'blocked',
         'encodedBytesModified': false,
       },
     );
   }
   if (!_isIdentityTextureTransform(binding.transform) &&
-      !(allowExtendedPbrCoreTransform && _isExtendedPbrCoreSlot(slot))) {
+      !(allowExtendedPbrCoreTransform && _isExtendedPbrCoreSlot(slot)) &&
+      !(allowNativeTransmissionVolumeTransform &&
+          _isNativeTransmissionVolumeSlot(slot))) {
     return ViewerDiagnostic(
       code: ViewerDiagnosticCode.unsupportedMaterialFeature,
       message:
@@ -69,7 +72,7 @@ ViewerDiagnostic? flutterSceneTextureBindingDiagnostic({
         'slot': slot.name,
         'transform': binding.transform.toJson(),
         'upstreamPackage': 'flutter_scene',
-        'rendererRevision': 'ccf7372428961ebe0abb053727fe443150547a74',
+        'rendererRevision': '5dcf6fce7dc36719e64e536faba9538fe9fa1022',
         'status': 'blocked',
         'encodedBytesModified': false,
       },
@@ -87,7 +90,7 @@ ViewerDiagnostic? flutterSceneTextureBindingDiagnostic({
         'slot': slot.name,
         'texCoord': binding.effectiveTexCoord,
         'upstreamPackage': 'flutter_scene',
-        'rendererRevision': 'ccf7372428961ebe0abb053727fe443150547a74',
+        'rendererRevision': '5dcf6fce7dc36719e64e536faba9538fe9fa1022',
         'status': 'blocked',
         'encodedBytesModified': false,
       },
@@ -102,6 +105,10 @@ bool _isExtendedPbrCoreSlot(MaterialTextureSlot slot) =>
     slot == MaterialTextureSlot.normal ||
     slot == MaterialTextureSlot.occlusion ||
     slot == MaterialTextureSlot.emissive;
+
+bool _isNativeTransmissionVolumeSlot(MaterialTextureSlot slot) =>
+    slot == MaterialTextureSlot.transmission ||
+    slot == MaterialTextureSlot.thickness;
 
 bool _isIdentityTextureTransform(TextureTransform transform) =>
     transform.offsetX == 0 &&
@@ -1065,7 +1072,7 @@ final class FlutterSceneMaterialExtensionBackend {
         'maturity': 'candidate-only',
         'status': 'blocked',
         'upstreamPackage': 'flutter_scene',
-        'rendererRevision': 'ccf7372428961ebe0abb053727fe443150547a74',
+        'rendererRevision': '5dcf6fce7dc36719e64e536faba9538fe9fa1022',
         'nextStep': 'useRendererNativeTransmissionThatPreservesBasePbrPerTexel',
       },
     );
@@ -1096,7 +1103,7 @@ final class FlutterSceneMaterialExtensionBackend {
         'maturity': 'candidate-only',
         'status': 'blocked',
         'upstreamPackage': 'flutter_scene',
-        'rendererRevision': 'ccf7372428961ebe0abb053727fe443150547a74',
+        'rendererRevision': '5dcf6fce7dc36719e64e536faba9538fe9fa1022',
         'nextStep': 'useRendererNativeVolumeWithNodeTransformSupport',
       },
     );
@@ -1122,7 +1129,7 @@ final class FlutterSceneMaterialExtensionBackend {
         'maturity': 'candidate-only',
         'status': 'blocked',
         'upstreamPackage': 'flutter_scene',
-        'rendererRevision': 'ccf7372428961ebe0abb053727fe443150547a74',
+        'rendererRevision': '5dcf6fce7dc36719e64e536faba9538fe9fa1022',
         'nextStep': 'useRendererNativeIorZeroCompatibilityMode',
       },
     );
@@ -1162,7 +1169,7 @@ final class FlutterSceneMaterialExtensionBackend {
         'status': 'blocked',
         'sourceDoubleSided': true,
         'upstreamPackage': 'flutter_scene',
-        'rendererRevision': 'ccf7372428961ebe0abb053727fe443150547a74',
+        'rendererRevision': '5dcf6fce7dc36719e64e536faba9538fe9fa1022',
         'nextStep': 'useRendererNativeClearcoatWithDoubleSidedSupport',
       },
     );
@@ -1184,7 +1191,7 @@ final class FlutterSceneMaterialExtensionBackend {
         'slot': slot,
         'sourceType': source.runtimeType.toString(),
         'upstreamPackage': 'flutter_scene',
-        'rendererRevision': 'ccf7372428961ebe0abb053727fe443150547a74',
+        'rendererRevision': '5dcf6fce7dc36719e64e536faba9538fe9fa1022',
         'status': 'blocked',
         'nextStep': 'renderSourceFirstOrUseStaticTexture',
       },

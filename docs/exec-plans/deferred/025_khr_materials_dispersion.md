@@ -5,9 +5,9 @@
 > `superpowers:executing-plans` to implement this plan task-by-task. Steps use
 > checkbox (`- [ ]`) syntax for tracking.
 >
-> **Status (2026-07-16): deferred and dependency-blocked.** Plan 015 is
-> complete and no successor is active. Plan 016 renderer-native
-> transmission/volume must be completed before Plan 025 can be activated.
+> **Status (2026-07-17): deferred; native dependency satisfied.** Plans 015
+> and 016 are complete. Activation still requires explicit promotion and the
+> remaining Plan 025 feasibility/evidence gates; no implementation is implied.
 
 **Goal:** Render wavelength-dependent separation through clear volumes using
 the Khronos dispersion parameter, a bounded renderer-owned spectral
@@ -25,8 +25,9 @@ example, Filament refraction/dispersion implementation.
 
 ## Global Constraints
 
-- Do not start rendering work until Plan 016 is completed and its upstream pin
-  is reachable. Parsing-only work must remain diagnostic-only.
+- Do not start rendering work without explicit Plan 025 promotion. Plan 016's
+  reachable upstream pin satisfies only the native transport prerequisite;
+  parsing-only work must remain diagnostic-only until this plan is active.
 - Do not fake dispersion with post-process RGB edge offsets, screen-space
   chromatic aberration, or a rainbow texture.
 - Do not build an unbounded spectral/path renderer. The selected wavelength
@@ -173,6 +174,10 @@ Paths relative to the separate upstream checkout:
 
 ## Progress Log
 
+- 2026-07-17: Plan 016's published immutable native transmission/volume/IOR
+  pin and iOS Simulator evidence satisfy this plan's first dependency gate.
+  Plan 025 remains deferred and all dispersion implementation/evidence items
+  remain unchecked.
 - 2026-07-16: Created as deferred behind Plan 016. Implementation and target
   evidence are `not run`.
 

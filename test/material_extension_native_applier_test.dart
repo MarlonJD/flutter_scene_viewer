@@ -85,24 +85,44 @@ void main() {
     expect(material.transmissionValue, isNull);
   });
 
-  test('rejects extension textures without a native renderer contract', () {
+  test('applies transmission and thickness textures with UV transforms', () {
+    final material = FakeNativeMaterialExtensionMaterial();
+    final transmissionTexture = Object();
+    final thicknessTexture = Object();
+    final transmissionTransform = TextureTransform(
+      offset: <double>[0.1, 0.2],
+      rotation: 0.3,
+    );
+    final thicknessTransform = TextureTransform(
+      scale: <double>[0.5, 0.75],
+    );
+
+    final diagnostics = applyNativeMaterialExtensionPatch(
+      material: material,
+      patch: MaterialPatch(
+        transmissionTextureBinding: MaterialTextureBinding(
+          source: const TextureSource.asset('assets/transmission.png'),
+          transform: transmissionTransform,
+        ),
+        thicknessTextureBinding: MaterialTextureBinding(
+          source: const TextureSource.asset('assets/thickness.png'),
+          transform: thicknessTransform,
+        ),
+      ),
+      support: rendererNativeSupport,
+      transmissionTexture: transmissionTexture,
+      thicknessTexture: thicknessTexture,
+    );
+
+    expect(diagnostics, isEmpty);
+    expect(material.transmissionTextureValue, same(transmissionTexture));
+    expect(material.transmissionTextureTransformValue, transmissionTransform);
+    expect(material.thicknessTextureValue, same(thicknessTexture));
+    expect(material.thicknessTextureTransformValue, thicknessTransform);
+  });
+
+  test('rejects specular textures without a native renderer contract', () {
     final cases = <({String slot, MaterialPatch patch})>[
-      (
-        slot: 'transmission',
-        patch: MaterialPatch(
-          transmissionTextureBinding: MaterialTextureBinding(
-            source: const TextureSource.asset('assets/transmission.png'),
-          ),
-        ),
-      ),
-      (
-        slot: 'thickness',
-        patch: MaterialPatch(
-          thicknessTextureBinding: MaterialTextureBinding(
-            source: const TextureSource.asset('assets/thickness.png'),
-          ),
-        ),
-      ),
       (
         slot: 'specular',
         patch: MaterialPatch(
@@ -150,8 +170,9 @@ void main() {
     }
   });
 
-  test('extension texture binding keeps mixed native patch atomic', () {
+  test('extension texture binding composes with scalar native state', () {
     final material = FakeNativeMaterialExtensionMaterial();
+    final thicknessTexture = Object();
 
     final diagnostics = applyNativeMaterialExtensionPatch(
       material: material,
@@ -162,13 +183,12 @@ void main() {
         ),
       ),
       support: rendererNativeSupport,
+      thicknessTexture: thicknessTexture,
     );
 
-    expect(diagnostics, hasLength(1));
-    expect(diagnostics.single.details['limitation'],
-        'rendererNativeExtensionTextureContractMissing');
-    expect(material.setterCalls, isEmpty);
-    expect(material.transmissionValue, isNull);
+    expect(diagnostics, isEmpty);
+    expect(material.transmissionValue, 0.8);
+    expect(material.thicknessTextureValue, same(thicknessTexture));
   });
 
   test('rejects scalar and color specular without a native contract', () {
@@ -193,7 +213,7 @@ void main() {
     }
   });
 
-  test('mixed core and native extension patch is atomic', () {
+  test('mixed core and native extension patch passes native preflight', () {
     final material = FakeNativeMaterialExtensionMaterial();
 
     final diagnostics = applyNativeMaterialExtensionPatch(
@@ -208,15 +228,8 @@ void main() {
       support: rendererNativeSupport,
     );
 
-    expect(diagnostics, hasLength(1));
-    expect(diagnostics.single.details['limitation'],
-        'rendererNativeMixedCoreExtensionPatchUnsupported');
-    expect(
-      diagnostics.single.details['fields'],
-      containsAll(<String>['baseColorFactor', 'baseColorTexture']),
-    );
-    expect(material.setterCalls, isEmpty);
-    expect(material.transmissionValue, isNull);
+    expect(diagnostics, isEmpty);
+    expect(material.transmissionValue, 1.0);
   });
 
   test('mixed core and native clearcoat patch is accepted', () {
@@ -268,6 +281,10 @@ final class FakeNativeMaterialExtensionMaterial
   Object? _clearcoatTexture;
   Object? _clearcoatRoughnessTexture;
   Object? _clearcoatNormalTexture;
+  Object? _transmissionTexture;
+  TextureTransform? _transmissionTextureTransform;
+  Object? _thicknessTexture;
+  TextureTransform? _thicknessTextureTransform;
 
   double? get transmissionValue => _transmissionFactor;
   double? get iorValue => _ior;
@@ -280,6 +297,12 @@ final class FakeNativeMaterialExtensionMaterial
   Object? get clearcoatTextureValue => _clearcoatTexture;
   Object? get clearcoatRoughnessTextureValue => _clearcoatRoughnessTexture;
   Object? get clearcoatNormalTextureValue => _clearcoatNormalTexture;
+  Object? get transmissionTextureValue => _transmissionTexture;
+  TextureTransform? get transmissionTextureTransformValue =>
+      _transmissionTextureTransform;
+  Object? get thicknessTextureValue => _thicknessTexture;
+  TextureTransform? get thicknessTextureTransformValue =>
+      _thicknessTextureTransform;
 
   @override
   set transmissionFactor(double value) {
@@ -297,6 +320,30 @@ final class FakeNativeMaterialExtensionMaterial
   set thicknessFactor(double value) {
     setterCalls.add('thicknessFactor');
     _thicknessFactor = value;
+  }
+
+  @override
+  set transmissionTexture(Object? value) {
+    setterCalls.add('transmissionTexture');
+    _transmissionTexture = value;
+  }
+
+  @override
+  set transmissionTextureTransform(TextureTransform value) {
+    setterCalls.add('transmissionTextureTransform');
+    _transmissionTextureTransform = value;
+  }
+
+  @override
+  set thicknessTexture(Object? value) {
+    setterCalls.add('thicknessTexture');
+    _thicknessTexture = value;
+  }
+
+  @override
+  set thicknessTextureTransform(TextureTransform value) {
+    setterCalls.add('thicknessTextureTransform');
+    _thicknessTextureTransform = value;
   }
 
   @override

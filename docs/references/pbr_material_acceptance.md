@@ -20,13 +20,19 @@ separate direct/IBL/combined passes, PBR Neutral, sRGB output, and the complete
 renderer coordinate mapping. It supplements rather than silently changes the
 general `reference_state.json` contract.
 
+Plan 016 transmission/volume evidence uses
+[`plan016_controlled_comparison_state.json`](../../tools/material_extension_acceptance/fixtures/plan016_controlled_comparison_state.json).
+It adds fixed thin/positive-volume, attenuation, IOR, roughness, normal,
+texture-channel, node-scale, and combined-clearcoat controls plus pinned
+Khronos TransmissionTest, AttenuationTest, GlassVaseFlowers, and ToyCar assets.
+
 ## Authority and ownership
 
 | Question | Owner and evidence |
 | --- | --- |
 | glTF fields, defaults, channels, color spaces, and extension semantics | Khronos [glTF 2.0 Materials](https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#materials) and the applicable ratified Khronos extension |
 | Viewer configuration, validation, persistence, diagnostics, and evidence labels | `flutter_scene_viewer` public types, adapter, tests, and acceptance fixtures |
-| Current BRDF, IBL, exposure, tone mapping, and GPU implementation | `flutter_scene` 0.18.1 pinned at `ccf7372428961ebe0abb053727fe443150547a74`, plus target evidence |
+| Current BRDF, IBL, exposure, tone mapping, and GPU implementation | `flutter_scene` 0.18.1 pinned at `5dcf6fce7dc36719e64e536faba9538fe9fa1022`, plus target evidence |
 | Real-time shading audit direction | Filament material-system documentation and Karis, *Real Shading in Unreal Engine 4* (2013) |
 | Atmosphere and participating-media direction | Frostbite sky/cloud references only; never glTF material definitions |
 
@@ -37,20 +43,20 @@ Neutral tone mapping, GGX/Smith/Schlick direct lighting, and roughness-aware
 split-sum IBL. These are renderer facts, not proof that Filament or Unreal
 Engine is the backend:
 
-- [`flutter_scene` platform identity](https://github.com/MarlonJD/flutter_scene/blob/ccf7372428961ebe0abb053727fe443150547a74/packages/flutter_scene/README.md)
-- [`Scene` environment, exposure, and tone-mapping defaults](https://github.com/MarlonJD/flutter_scene/blob/ccf7372428961ebe0abb053727fe443150547a74/packages/flutter_scene/lib/src/scene.dart)
-- [procedural `EnvironmentMap.studio()`](https://github.com/MarlonJD/flutter_scene/blob/ccf7372428961ebe0abb053727fe443150547a74/packages/flutter_scene/lib/src/material/environment.dart)
-- [direct, split-sum, and clearcoat lighting](https://github.com/MarlonJD/flutter_scene/blob/ccf7372428961ebe0abb053727fe443150547a74/packages/flutter_scene/shaders/material_lighting.glsl)
-- [GGX, correlated Smith visibility, and Schlick Fresnel helpers](https://github.com/MarlonJD/flutter_scene/blob/ccf7372428961ebe0abb053727fe443150547a74/packages/flutter_scene/shaders/pbr.glsl)
+- [`flutter_scene` platform identity](https://github.com/MarlonJD/flutter_scene/blob/5dcf6fce7dc36719e64e536faba9538fe9fa1022/packages/flutter_scene/README.md)
+- [`Scene` environment, exposure, and tone-mapping defaults](https://github.com/MarlonJD/flutter_scene/blob/5dcf6fce7dc36719e64e536faba9538fe9fa1022/packages/flutter_scene/lib/src/scene.dart)
+- [procedural `EnvironmentMap.studio()`](https://github.com/MarlonJD/flutter_scene/blob/5dcf6fce7dc36719e64e536faba9538fe9fa1022/packages/flutter_scene/lib/src/material/environment.dart)
+- [direct, split-sum, clearcoat, and transmission lighting](https://github.com/MarlonJD/flutter_scene/blob/5dcf6fce7dc36719e64e536faba9538fe9fa1022/packages/flutter_scene/shaders/material_lighting.glsl)
+- [GGX, correlated Smith visibility, and Schlick Fresnel helpers](https://github.com/MarlonJD/flutter_scene/blob/5dcf6fce7dc36719e64e536faba9538fe9fa1022/packages/flutter_scene/shaders/pbr.glsl)
 
 Re-check these pinned paths whenever the dependency revision changes. A
 reference paper or a matching equation never proves behavior on a target.
 
-Plan 015 evidence uses published `flutter_scene` revision
-`ccf7372428961ebe0abb053727fe443150547a74`, which is also the viewer's
+Plans 015 and 016 use published `flutter_scene` revision
+`5dcf6fce7dc36719e64e536faba9538fe9fa1022`, which is also the viewer's
 immutable Git dependency. That revision is the renderer authority for the
-recorded clearcoat captures; Simulator evidence still does not establish
-physical-device or cross-platform release capability.
+recorded clearcoat and transmission/volume captures; Simulator evidence still
+does not establish physical-device or cross-platform release capability.
 
 ## Fixed capture state
 
@@ -84,6 +90,7 @@ parts and present the result as a normal product-viewer state.
 | Dielectric specular and opaque IOR | Increasing dielectric IOR increases normal-incidence Fresnel reflectance according to the Khronos IOR model. Specular controls affect dielectric response; they must not be treated as a metallic substitute or classify opaque IOR as glass. |
 | Roughness | Increasing roughness broadens and softens direct highlights and prefiltered environment reflections. Judge lobe shape and reflection detail, not an arbitrary pixel-brightness threshold; renderer energy compensation can change peak and integrated brightness differently. |
 | Clearcoat | Increasing clearcoat produces a distinct second dielectric lobe with its own roughness and normal trend while attenuating the visible base by coat Fresnel. A brighter unrelated overlay, lowered base roughness, or boosted environment is not acceptance. |
+| Transmission and volume | Transmission reveals and refracts opaque scene color without changing alpha-as-coverage; factor zero preserves the ordinary lit base. Positive thickness responds to green-channel texture and node/world scale, attenuation color/distance changes transmitted energy, roughness blurs refraction, normal maps move it, metals do not transmit, and exact `ior == 0` retains the Khronos compatibility behavior. |
 | Direct and image-based lighting | The material classification, Fresnel, metallic separation, roughness ordering, and clearcoat layering must remain directionally consistent under the analytic key light and the renderer's split-sum IBL. Direct and IBL images are not expected to be numerically identical. |
 
 Transmission, volume, specular, IOR, or clearcoat support still requires a real

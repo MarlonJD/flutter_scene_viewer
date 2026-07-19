@@ -492,6 +492,52 @@ void main() {
     expect(adapter.configuredEnvironmentFrames.single.assetPath, isNull);
   });
 
+  testWidgets('programmatic model loads reconfigure the active environment',
+      (tester) async {
+    final controller = FlutterSceneViewerController();
+    final adapter = FakeViewerAdapter(
+      snapshot: AdapterNodeSnapshot(name: 'Root', primitiveCount: 1),
+      renderScene: RecordingRenderScene(),
+    );
+    const environment = ViewerEnvironment.rawAsset(
+      'assets/env/controlled.hdr',
+      format: ViewerEnvironmentFileFormat.hdr,
+    );
+
+    await tester.pumpWidget(
+      Directionality(
+        textDirection: TextDirection.ltr,
+        child: FlutterSceneViewer.test(
+          source: source,
+          adapter: adapter,
+          controller: controller,
+          environment: environment,
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(adapter.configuredEnvironmentFrames, hasLength(1));
+
+    await controller.load(
+      ModelSource.bytes(Uint8List.fromList(<int>[4, 5, 6])),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(adapter.loadCalls, 2);
+    expect(adapter.configuredEnvironmentFrames, hasLength(2));
+    expect(
+      adapter.configuredEnvironmentFrames.every(
+        (frame) =>
+            frame.kind == RenderEnvironmentKind.rawAsset &&
+            frame.assetPath == 'assets/env/controlled.hdr',
+      ),
+      isTrue,
+    );
+  });
+
   testWidgets(
       'viewer passes changed asset environment and requests a render frame',
       (tester) async {

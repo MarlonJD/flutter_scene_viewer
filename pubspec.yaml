@@ -18,7 +18,7 @@ dependencies:
   flutter_scene:
     git:
       url: https://github.com/MarlonJD/flutter_scene.git
-      ref: ccf7372428961ebe0abb053727fe443150547a74
+      ref: 5dcf6fce7dc36719e64e536faba9538fe9fa1022
       path: packages/flutter_scene
   hooks: ^2.0.0
   http: ^1.2.2

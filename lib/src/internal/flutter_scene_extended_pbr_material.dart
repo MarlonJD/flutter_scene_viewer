@@ -221,7 +221,7 @@ final class FlutterSceneExtendedPbrMaterial extends flutter_scene
         const <MaterialTextureSlot, TextureTransform>{},
     this.specularFactor = 1,
     List<double> specularColorFactor = const <double>[1, 1, 1],
-    this.ior = 1.5,
+    double ior = 1.5,
     this.specularFactorTexture,
     this.specularColorTexture,
   })  : transforms = Map<MaterialTextureSlot, TextureTransform>.unmodifiable(
@@ -234,6 +234,7 @@ final class FlutterSceneExtendedPbrMaterial extends flutter_scene
       ior: ior,
     );
     _copyPbrState(source, this);
+    this.ior = ior;
     setFragmentShader(fragmentShader);
   }
 
@@ -243,8 +244,6 @@ final class FlutterSceneExtendedPbrMaterial extends flutter_scene
   final double specularFactor;
   @override
   final List<double> specularColorFactor;
-  @override
-  final double ior;
   @override
   final flutter_scene.TextureSource? specularFactorTexture;
   @override

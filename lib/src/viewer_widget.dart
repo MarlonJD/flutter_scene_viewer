@@ -208,6 +208,10 @@ class _FlutterSceneViewerState extends State<FlutterSceneViewer>
 
   @override
   Future<ModelLoadResult> load(ModelSource source) async {
+    // A programmatic controller load replaces the adapter's concrete scene
+    // without rebuilding this widget. Re-run the active environment against
+    // that new scene when the controller reaches success.
+    _resetEnvironmentConfigurationAttempt();
     final result = await _loader.load(
       source,
       materialShadingPolicy: widget.materialShadingPolicy,

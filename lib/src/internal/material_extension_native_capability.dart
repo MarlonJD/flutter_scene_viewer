@@ -26,6 +26,8 @@ NativeMaterialExtensionCapability detectNativeMaterialExtensionCapability({
   RendererMaterialExtensionProbe rendererProbe =
       const CurrentFlutterSceneMaterialExtensionProbe(),
 }) {
+  final hasCurrentTargetEvidence =
+      rendererProbe is CurrentFlutterSceneMaterialExtensionProbe;
   final availability = <MaterialExtensionFeature, bool>{
     MaterialExtensionFeature.transmission: rendererProbe.hasTransmission,
     MaterialExtensionFeature.ior: rendererProbe.hasIor,
@@ -39,7 +41,25 @@ NativeMaterialExtensionCapability detectNativeMaterialExtensionCapability({
         features: <MaterialExtensionFeature, MaterialExtensionFeatureSupport>{
           for (final entry in availability.entries)
             entry.key: entry.value
-                ? MaterialExtensionFeatureSupport(available: true)
+                ? MaterialExtensionFeatureSupport(
+                    available: true,
+                    maturityByTarget: hasCurrentTargetEvidence
+                        ? const <MaterialExtensionTarget,
+                            MaterialExtensionMaturity>{
+                            MaterialExtensionTarget.iosSimulator:
+                                MaterialExtensionMaturity.releasePending,
+                          }
+                        : const <MaterialExtensionTarget,
+                            MaterialExtensionMaturity>{},
+                    evidenceByTarget: hasCurrentTargetEvidence
+                        ? const <MaterialExtensionTarget,
+                            MaterialExtensionEvidenceStatus>{
+                            MaterialExtensionTarget.iosSimulator:
+                                MaterialExtensionEvidenceStatus.verifiedLocally,
+                          }
+                        : const <MaterialExtensionTarget,
+                            MaterialExtensionEvidenceStatus>{},
+                  )
                 : MaterialExtensionFeatureSupport.unsupported,
         },
       ),
@@ -69,22 +89,21 @@ NativeMaterialExtensionCapability detectNativeMaterialExtensionCapability({
 
 /// Current installed renderer probe.
 ///
-/// Plan 015's renderer revision exposes the complete selected clearcoat
-/// contract and the stable dependency pin now resolves that published commit.
-/// The remaining extension fields stay unavailable until their own upstream
-/// plans land.
+/// Plan 016's selected renderer contract exposes transmission, volume, glass
+/// IOR, and clearcoat. Release maturity remains evidence-driven and separate
+/// from this compile-time API capability probe.
 final class CurrentFlutterSceneMaterialExtensionProbe
     implements RendererMaterialExtensionProbe {
   const CurrentFlutterSceneMaterialExtensionProbe();
 
   @override
-  bool get hasTransmission => false;
+  bool get hasTransmission => true;
 
   @override
-  bool get hasIor => false;
+  bool get hasIor => true;
 
   @override
-  bool get hasVolume => false;
+  bool get hasVolume => true;
 
   @override
   bool get hasClearcoat => true;

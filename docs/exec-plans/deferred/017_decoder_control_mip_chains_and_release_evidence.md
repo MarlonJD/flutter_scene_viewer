@@ -7,7 +7,7 @@
 > reopen Plan 014's accepted `FSViewerExtendedPbr` UV/specular/opaque-IOR
 > implementation, and it does not absorb renderer-native clearcoat or glass;
 > those remain in [Plan 015](../completed/015_renderer_native_clearcoat.md) and
-> [Plan 016](016_renderer_native_transmission_volume.md).
+> [Plan 016](../completed/016_renderer_native_transmission_volume.md).
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use
 > `superpowers:subagent-driven-development` (recommended) or

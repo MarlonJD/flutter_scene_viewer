@@ -1,0 +1,379 @@
+{
+  "schemaVersion": 1,
+  "name": "plan016_renderer_native_transmission_volume_controlled_comparison",
+  "viewport": {
+    "logicalWidth": 402,
+    "logicalHeight": 874,
+    "devicePixelRatio": 3
+  },
+  "background": {
+    "srgbHex": "#121118"
+  },
+  "camera": {
+    "fit": "frozenCanonicalBoundingSphere",
+    "verticalFovDegrees": 60.0,
+    "fitPadding": 1.08,
+    "yawRadians": 0.0,
+    "pitchRadians": 0.08,
+    "near": 0.1,
+    "far": 1000.0
+  },
+  "frames": {
+    "synthetic": {
+      "centerFlutterSceneWorld": [0.0, 0.0, -0.21000000000000008],
+      "radius": 2.8659553381028116
+    },
+    "transmission_test": {
+      "centerFlutterSceneWorld": [-0.075062096118927, 0.11027274478692561, -0.4235001690685749],
+      "radius": 1.401720660233885
+    },
+    "attenuation_test": {
+      "centerFlutterSceneWorld": [0.0, 0.0, 0.0],
+      "radius": 14.2828568570857
+    },
+    "glass_vase_flowers": {
+      "centerFlutterSceneWorld": [0.05511988415999999, 0.1016096797557014, -0.002954322260000003],
+      "radius": 0.16493224654639055
+    },
+    "toycar": {
+      "centerFlutterSceneWorld": [0.0017263685500000028, -0.0017948260093168921, 3.4542460662645436e-9],
+      "radius": 0.054071809790058344
+    }
+  },
+  "rendererCoordinateMapping": {
+    "flutterSceneImportedGltfRoot": "mirrorZ",
+    "threejsFromFlutterSceneWorld": "mirrorZCameraLightEnvironmentAndBackdrop"
+  },
+  "environment": {
+    "kind": "generatedRadianceHdr",
+    "generator": "plan015_controlled_studio_v1_reused_exact_bytes",
+    "width": 512,
+    "height": 256,
+    "sha256": "ef94e6aa0de3e5703a245f2e18dfd3b7bf8e07a24a794395cd50bd6e746e6a4a",
+    "worldOrientation": "flutterSceneWorldAtanZOverX",
+    "threejsLongitudeCorrection": "mirrorDecodedColumns",
+    "intensity": 1.0,
+    "rotationRadians": 0.0,
+    "showSkybox": false
+  },
+  "lighting": {
+    "exposure": 1.0,
+    "ambientOcclusion": false,
+    "keyLightIntensity": 3.0,
+    "keyLightColorLinear": [1.0, 1.0, 1.0],
+    "keyLightDirection": [-0.45, -0.85, -0.35],
+    "keyLightCastsShadow": false
+  },
+  "renderPasses": ["directOnly", "iblOnly", "combined"],
+  "toneMapping": "pbrNeutral",
+  "outputColorSpace": "sRGB",
+  "referenceRenderer": {
+    "name": "Three.js",
+    "packageVersion": "0.167.1",
+    "revision": "167",
+    "packageIntegrity": "sha512-gYTLJA/UQip6J/tJvl91YYqlZF47+D/kxiWrbTon35ZHlXEN0VOo+Qke2walF1/x92v55H6enomymg4Dak52kw==",
+    "packageLockPath": "tools/reference_renderers/threejs_material_extension_fixture/package-lock.json",
+    "packageLockSha256": "9f8355fc951b35917e7275513a329a5d446611e6655b5ec2933ab766e0c94c2a"
+  },
+  "assetSources": {
+    "khronos": {
+      "repository": "KhronosGroup/glTF-Sample-Assets",
+      "commit": "2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf"
+    },
+    "synthetic": {
+      "generatorPath": "tools/reference_renderers/threejs_material_extension_fixture/generate_plan016_controlled_glass_fixtures.mjs",
+      "generatorSha256": "527e1fecedb8ed3a4c3946d661a6c4a965edb433f98cff9736c817395bd893e6",
+      "license": "repository test fixture"
+    }
+  },
+  "models": {
+    "control_transmission_off": {
+      "kind": "synthetic",
+      "path": "tools/out/material_extension_acceptance/plan016_renderer_native_transmission/synthetic/control_transmission_off.glb",
+      "sha256": "60fc90ca0409e3fe39c55b32ee5cb2cbb98134f6387ac53d92320fbe67074403",
+      "byteLength": 57576,
+      "extensions": ["KHR_materials_transmission", "KHR_materials_volume", "KHR_materials_ior"],
+      "sourceBoundsThree": {"center": [0.0, 0.0, 0.29000000000000004], "radius": 2.8285862192975486},
+      "cameraFrame": "synthetic",
+      "materialAssertionProfile": "control_transmission_off"
+    },
+    "control_thin": {
+      "kind": "synthetic",
+      "path": "tools/out/material_extension_acceptance/plan016_renderer_native_transmission/synthetic/control_thin.glb",
+      "sha256": "e1ff1660d400014e79c97774626dfbe53a8036e6b597c69e7eb577a1531695f7",
+      "byteLength": 57564,
+      "extensions": ["KHR_materials_transmission", "KHR_materials_volume", "KHR_materials_ior"],
+      "sourceBoundsThree": {"center": [0.0, 0.0, 0.29000000000000004], "radius": 2.8285862192975486},
+      "cameraFrame": "synthetic",
+      "materialAssertionProfile": "controlled_default"
+    },
+    "control_ior_low": {
+      "kind": "synthetic",
+      "path": "tools/out/material_extension_acceptance/plan016_renderer_native_transmission/synthetic/control_ior_low.glb",
+      "sha256": "95dcc07e64dd267a985302e76317bf7a58b5b00b40fd5cf227197142d796db03",
+      "byteLength": 57572,
+      "extensions": ["KHR_materials_transmission", "KHR_materials_volume", "KHR_materials_ior"],
+      "sourceBoundsThree": {"center": [0.0, 0.0, 0.29000000000000004], "radius": 2.8285862192975486},
+      "cameraFrame": "synthetic",
+      "materialAssertionProfile": "control_ior_low"
+    },
+    "control_ior_high": {
+      "kind": "synthetic",
+      "path": "tools/out/material_extension_acceptance/plan016_renderer_native_transmission/synthetic/control_ior_high.glb",
+      "sha256": "2e2e690e891f67efad8a721354a5e2c6a5216511d68756037d8a2cf7fb947895",
+      "byteLength": 57568,
+      "extensions": ["KHR_materials_transmission", "KHR_materials_volume", "KHR_materials_ior"],
+      "sourceBoundsThree": {"center": [0.0, 0.0, 0.29000000000000004], "radius": 2.8285862192975486},
+      "cameraFrame": "synthetic",
+      "materialAssertionProfile": "control_ior_high"
+    },
+    "control_volume": {
+      "kind": "synthetic",
+      "path": "tools/out/material_extension_acceptance/plan016_renderer_native_transmission/synthetic/control_volume.glb",
+      "sha256": "4e99716f3b52679146752c6aac01a082cd41f1ba886b9b518e725f77bd0569d0",
+      "byteLength": 57568,
+      "extensions": ["KHR_materials_transmission", "KHR_materials_volume", "KHR_materials_ior"],
+      "sourceBoundsThree": {"center": [0.0, 0.0, 0.29000000000000004], "radius": 2.8285862192975486},
+      "cameraFrame": "synthetic",
+      "materialAssertionProfile": "control_volume"
+    },
+    "control_attenuation_tinted": {
+      "kind": "synthetic",
+      "path": "tools/out/material_extension_acceptance/plan016_renderer_native_transmission/synthetic/control_attenuation_tinted.glb",
+      "sha256": "50f10743b9766e4ee09bcc37fa88a99a08dfb4c9a124a69a4978a2f420e8132a",
+      "byteLength": 57644,
+      "extensions": ["KHR_materials_transmission", "KHR_materials_volume", "KHR_materials_ior"],
+      "sourceBoundsThree": {"center": [0.0, 0.0, 0.29000000000000004], "radius": 2.8285862192975486},
+      "cameraFrame": "synthetic",
+      "materialAssertionProfile": "control_attenuation_tinted"
+    },
+    "control_rough_high": {
+      "kind": "synthetic",
+      "path": "tools/out/material_extension_acceptance/plan016_renderer_native_transmission/synthetic/control_rough_high.glb",
+      "sha256": "a3e8049f20be5efeb4e19e86d95b715d356b8c23f48cf51e40bf1330c311b363",
+      "byteLength": 57568,
+      "extensions": ["KHR_materials_transmission", "KHR_materials_volume", "KHR_materials_ior"],
+      "sourceBoundsThree": {"center": [0.0, 0.0, 0.29000000000000004], "radius": 2.8285862192975486},
+      "cameraFrame": "synthetic",
+      "materialAssertionProfile": "control_rough_high"
+    },
+    "control_normal_tilted": {
+      "kind": "synthetic",
+      "path": "tools/out/material_extension_acceptance/plan016_renderer_native_transmission/synthetic/control_normal_tilted.glb",
+      "sha256": "1cbb032df999a38766bc27833cf6646e27f16a5aa2719e77514f67bd555cdc6d",
+      "byteLength": 57624,
+      "extensions": ["KHR_materials_transmission", "KHR_materials_volume", "KHR_materials_ior"],
+      "sourceBoundsThree": {"center": [0.0, 0.0, 0.29000000000000004], "radius": 2.8285862192975486},
+      "cameraFrame": "synthetic",
+      "materialAssertionProfile": "control_normal_tilted"
+    },
+    "control_texture_channels": {
+      "kind": "synthetic",
+      "path": "tools/out/material_extension_acceptance/plan016_renderer_native_transmission/synthetic/control_texture_channels.glb",
+      "sha256": "296298703510ac7c8a3bcaa85c5db869a2bdab7eb770f18ba45d7592156245fc",
+      "byteLength": 57888,
+      "extensions": ["KHR_materials_transmission", "KHR_materials_volume", "KHR_materials_ior", "KHR_texture_transform"],
+      "sourceBoundsThree": {"center": [0.0, 0.0, 0.29000000000000004], "radius": 2.8285862192975486},
+      "cameraFrame": "synthetic",
+      "materialAssertionProfile": "control_texture_channels"
+    },
+    "control_scale_one": {
+      "kind": "synthetic",
+      "path": "tools/out/material_extension_acceptance/plan016_renderer_native_transmission/synthetic/control_scale_one.glb",
+      "sha256": "bc582e27aee33dabf1227245554d14343318e852ea572b46a2fbe35b31a9cd99",
+      "byteLength": 57640,
+      "extensions": ["KHR_materials_transmission", "KHR_materials_volume", "KHR_materials_ior"],
+      "sourceBoundsThree": {"center": [0.0, 0.0, 0.4], "radius": 2.7801438811687427},
+      "cameraFrame": "synthetic",
+      "materialAssertionProfile": "control_scale"
+    },
+    "control_scale_two": {
+      "kind": "synthetic",
+      "path": "tools/out/material_extension_acceptance/plan016_renderer_native_transmission/synthetic/control_scale_two.glb",
+      "sha256": "6321df09de4a438c88128a7069e2b7c7300f99cd7963aee6253c5c258eaf645d",
+      "byteLength": 57640,
+      "extensions": ["KHR_materials_transmission", "KHR_materials_volume", "KHR_materials_ior"],
+      "sourceBoundsThree": {"center": [0.0, 0.0, 0.21000000000000008], "radius": 2.8659553381028116},
+      "cameraFrame": "synthetic",
+      "materialAssertionProfile": "control_scale"
+    },
+    "control_combined_clearcoat": {
+      "kind": "synthetic",
+      "path": "tools/out/material_extension_acceptance/plan016_renderer_native_transmission/synthetic/control_combined_clearcoat.glb",
+      "sha256": "88f6a5723ec20e88ff3408a336d005a057fbfb5ef472f42cebd048eeab12a055",
+      "byteLength": 57756,
+      "extensions": ["KHR_materials_transmission", "KHR_materials_volume", "KHR_materials_ior", "KHR_materials_clearcoat"],
+      "sourceBoundsThree": {"center": [0.0, 0.0, 0.29000000000000004], "radius": 2.8285862192975486},
+      "cameraFrame": "synthetic",
+      "materialAssertionProfile": "control_combined_clearcoat"
+    },
+    "transmission_test": {
+      "kind": "khronos",
+      "path": "tools/out/material_extension_acceptance/plan016_renderer_native_transmission/transmission_test/TransmissionTest.glb",
+      "sha256": "dd9732dae5517f8605ad4324d78b077b969c3e8357c056280d0a4e4b67797d15",
+      "byteLength": 1473792,
+      "licensePath": "tools/out/material_extension_acceptance/plan016_renderer_native_transmission/transmission_test/LICENSE.md",
+      "licenseSha256": "4c9368eae47434b8376a2bb8f550eed4f80798ef9e7ac8743a268d8b46776a0d",
+      "sourcePath": "Models/TransmissionTest/glTF-Binary/TransmissionTest.glb",
+      "extensions": ["KHR_materials_transmission", "KHR_xmp"],
+      "sourceBoundsThree": {"center": [-0.075062096118927, 0.11027274478692561, 0.4235001690685749], "radius": 1.401720660233885},
+      "cameraFrame": "transmission_test",
+      "materialAssertionProfile": "transmission_test"
+    },
+    "attenuation_test": {
+      "kind": "khronos",
+      "path": "tools/out/material_extension_acceptance/plan016_renderer_native_transmission/attenuation_test/AttenuationTest.glb",
+      "sha256": "7ca161b7f8a9e4b2ac1f7f75816b5848bb31f3b4c226c4cb731b487c8809b756",
+      "byteLength": 57532,
+      "licensePath": "tools/out/material_extension_acceptance/plan016_renderer_native_transmission/attenuation_test/LICENSE.md",
+      "licenseSha256": "0235f6ae8126cf61acc7e304224f21fe509993dd4e40a3c0202b88f06bc24779",
+      "sourcePath": "Models/AttenuationTest/glTF-Binary/AttenuationTest.glb",
+      "extensions": ["KHR_materials_transmission", "KHR_materials_volume"],
+      "sourceBoundsThree": {"center": [0.0, 0.0, 0.0], "radius": 14.2828568570857},
+      "cameraFrame": "attenuation_test",
+      "materialAssertionProfile": "attenuation_test"
+    },
+    "glass_vase_flowers": {
+      "kind": "khronos",
+      "path": "tools/out/material_extension_acceptance/plan016_renderer_native_transmission/glass_vase_flowers/GlassVaseFlowers.glb",
+      "sha256": "430c9937664cfc74299205dcc388e4269bb688817f3d3866ef35aab71e93b852",
+      "byteLength": 1819824,
+      "licensePath": "tools/out/material_extension_acceptance/plan016_renderer_native_transmission/glass_vase_flowers/LICENSE.md",
+      "licenseSha256": "5784802d3aaa2612c3abcae155ab295fc1bebd5be2dde9c50875e20b8fc367a6",
+      "sourcePath": "Models/GlassVaseFlowers/glTF-Binary/GlassVaseFlowers.glb",
+      "extensions": ["KHR_materials_transmission", "KHR_materials_volume"],
+      "sourceBoundsThree": {"center": [0.05511988415999999, 0.1016096797557014, 0.002954322260000003], "radius": 0.16493224654639055},
+      "cameraFrame": "glass_vase_flowers",
+      "materialAssertionProfile": "glass_vase_flowers"
+    },
+    "toycar": {
+      "kind": "khronos",
+      "path": "tools/out/material_extension_acceptance/plan016_renderer_native_transmission/toycar/ToyCar.glb",
+      "sha256": "01a60862de55cd4b9f3acfab0b0def86451800f9c42467fcd61052c16cb9838c",
+      "byteLength": 5422412,
+      "licensePath": "tools/out/material_extension_acceptance/plan016_renderer_native_transmission/toycar/LICENSE.md",
+      "licenseSha256": "b6b2c8a062107e8a3140e7d65a815b5964d96e71b04dbdafd4df1c0efc1cddc1",
+      "sourcePath": "Models/ToyCar/glTF-Binary/ToyCar.glb",
+      "extensions": ["KHR_texture_transform", "KHR_materials_clearcoat", "KHR_materials_transmission", "KHR_materials_sheen"],
+      "sourceBoundsThree": {"center": [0.0017263685500000028, -0.0017948260093168921, -3.4542460662645436e-9], "radius": 0.054071809790058344},
+      "cameraFrame": "toycar",
+      "materialAssertionProfile": "toycar"
+    }
+  },
+  "materialAssertionProfiles": {
+    "controlled_default": {
+      "name": "ControlledGlass",
+      "isMeshPhysicalMaterial": true,
+      "transmission": 1.0,
+      "ior": 1.5,
+      "thickness": 0.0,
+      "attenuationDistance": "Infinity",
+      "attenuationColor": [1.0, 1.0, 1.0],
+      "transmissionMap": null,
+      "thicknessMap": null,
+      "normalMap": null,
+      "clearcoat": 0.0,
+      "clearcoatRoughness": 0.0,
+      "metalness": 0.0,
+      "roughness": 0.06
+    },
+    "control_transmission_off": {"extends": "controlled_default", "transmission": 0.0},
+    "control_ior_low": {"extends": "controlled_default", "ior": 1.1, "thickness": 0.65},
+    "control_ior_high": {"extends": "controlled_default", "ior": 2.0, "thickness": 0.65},
+    "control_volume": {"extends": "controlled_default", "thickness": 0.65},
+    "control_attenuation_tinted": {
+      "extends": "controlled_default",
+      "thickness": 0.65,
+      "attenuationDistance": 0.45,
+      "attenuationColor": [0.18, 0.58, 0.98]
+    },
+    "control_rough_high": {"extends": "controlled_default", "roughness": 0.62},
+    "control_normal_tilted": {"extends": "controlled_default", "normalMap": {"name": "tilted-normal"}},
+    "control_texture_channels": {
+      "extends": "controlled_default",
+      "thickness": 0.8,
+      "transmissionMap": {"name": "transmission-red-channel", "offset": [0.125, 0.25], "repeat": [0.75, 0.5], "rotation": 0.2},
+      "thicknessMap": {"name": "thickness-green-channel", "offset": [0.125, 0.25], "repeat": [0.75, 0.5], "rotation": 0.2}
+    },
+    "control_scale": {
+      "extends": "controlled_default",
+      "thickness": 0.55,
+      "attenuationDistance": 1.0,
+      "attenuationColor": [0.42, 0.78, 0.96]
+    },
+    "control_combined_clearcoat": {
+      "extends": "controlled_default",
+      "transmission": 0.82,
+      "ior": 1.62,
+      "thickness": 0.58,
+      "attenuationDistance": 1.4,
+      "attenuationColor": [0.65, 0.88, 0.98],
+      "clearcoat": 0.75,
+      "clearcoatRoughness": 0.11,
+      "roughness": 0.16
+    },
+    "transmission_test": [
+      {"extends": "controlled_default", "name": "RedTransTexture", "transmissionMap": {"name": "texture14184"}, "roughness": 0.0},
+      {"extends": "controlled_default", "name": "RedTransTextureRough", "transmissionMap": {"name": "texture14184"}, "roughness": 1.0},
+      {"extends": "controlled_default", "name": "RedTransTextureMetal", "transmissionMap": {"name": "texture14184"}, "metalness": 1.0, "roughness": 0.0},
+      {"extends": "controlled_default", "name": "YellowTrans", "roughness": 0.0}
+    ],
+    "attenuation_test": [
+      {"extends": "controlled_default", "name": "R2_and_R4_ThicknessFac_1.0", "thickness": 1.0, "attenuationDistance": 1.0, "attenuationColor": [0.1, 0.5, 0.9], "roughness": 0.0},
+      {"extends": "controlled_default", "name": "R3_ThicknessTex_Mat", "thickness": 2.0, "attenuationDistance": 1.0, "attenuationColor": [0.1, 0.5, 0.9], "thicknessMap": {"name": "ThicknessTexture"}, "roughness": 0.0},
+      {"extends": "controlled_default", "name": "R5_Attenuation_2.0", "thickness": 1.0, "attenuationDistance": 0.5, "attenuationColor": [0.1, 0.5, 0.9], "roughness": 0.0},
+      {"extends": "controlled_default", "name": "R1_Sample_1.0", "roughness": 0.0}
+    ],
+    "glass_vase_flowers": {
+      "extends": "controlled_default",
+      "name": "GlassTransmission",
+      "thickness": 0.075,
+      "thicknessMap": {"name": "glass_vase_thickness_1k.jpg"},
+      "roughness": 0.0
+    },
+    "toycar": [
+      {"extends": "controlled_default", "name": "ToyCar", "transmission": 0.0, "normalMap": {"name": "ToyCar_normal.png"}, "clearcoat": 1.0, "metalness": 1.0, "roughness": 1.0},
+      {"extends": "controlled_default", "name": "Glass", "roughness": 0.0}
+    ]
+  },
+  "comparisonMetrics": {
+    "calibrationStatus": "calibrated-before-flutter-capture",
+    "calibrationControlPairs": {
+      "transmission": ["control_transmission_off", "control_thin"],
+      "ior": ["control_ior_low", "control_ior_high"],
+      "thickness": ["control_thin", "control_volume"],
+      "attenuation": ["control_volume", "control_attenuation_tinted"],
+      "roughness": ["control_thin", "control_rough_high"],
+      "normal": ["control_thin", "control_normal_tilted"],
+      "worldScale": ["control_scale_one", "control_scale_two"]
+    },
+    "syntheticGlassRoiNormalized": {"left": 0.24, "top": 0.35, "width": 0.52, "height": 0.30},
+    "thresholds": {
+      "cameraSilhouetteIouMin": 0.93,
+      "cameraEdgeCentroidMaxLogicalPixels": 2.5,
+      "alignedMeanAbsoluteRgbMax": 0.16,
+      "alignedP95AbsoluteRgbMax": 0.42,
+      "transmittedLuminanceRelativeErrorMax": 0.25,
+      "attenuationChromaticityDistanceMax": 0.12,
+      "refractedDisplacementRelativeErrorMax": 0.30,
+      "refractedDisplacementAbsoluteLogicalPixelsMax": 2.5,
+      "blurRatioAbsoluteErrorMax": 0.22,
+      "controlPairMeanAbsoluteRgbSignalMin": 0.015,
+      "controlRefractedDisplacementLogicalPixelsMin": 1.0,
+      "controlAttenuationChromaticityShiftMin": 0.035,
+      "controlRoughnessEdgeEnergyRatioMax": 0.90
+    },
+    "calibratedThreejsControlSignals": {
+      "transmissionMeanAbsoluteRgb": 0.07721964463415049,
+      "iorMeanAbsoluteRgb": 0.06656274163237662,
+      "thicknessMeanAbsoluteRgb": 0.05256696393195038,
+      "attenuationMeanAbsoluteRgb": 0.03163843312242234,
+      "roughnessMeanAbsoluteRgb": 0.04870464707598047,
+      "normalMeanAbsoluteRgb": 0.017937524843457123,
+      "worldScaleMeanAbsoluteRgb": 0.0578748037091871,
+      "iorEdgeCentroidDistanceLogical": 2.7996340912804136,
+      "attenuationChromaticityDistance": 0.05336143184846318,
+      "roughnessSecondToFirstEdgeEnergyRatio": 0.5464585523884716
+    }
+  }
+}

@@ -89,8 +89,9 @@ recorded in completed
 [Plan 014](exec-plans/completed/014_selected_gltf_extension_support.md).
 Renderer-native clearcoat implementation and pin closure are recorded in completed
 [Plan 015](exec-plans/completed/015_renderer_native_clearcoat.md); native
-transmission/volume remains deferred in
-[Plan 016](exec-plans/deferred/016_renderer_native_transmission_volume.md).
+transmission/volume implementation, immutable pin, and controlled iOS
+Simulator evidence are recorded in completed
+[Plan 016](exec-plans/completed/016_renderer_native_transmission_volume.md).
 Decoder cancellation/resource control, authored KTX2 mip chains, physical
 targets, packaging, and release evidence remain deferred in
 [Plan 017](exec-plans/deferred/017_decoder_control_mip_chains_and_release_evidence.md).
@@ -111,7 +112,7 @@ than one plan at a time:
 | [022](exec-plans/deferred/022_khr_materials_anisotropy.md) | `KHR_materials_anisotropy` | ratified | Plans 015 and 019 complete; renderer-native tangent, direct, and IBL paths required. |
 | [023](exec-plans/deferred/023_khr_materials_iridescence.md) | `KHR_materials_iridescence` | ratified | Plans 015 and 019 complete; renderer-native thin-film direct and IBL paths required. |
 | [024](exec-plans/deferred/024_khr_materials_diffuse_transmission.md) | `KHR_materials_diffuse_transmission` | Release Candidate | Re-audit/pin the spec and approve renderer feasibility before freezing public API. |
-| [025](exec-plans/deferred/025_khr_materials_dispersion.md) | `KHR_materials_dispersion` | ratified | Complete Plan 016 native transmission/volume first. |
+| [025](exec-plans/deferred/025_khr_materials_dispersion.md) | `KHR_materials_dispersion` | ratified | Plan 016 native transport is complete; explicit Plan 025 promotion and its spectral/evidence gates remain. |
 | [026](exec-plans/deferred/026_khr_materials_subsurface.md) | `KHR_materials_subsurface` | Initial Draft | Research only until spec, product, renderer, and measured target gates pass. |
 | [027](exec-plans/deferred/027_khr_materials_pbr_specular_glossiness_compatibility.md) | archived `KHR_materials_pbrSpecularGlossiness` input | archived/ratified | Compatibility last; bounded conversion or typed fallback, never a new authoring workflow. |
 

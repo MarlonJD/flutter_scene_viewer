@@ -7,8 +7,12 @@ import '../texture_binding.dart';
 /// Narrow renderer-native material interface for production extension fields.
 abstract interface class NativeMaterialExtensionMaterial {
   set transmissionFactor(double value);
+  set transmissionTexture(Object? value);
+  set transmissionTextureTransform(TextureTransform value);
   set ior(double value);
   set thicknessFactor(double value);
+  set thicknessTexture(Object? value);
+  set thicknessTextureTransform(TextureTransform value);
   set attenuationDistance(double value);
   set attenuationColor(List<double> value);
   set clearcoatFactor(double value);
@@ -23,6 +27,8 @@ List<ViewerDiagnostic> applyNativeMaterialExtensionPatch({
   required NativeMaterialExtensionMaterial material,
   required MaterialPatch patch,
   required MaterialExtensionSupport support,
+  Object? transmissionTexture,
+  Object? thicknessTexture,
   Object? clearcoatTexture,
   Object? clearcoatRoughnessTexture,
   Object? clearcoatNormalTexture,
@@ -39,6 +45,12 @@ List<ViewerDiagnostic> applyNativeMaterialExtensionPatch({
   if (transmission != null) {
     material.transmissionFactor = transmission;
   }
+  final transmissionBinding =
+      patch.textureBindingFor(MaterialTextureSlot.transmission);
+  if (transmissionBinding != null) {
+    material.transmissionTexture = transmissionTexture;
+    material.transmissionTextureTransform = transmissionBinding.transform;
+  }
   final ior = patch.ior;
   if (ior != null) {
     material.ior = ior;
@@ -46,6 +58,12 @@ List<ViewerDiagnostic> applyNativeMaterialExtensionPatch({
   final thickness = patch.thickness;
   if (thickness != null) {
     material.thicknessFactor = thickness;
+  }
+  final thicknessBinding =
+      patch.textureBindingFor(MaterialTextureSlot.thickness);
+  if (thicknessBinding != null) {
+    material.thicknessTexture = thicknessTexture;
+    material.thicknessTextureTransform = thicknessBinding.transform;
   }
   final attenuationDistance = patch.attenuationDistance;
   if (attenuationDistance != null) {
@@ -109,8 +127,6 @@ ViewerDiagnostic? nativeMaterialExtensionPatchDiagnostic({
   }
   final unsupportedTextureSlots = <String>[
     for (final slot in const <MaterialTextureSlot>[
-      MaterialTextureSlot.transmission,
-      MaterialTextureSlot.thickness,
       MaterialTextureSlot.specular,
       MaterialTextureSlot.specularColor,
     ])
@@ -120,7 +136,7 @@ ViewerDiagnostic? nativeMaterialExtensionPatchDiagnostic({
     return ViewerDiagnostic(
       code: ViewerDiagnosticCode.unsupportedMaterialFeature,
       message:
-          'The renderer-native material extension contract exposes scalar fields only and cannot consume extension texture bindings.',
+          'The renderer-native material extension contract cannot consume specular texture bindings.',
       details: <String, Object?>{
         if (address != null) 'part': address.debugPath,
         'limitation': 'rendererNativeExtensionTextureContractMissing',
@@ -154,22 +170,6 @@ ViewerDiagnostic? nativeMaterialExtensionPatchDiagnostic({
       },
     );
   }
-  final coreFields = _mixedCorePatchFields(patch);
-  if (coreFields.isNotEmpty && _hasNonClearcoatNativeIntent(patch)) {
-    return ViewerDiagnostic(
-      code: ViewerDiagnosticCode.unsupportedMaterialFeature,
-      message:
-          'The scalar-only renderer-native extension contract cannot apply core PBR state and extension state atomically.',
-      details: <String, Object?>{
-        if (address != null) 'part': address.debugPath,
-        'limitation': 'rendererNativeMixedCoreExtensionPatchUnsupported',
-        'fields': coreFields,
-        'backendKind': support.backendKind.name,
-        'status': 'unsupported',
-        'nextStep': 'implementCombinedRendererNativeMaterialContract',
-      },
-    );
-  }
   if (patch.hasClearcoatOverride &&
       !support.supportFor(MaterialExtensionFeature.clearcoat).available) {
     return _nativeMaterialExtensionUnsupportedDiagnostic(
@@ -177,7 +177,8 @@ ViewerDiagnostic? nativeMaterialExtensionPatchDiagnostic({
       address: address,
     );
   }
-  if (patch.transmission != null &&
+  if ((patch.transmission != null ||
+          patch.textureBindingFor(MaterialTextureSlot.transmission) != null) &&
       !support.supportFor(MaterialExtensionFeature.transmission).available) {
     return _nativeMaterialExtensionUnsupportedDiagnostic(
       support: support,
@@ -192,6 +193,7 @@ ViewerDiagnostic? nativeMaterialExtensionPatchDiagnostic({
     );
   }
   if ((patch.thickness != null ||
+          patch.textureBindingFor(MaterialTextureSlot.thickness) != null ||
           patch.attenuationColor != null ||
           patch.attenuationDistance != null) &&
       !support.supportFor(MaterialExtensionFeature.volume).available) {
@@ -202,39 +204,6 @@ ViewerDiagnostic? nativeMaterialExtensionPatchDiagnostic({
   }
   return null;
 }
-
-bool _hasNonClearcoatNativeIntent(MaterialPatch patch) =>
-    patch.transmission != null ||
-    patch.textureBindingFor(MaterialTextureSlot.transmission) != null ||
-    patch.ior != null ||
-    patch.thickness != null ||
-    patch.textureBindingFor(MaterialTextureSlot.thickness) != null ||
-    patch.attenuationColor != null ||
-    patch.attenuationDistance != null;
-
-List<String> _mixedCorePatchFields(MaterialPatch patch) => <String>[
-      if (patch.baseColorFactor != null) 'baseColorFactor',
-      if (patch.textureBindingFor(MaterialTextureSlot.baseColor) != null)
-        'baseColorTexture',
-      if (patch.textureBindingFor(MaterialTextureSlot.metallicRoughness) !=
-          null)
-        'metallicRoughnessTexture',
-      if (patch.textureBindingFor(MaterialTextureSlot.normal) != null)
-        'normalTexture',
-      if (patch.normalScale != null) 'normalScale',
-      if (patch.metallic != null) 'metallic',
-      if (patch.roughness != null) 'roughness',
-      if (patch.emissiveFactor != null) 'emissiveFactor',
-      if (patch.textureBindingFor(MaterialTextureSlot.emissive) != null)
-        'emissiveTexture',
-      if (patch.textureBindingFor(MaterialTextureSlot.occlusion) != null)
-        'occlusionTexture',
-      if (patch.occlusionStrength != null) 'occlusionStrength',
-      if (patch.alphaMode != null) 'alphaMode',
-      if (patch.alphaCutoff != null) 'alphaCutoff',
-      if (patch.effectMask != null) 'effectMask',
-      if (patch.visible != null) 'visible',
-    ];
 
 ViewerDiagnostic _nativeMaterialExtensionUnsupportedDiagnostic({
   required MaterialExtensionSupport support,

@@ -14,7 +14,14 @@ Support core glTF metallic-roughness PBR:
 - alpha mode and double-sided where `flutter_scene` exposes them.
 
 The [generated capability matrix](generated/capability_matrix.md) is the
-completed Plan 014 claim snapshot for selected glTF extensions. Plan 014 iOS Simulator evidence is `verified locally` for `KHR_texture_transform`, `KHR_materials_specular`, opaque `KHR_materials_ior`, and the A1B32 Draco load; physical iOS, Android, and Web remain `not run`. The extended material path remains `candidate-only`, and host parsing, intent preservation, codec output, rewrite validation, or Three.js captures alone do not establish target rendering. Plans 015-017 own the deferred renderer-native and release-evidence work.
+completed Plan 014 claim snapshot for selected glTF extensions. Plan 014 iOS Simulator evidence is `verified locally` for `KHR_texture_transform`,
+`KHR_materials_specular`, opaque `KHR_materials_ior`, and the A1B32 Draco load;
+physical iOS, Android, and Web remain `not run`. The extended material path
+remains `candidate-only`, and host parsing, intent preservation, codec output,
+rewrite validation, or Three.js captures alone do not establish target
+rendering. Completed Plans 015 and 016 add separate renderer-native clearcoat
+and transmission/volume evidence; Plan 017 owns the deferred aggregate
+physical-target, packaging, and release-evidence work.
 
 Supported lit materials automatically route through one internal
 `FSViewerExtendedPbr` material when they contain a nonidentity UV0 transform on
@@ -29,23 +36,19 @@ mapping, resolve, or scheduling.
 
 Transmission/glass is required before v1.0 release. It must mean real
 glTF-style transmission/refraction behavior with IOR and volume attenuation
-where requested, not an alpha-blended approximation. The current installed
-`flutter_scene` 0.18.1 material/importer API does not expose
-`KHR_materials_transmission`, `KHR_materials_ior`, or `KHR_materials_volume`,
-so the default viewer policy keeps glass diagnostic-only. `MaterialPatch`
-glass fields return `unsupportedMaterialFeature` diagnostics and are not
-applied or persisted unless an opt-in material extension backend advertises
-real transmission, IOR, and volume support. The repository-owned
-`flutterSceneCustomShader` backend is a `candidate-only` implementation with
-historical iOS Simulator evidence `verified locally`. Shader preflight proves
-package shader availability and routing, not Khronos correctness or
-physical-device release readiness, and the historical run is not part of the
-completed Plan 014 target evidence. The current implementation is bounded
-screen-space refraction with IOR-derived Fresnel energy splitting,
-Beer-Lambert-style attenuation color/distance, thickness, and roughness
-trends; it is not nested glass, order-independent transparency, or full
-path-traced volume transport. Physical iOS, Android material rendering, and
-Web material rendering remain `not run`.
+where requested, not an alpha-blended approximation. Published and pinned
+`flutter_scene` revision
+`5dcf6fce7dc36719e64e536faba9538fe9fa1022` now provides the selected native
+material, importer, scene-color, refraction, positive-volume, attenuation, and
+variable-IOR contract. The production policy stages and applies factor/red
+texture, thickness/green texture, UV transforms, node/world scale,
+attenuation, roughness, and `ior == 0` atomically through that renderer-owned
+path. The exact immutable pin is `verified locally` on an iPhone 17 iOS 26.5
+Simulator through Impeller Metal against stock Three.js r167 under the fixed
+Plan 016 state. Release maturity is `release pending`; production readiness is
+`false`; nested glass and order-independent transparency remain out of scope;
+physical iOS, Android, and Web remain `not run`. The repository-owned
+screen-space shader is retained only as a historical `candidate-only` path.
 
 Clearcoat is also required before v1.0 release. It covers two-layer coated
 materials such as automotive paint, varnished wood, carbon fiber under gloss
@@ -63,7 +66,7 @@ with a clearcoat Fresnel energy-loss term so the result behaves more like a
 thin coat over the base material rather than an unrelated highlight pass.
 Plan 015 now has a complete renderer-native implementation in published,
 Git-pinned `flutter_scene` revision
-`ccf7372428961ebe0abb053727fe443150547a74`. It maps the Khronos factors,
+`5dcf6fce7dc36719e64e536faba9538fe9fa1022`. It maps the Khronos factors,
 red/green texture channels, independent coat normal/scale, and UV metadata into
 an energy-aware second dielectric lobe inside the standard renderer lighting
 path. The viewer adapter and combined transformed-core shader path are verified
@@ -102,21 +105,19 @@ diagnostics-only, so unsupported glass and clearcoat requests are rejected
 before persistence. Experimental policy may let transmission/glass intent reach
 an attached candidate backend, and may let clearcoat intent reach the candidate
 clearcoat shader when `enableClearcoat: true` is set. The source-compatible
-`productionShaders()` policy name is an explicit opt-in for the repository-owned
-custom shader candidate. Package-local
-shader preflight reports `backendKind: flutterSceneCustomShader` when the
-required shader bundle entries are available. Preflight does not change feature
-maturity or target evidence: package-local features remain `candidate-only`,
-the static policy records target evidence as `not run`, and no release target
-is claimed. Historical iOS Simulator runs remain durable evidence records
-labeled `verified locally`; they are not invented by the policy constructor.
-Experimental policy still uses `backendKind: packageLocalCandidate`.
+`productionShaders()` policy is an explicit opt-in for the complete pinned
+renderer-native contract and reports `backendKind: rendererNative`. Its native
+feature records keep iOS Simulator `releasePending` maturity and
+`verifiedLocally` evidence separate, with no claimed production release target.
+Package-local shader preflight remains only a compatibility fallback and does
+not promote its `candidate-only` maturity. Experimental policy still uses
+`backendKind: packageLocalCandidate`.
 The backend must still report diagnostics rather than fall back to alpha blend
 or roughness changes when it cannot render the requested feature.
 
-Historical realistic-glass evidence is verified locally for iOS Simulator
-only; it is not part of the completed Plan 014 target run. The repository
-contains a production-policy-gated transmission backend that uses a background
+Historical package-local realistic-glass evidence is verified locally for iOS
+Simulator only; it is not Plan 016's renderer-native evidence. The repository
+retains an experimental transmission backend that uses a background
 `RenderTexture` and `RenderView.layerMask` separation for bounded screen-space
 refraction. Local GPU-gated verification loads the generated transmission
 shader bundle entry and captures a visual matrix for transmission, IOR,
@@ -130,6 +131,14 @@ remains `candidate-only` while that historical iOS Simulator evidence is
 `verified locally`;
 physical iOS, Android material rendering, and Web material rendering remain
 `not run`.
+
+Plan 016 supersedes that package-local conclusion for the production policy.
+The renderer-native path owns its scene-color target, double-sided back-face
+prepass, private depth boundary, standard lit base response, rough refraction,
+volume scale, and attenuation. The controlled immutable-pin evidence covers 16
+synthetic/Khronos models across direct-only, IBL-only, and combined passes; all
+calibrated metrics pass without lowering thresholds or boosting authored
+materials or lighting.
 
 The current background-capture path isolates glass at node layer granularity.
 For production glass evidence, authored GLB assets should place glass geometry

@@ -11,7 +11,7 @@
 > completion. Renderer-native clearcoat is owned by
 > [Plan 015](015_renderer_native_clearcoat.md), renderer-native
 > transmission/volume by
-> [Plan 016](../deferred/016_renderer_native_transmission_volume.md), and
+> [Plan 016](016_renderer_native_transmission_volume.md), and
 > native decoder cancellation/resource control, authored KTX2 mip chains,
 > physical-target, packaging, and release evidence by
 > [Plan 017](../deferred/017_decoder_control_mip_chains_and_release_evidence.md).
@@ -123,10 +123,10 @@ linked deferred plans before implementation.
   [`012_material_extension_production_readiness.md`](../deferred/012_material_extension_production_readiness.md).
   Its bounded implementation and evidence were reconciled here; remaining
   renderer-native and release work is explicitly owned by Plans 015-017.
-- Deferred Plan 015 owns renderer-native clearcoat, Plan 016 owns
-  renderer-native transmission/volume, and Plan 017 owns decoder lifecycle,
-  authored mip-chain, target, packaging, and release evidence. Their open work
-  is not claimed complete by this snapshot.
+- Completed Plans 015 and 016 own renderer-native clearcoat and
+  transmission/volume. Deferred Plan 017 owns decoder lifecycle, authored
+  mip-chain, physical-target, packaging, and release evidence. Their work is
+  separate from this Plan 014 snapshot.
 - The former parallel
   `docs/superpowers/plans/2026-07-05-full-gltf-extension-support.md` source was
   promoted into this file and removed to avoid two sources of truth.
@@ -1629,8 +1629,8 @@ Safe-slice status: the bounded audit is independently approved with no
 Important findings after three RED-first remediation cycles. Focused CPU suites
 and the exact three-file Task 9 command pass, but 13 GPU/Impeller, generated-
 shader, visual, and renderer tests are explicit skips and no post-change
-Khronos/target capture exists. Renderer-native work is deferred to
-[Plan 016](../deferred/016_renderer_native_transmission_volume.md). Steps 3-4,
+Khronos/target capture exists. Renderer-native work was subsequently completed
+in [Plan 016](016_renderer_native_transmission_volume.md). Steps 3-4,
 Step 5, Task 9, M4, the v1 glass release gate, and production-ready target rows
 remain `blocked`/`not run`.
 
@@ -3086,7 +3086,7 @@ evidence remain incomplete.
   in depth. The exact Task 9 suite passed 110 CPU tests with 13 explicit skips;
   those GPU/Impeller, visual, renderer, and target rows remain `not run`.
   Renderer-native transport is
-  [deferred Plan 016](../deferred/016_renderer_native_transmission_volume.md).
+  [subsequently completed Plan 016](016_renderer_native_transmission_volume.md).
   Only Task 9 Step 2 and the conditional deferred-disposition acceptance item
   are complete; Task 9, M4, the v1 glass release gate, and Plan completion
   remain open.

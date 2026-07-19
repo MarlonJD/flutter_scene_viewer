@@ -1,5 +1,78 @@
 # Material Extension Platform Evidence
 
+## Plan 016 renderer-native transmission and volume
+
+The complete selected `KHR_materials_transmission`, `KHR_materials_volume`,
+and glass `KHR_materials_ior` contract was verified locally on the `iPhone 17`
+iOS 26.5 Simulator (`10C2CF77-CBA8-4948-ADD5-24C49D375059`) through Impeller
+Metal. The harness used this package by path while the viewer resolved
+published `flutter_scene` revision
+`5dcf6fce7dc36719e64e536faba9538fe9fa1022` from its immutable Git dependency.
+The viewer and harness have no `flutter_scene` path override. This is target
+evidence for that exact renderer revision; it is not physical iOS, Android,
+Web, packaging, or production-ready evidence.
+
+The fixed state is
+`tools/material_extension_acceptance/fixtures/plan016_controlled_comparison_state.json`
+with SHA-256
+`3fce01a715f596c513ee7d0f527638c3928cb44aeae32262e7dad16a912c9c96`.
+It pins 16 synthetic and Khronos models, three `directOnly`/`iblOnly`/`combined`
+passes, canonical per-model camera frames, exact HDR bytes, directional light,
+exposure `1`, disabled AO and shadows, PBR Neutral tone mapping, sRGB output,
+viewport/DPR, and the complete coordinate mapping. Stock Three.js r167 rendered
+the same 48-state matrix and passed threshold calibration before the native
+captures were analyzed.
+
+Evidence is under
+`tools/out/material_extension_acceptance/plan016_controlled_comparison/`:
+
+- `threejs/evidence.json` records the exact Three.js version, source state,
+  model/HDR hashes, renderer mapping, and 48 reference capture hashes;
+- `ios_simulator/immutable-pin-5dcf6fce/evidence.json` records the immutable
+  renderer SHA, Impeller Metal target facts, capture contract, diagnostics, and
+  48 native capture hashes;
+- `ios_simulator/immutable-pin-5dcf6fce/comparison_metrics.json` records every
+  calibrated result and generated visual-artifact hash;
+- the `visuals/` directory contains aligned crops, overlays, 4x difference
+  heatmaps, and the inspected synthetic/Khronos comparison boards.
+
+The capture completed all 48 stages at 1206 x 2622 and 60 fps. Synthetic
+controls, AttenuationTest, GlassVaseFlowers, and ToyCar emitted no new
+diagnostics. Khronos TransmissionTest emitted nine `ambiguousNodePath`
+diagnostics from duplicate authored public node paths; the native importer
+still supplied the model material state, and no shader, renderer, capability,
+or material-adapter error occurred.
+
+Every unchanged calibrated gate passed. Camera silhouette IoU was
+`0.9804384077693391`. The iOS transmission, IOR, thickness, attenuation,
+roughness, normal-map, and world-scale signals were respectively
+`0.08125705944273869`, `0.0633010968406289`, `0.04963780634417499`,
+`0.029937201205387957`, `0.046247913469156146`,
+`0.018541633515716117`, and `0.05460480645429076`, each above the fixed
+`0.015` gate. Cross-renderer mean/p95 color differences, IOR displacement,
+attenuation chromaticity, and roughness blur also passed. The boards were
+inspected locally and show coherent refraction, attenuation, roughness, normal,
+texture-channel, node-scale, and clearcoat-composition trends without banding
+or scene-color corruption. Independent BRDF, rasterization, and HDR-prefilter
+implementations make this directional comparison, not pixel parity.
+
+Evidence validation commands:
+
+```sh
+PLAN016_FLUTTER_SCENE_REVISION=5dcf6fce7dc36719e64e536faba9538fe9fa1022 \
+PLAN016_DEPENDENCY_REACHABILITY=published-and-ls-remote-verified \
+node tools/reference_renderers/threejs_material_extension_fixture/record_plan016_ios_simulator_evidence.mjs \
+  tools/out/material_extension_acceptance/plan016_controlled_comparison/ios_simulator/immutable-pin-5dcf6fce
+node tools/reference_renderers/threejs_material_extension_fixture/analyze_plan016_controlled_comparison.mjs \
+  tools/out/material_extension_acceptance/plan016_controlled_comparison/ios_simulator/immutable-pin-5dcf6fce
+```
+
+Literal status: runtime capability is renderer-native and available at the
+published immutable Git pin; iOS Simulator evidence is `verified locally`;
+release maturity is `release pending`; production readiness is `false`;
+physical iOS, Android, and Web are `not run`. Nested glass and order-independent
+transparency remain explicit non-goals.
+
 ## Plan 015 renderer-native clearcoat
 
 The complete `KHR_materials_clearcoat` contract was verified locally on the

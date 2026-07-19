@@ -432,6 +432,53 @@ void main() {
           root.mesh!.primitives.single.material, isNot(same(sourceMaterial)));
     });
 
+    test('specular route preserves native opaque IOR including zero', () async {
+      for (final sourceIor in <double>[1.37, 0.0]) {
+        final extendedBackend = _RecordingExtendedPbrBackend();
+        final sourceMaterial = flutter_scene.PhysicallyBasedMaterial()
+          ..ior = sourceIor;
+        final root = flutter_scene.Node(
+          name: 'Body',
+          mesh: flutter_scene.Mesh(_UvStubGeometry(), sourceMaterial),
+        );
+
+        final diagnostics = await debugApplyMaterialPatchToRoot(
+          root,
+          PartAddress(nodePath: const <String>['Body'], primitiveIndex: 0),
+          const MaterialPatch(specular: 0.6),
+          materialExtensionPolicy:
+              const ViewerMaterialExtensionPolicy.productionShaders(),
+          materialExtensionSupport: _materialExtensionSupport(
+            MaterialExtensionBackendKind.rendererNative,
+          ),
+          runtimeAdapter: FlutterSceneRuntimeAdapter(
+            extendedPbrBackend: extendedBackend,
+          ),
+        );
+
+        expect(diagnostics, isEmpty, reason: 'source IOR $sourceIor');
+        expect(extendedBackend.configs, hasLength(1));
+        expect(
+          extendedBackend.configs.single.source.ior,
+          sourceIor,
+          reason: 'staged source IOR $sourceIor',
+        );
+        expect(
+          extendedBackend.configs.single.ior,
+          sourceIor,
+          reason: 'extended config IOR $sourceIor',
+        );
+        expect(
+          (root.mesh!.primitives.single.material
+                  as flutter_scene.PhysicallyBasedMaterial)
+              .ior,
+          sourceIor,
+          reason: 'replacement IOR $sourceIor',
+        );
+        expect(sourceMaterial.ior, sourceIor);
+      }
+    });
+
     test('core-only delta keeps the active extended PBR state', () async {
       final textureFactory = _RecordingTextureFactory();
       final extendedBackend = _RecordingExtendedPbrBackend();
@@ -791,7 +838,7 @@ void main() {
     }
   });
 
-  test('native preflight accepts clearcoat textures only', () {
+  test('native preflight accepts selected extension textures', () {
     const policy = ViewerMaterialExtensionPolicy.productionShaders();
     final support = _materialExtensionSupport(
       MaterialExtensionBackendKind.rendererNative,
@@ -815,7 +862,7 @@ void main() {
           patch,
           support: support,
         ),
-        isFalse,
+        isTrue,
       );
     }
 
@@ -890,6 +937,86 @@ void main() {
     expect(root.mesh!.primitives.single.material, same(originalMaterial));
   });
 
+  test(
+      'specular patch rejects existing native transmission and volume atomically',
+      () async {
+    final extendedBackend = _RecordingExtendedPbrBackend();
+    final transmissionTexture = _StubTextureSource(
+      const flutter_scene.TextureSampling().toSamplerOptions(),
+    );
+    final thicknessTexture = _StubTextureSource(
+      const flutter_scene.TextureSampling().toSamplerOptions(),
+    );
+    const transmissionTransform = flutter_scene.MaterialTextureTransform(
+      offsetX: 0.1,
+      offsetY: 0.2,
+      rotation: 0.3,
+      scaleX: 0.8,
+      scaleY: 0.9,
+    );
+    const thicknessTransform = flutter_scene.MaterialTextureTransform(
+      offsetX: 0.4,
+      offsetY: 0.5,
+      rotation: 0.6,
+      scaleX: 0.7,
+      scaleY: 0.75,
+    );
+    final originalMaterial = flutter_scene.PhysicallyBasedMaterial()
+      ..transmissionFactor = 0.82
+      ..transmissionTexture = transmissionTexture
+      ..transmissionTextureTransform = transmissionTransform
+      ..ior = 1.37
+      ..thicknessFactor = 0.42
+      ..thicknessTexture = thicknessTexture
+      ..thicknessTextureTransform = thicknessTransform
+      ..attenuationDistance = 3.5
+      ..attenuationColor = vm.Vector3(0.7, 0.8, 0.9);
+    final root = flutter_scene.Node(
+      name: 'Glass',
+      mesh: flutter_scene.Mesh(_UvStubGeometry(), originalMaterial),
+    );
+
+    final diagnostics = await debugApplyMaterialPatchToRoot(
+      root,
+      PartAddress(nodePath: const <String>['Glass'], primitiveIndex: 0),
+      const MaterialPatch(specular: 0.7),
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.productionShaders(),
+      materialExtensionSupport: _materialExtensionSupport(
+        MaterialExtensionBackendKind.rendererNative,
+      ),
+      runtimeAdapter: FlutterSceneRuntimeAdapter(
+        extendedPbrBackend: extendedBackend,
+      ),
+    );
+
+    expect(diagnostics, hasLength(1));
+    expect(
+      diagnostics.single.details['limitation'],
+      'extendedPbrNativeTransmissionVolumeCombinationUnsupported',
+    );
+    expect(diagnostics.single.details['materialReplaced'], isFalse);
+    expect(extendedBackend.preflightCount, 0);
+    expect(root.mesh!.primitives.single.material, same(originalMaterial));
+    expect(originalMaterial.transmissionFactor, 0.82);
+    expect(originalMaterial.transmissionTexture, same(transmissionTexture));
+    expect(originalMaterial.transmissionTextureTransform.offsetX, 0.1);
+    expect(originalMaterial.transmissionTextureTransform.offsetY, 0.2);
+    expect(originalMaterial.transmissionTextureTransform.rotation, 0.3);
+    expect(originalMaterial.transmissionTextureTransform.scaleX, 0.8);
+    expect(originalMaterial.transmissionTextureTransform.scaleY, 0.9);
+    expect(originalMaterial.ior, 1.37);
+    expect(originalMaterial.thicknessFactor, 0.42);
+    expect(originalMaterial.thicknessTexture, same(thicknessTexture));
+    expect(originalMaterial.thicknessTextureTransform.offsetX, 0.4);
+    expect(originalMaterial.thicknessTextureTransform.offsetY, 0.5);
+    expect(originalMaterial.thicknessTextureTransform.rotation, 0.6);
+    expect(originalMaterial.thicknessTextureTransform.scaleX, 0.7);
+    expect(originalMaterial.thicknessTextureTransform.scaleY, 0.75);
+    expect(originalMaterial.attenuationDistance, 3.5);
+    expect(originalMaterial.attenuationColor, vm.Vector3(0.7, 0.8, 0.9));
+  });
+
   test('unavailable extended shader rejects candidate specular before mutation',
       () async {
     final factory = _RecordingTextureFactory();
@@ -938,11 +1065,10 @@ void main() {
     expect(root.mesh!.primitives.single.material, same(originalMaterial));
   });
 
-  test('adapter rejects mixed core and native extension intent atomically',
+  test('adapter stages mixed core and native extension intent atomically',
       () async {
     final factory = _RecordingTextureFactory();
     final originalMaterial = flutter_scene.PhysicallyBasedMaterial();
-    final originalBaseColor = originalMaterial.baseColorFactor.clone();
     final root = flutter_scene.Node(
       name: 'Glass',
       mesh: flutter_scene.Mesh(_UvStubGeometry(), originalMaterial),
@@ -957,9 +1083,28 @@ void main() {
       MaterialPatch(
         baseColorFactor: const <double>[0.2, 0.3, 0.4, 1.0],
         baseColorTextureBinding: MaterialTextureBinding(
-          source: const TextureSource.asset('assets/base-color.png'),
+          source: TextureSource.bytes(_onePixelPng, debugName: 'base-color'),
         ),
-        transmission: 1.0,
+        transmission: 0.8,
+        transmissionTextureBinding: MaterialTextureBinding(
+          source: TextureSource.bytes(
+            _onePixelPng,
+            debugName: 'transmission',
+          ),
+          transform: TextureTransform(
+            offset: <double>[0.1, 0.2],
+            rotation: 0.3,
+          ),
+        ),
+        ior: 1.4,
+        thickness: 0.25,
+        thicknessTextureBinding: MaterialTextureBinding(
+          source: TextureSource.bytes(_onePixelPng, debugName: 'thickness'),
+          transform: TextureTransform(scale: const <double>[0.5, 0.75]),
+        ),
+        attenuationDistance: 2.0,
+        attenuationColor: const <double>[0.8, 0.9, 1.0],
+        clearcoat: 0.6,
       ),
       materialExtensionPolicy:
           const ViewerMaterialExtensionPolicy.productionShaders(),
@@ -969,16 +1114,28 @@ void main() {
       textureFactory: factory,
     );
 
-    expect(diagnostics, hasLength(1));
-    expect(diagnostics.single.details['limitation'],
-        'rendererNativeMixedCoreExtensionPatchUnsupported');
-    expect(
-      diagnostics.single.details['fields'],
-      containsAll(<String>['baseColorFactor', 'baseColorTexture']),
-    );
-    expect(factory.paths, isEmpty);
-    expect(root.mesh!.primitives.single.material, same(originalMaterial));
-    expect(originalMaterial.baseColorFactor, originalBaseColor);
+    expect(diagnostics, isEmpty);
+    expect(factory.paths, <String>['fromImage', 'fromImage', 'fromImage']);
+    final material = root.mesh!.primitives.single.material
+        as flutter_scene.PhysicallyBasedMaterial;
+    expect(material, isNot(same(originalMaterial)));
+    expect(material.baseColorFactor.x, closeTo(0.2, 1e-6));
+    expect(material.baseColorTexture, same(factory.createdSources[0]));
+    expect(material.transmissionFactor, 0.8);
+    expect(material.transmissionTexture, same(factory.createdSources[1]));
+    expect(material.transmissionTextureTransform.offsetX, 0.1);
+    expect(material.transmissionTextureTransform.offsetY, 0.2);
+    expect(material.transmissionTextureTransform.rotation, 0.3);
+    expect(material.ior, 1.4);
+    expect(material.thicknessFactor, 0.25);
+    expect(material.thicknessTexture, same(factory.createdSources[2]));
+    expect(material.thicknessTextureTransform.scaleX, 0.5);
+    expect(material.thicknessTextureTransform.scaleY, 0.75);
+    expect(material.attenuationDistance, 2.0);
+    expect(material.attenuationColor, vm.Vector3(0.8, 0.9, 1.0));
+    expect(material.clearcoatFactor, 0.6);
+    expect(originalMaterial.baseColorFactor.x, 1.0);
+    expect(originalMaterial.transmissionFactor, 0.0);
   });
 
   test('adapter forwards loaded occlusion and emissive to clearcoat config',
@@ -3090,9 +3247,11 @@ void main() {
     expect(sourceMaterial.clearcoatFactor, 0.0);
   });
 
-  test('native clearcoat reset restores the original material identity',
+  test('native glass and clearcoat reset restores original material identity',
       () async {
-    final sourceMaterial = flutter_scene.PhysicallyBasedMaterial();
+    final sourceMaterial = flutter_scene.PhysicallyBasedMaterial()
+      ..transmissionFactor = 0.15
+      ..ior = 1.33;
     final root = flutter_scene.Node(
       name: 'Paint',
       mesh: flutter_scene.Mesh(_UvStubGeometry(), sourceMaterial),
@@ -3108,6 +3267,12 @@ void main() {
     final support = MaterialExtensionSupport(
       backendKind: MaterialExtensionBackendKind.rendererNative,
       features: <MaterialExtensionFeature, MaterialExtensionFeatureSupport>{
+        MaterialExtensionFeature.transmission:
+            MaterialExtensionFeatureSupport(available: true),
+        MaterialExtensionFeature.ior:
+            MaterialExtensionFeatureSupport(available: true),
+        MaterialExtensionFeature.volume:
+            MaterialExtensionFeatureSupport(available: true),
         MaterialExtensionFeature.clearcoat:
             MaterialExtensionFeatureSupport(available: true),
       },
@@ -3116,7 +3281,15 @@ void main() {
     final diagnostics = await debugApplyMaterialPatchToRoot(
       root,
       address,
-      const MaterialPatch(clearcoat: 1.0, clearcoatRoughness: 0.1),
+      const MaterialPatch(
+        transmission: 0.9,
+        ior: 1.5,
+        thickness: 0.2,
+        attenuationDistance: 1.5,
+        attenuationColor: <double>[0.8, 0.9, 1.0],
+        clearcoat: 1.0,
+        clearcoatRoughness: 0.1,
+      ),
       materialExtensionSupport: support,
       runtimeAdapter: runtimeAdapter,
     );
@@ -3128,13 +3301,20 @@ void main() {
           .clearcoatFactor,
       1.0,
     );
+    expect(patchedMaterial.transmissionFactor, 0.9);
+    expect(patchedMaterial.ior, 1.5);
+    expect(patchedMaterial.thicknessFactor, 0.2);
     expect(sourceMaterial.clearcoatFactor, 0.0);
+    expect(sourceMaterial.transmissionFactor, 0.15);
+    expect(sourceMaterial.ior, 1.33);
 
     final resetDiagnostics = await runtimeAdapter.resetMaterial(address);
 
     expect(resetDiagnostics, isEmpty);
     expect(root.mesh!.primitives.single.material, same(sourceMaterial));
     expect(sourceMaterial.clearcoatFactor, 0.0);
+    expect(sourceMaterial.transmissionFactor, 0.15);
+    expect(sourceMaterial.ior, 1.33);
   });
 }
 
@@ -3261,9 +3441,9 @@ final class _TestExtendedPbrMaterial extends flutter_scene
         specularColorFactor = List<double>.unmodifiable(
           config.specularColorFactor,
         ),
-        ior = config.ior,
         specularFactorTexture = config.specularFactorTexture,
         specularColorTexture = config.specularColorTexture {
+    ior = config.ior;
     baseColorFactor = config.source.baseColorFactor.clone();
     baseColorTexture = config.source.baseColorTexture;
     metallicRoughnessTexture = config.source.metallicRoughnessTexture;
@@ -3296,8 +3476,6 @@ final class _TestExtendedPbrMaterial extends flutter_scene
   final double specularFactor;
   @override
   final List<double> specularColorFactor;
-  @override
-  final double ior;
   @override
   final flutter_scene.TextureSource? specularFactorTexture;
   @override

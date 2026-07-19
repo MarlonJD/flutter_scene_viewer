@@ -8,7 +8,6 @@ import 'package:flutter_scene_viewer/src/internal/flutter_scene_adapter.dart';
 import 'package:flutter_scene_viewer/src/internal/flutter_scene_extended_pbr_backend.dart';
 import 'package:flutter_scene_viewer/src/internal/flutter_scene_extended_pbr_material.dart';
 import 'package:flutter_scene_viewer/src/internal/flutter_scene_material_extension_backend.dart';
-import 'package:flutter_scene_viewer/src/internal/material_extension_native_applier.dart';
 import 'package:flutter_scene_viewer/src/internal/material_extension_patch_group.dart';
 import 'package:flutter_scene_viewer/src/model_loader.dart';
 import 'package:flutter_scene_viewer/src/viewer_controller.dart'
@@ -800,7 +799,7 @@ void main() {
 
   test('renderer-native material keeps the opaque IOR application path',
       () async {
-    final material = _NativePbrMaterial();
+    final material = flutter_scene.PhysicallyBasedMaterial();
     final body = flutter_scene.Node(
       name: 'Body',
       mesh: flutter_scene.Mesh(_AdapterUvGeometry(), material),
@@ -827,8 +826,81 @@ void main() {
     );
 
     expect(controller.diagnostics, isEmpty);
-    expect(material.appliedIor, 1.45);
+    final applied = body.mesh!.primitives.single.material
+        as flutter_scene.PhysicallyBasedMaterial;
+    expect(applied, isNot(same(material)));
+    expect(applied.ior, 1.45);
     expect(controller.materialOverrides.patchFor(address)?.ior, 1.45);
+    expect(sink.renderRequests, 1);
+  });
+
+  test('failed native texture load preserves live and persisted glass state',
+      () async {
+    final material = flutter_scene.PhysicallyBasedMaterial();
+    final body = flutter_scene.Node(
+      name: 'Body',
+      mesh: flutter_scene.Mesh(_AdapterUvGeometry(), material),
+    );
+    final root = flutter_scene.Node(name: 'Root')..children.add(body);
+    final textureFactory = _ControllerTextureFactory(
+      assetFailure: StateError('expected texture load failure'),
+    );
+    const policy = ViewerMaterialExtensionPolicy.productionShaders();
+    final runtimeAdapter = FlutterSceneRuntimeAdapter(
+      materialExtensionPolicy: policy,
+      textureFactory: textureFactory,
+    );
+    final support = _materialExtensionSupport(
+      const <MaterialExtensionFeature>{
+        MaterialExtensionFeature.transmission,
+        MaterialExtensionFeature.ior,
+        MaterialExtensionFeature.volume,
+        MaterialExtensionFeature.clearcoat,
+      },
+      backendKind: MaterialExtensionBackendKind.rendererNative,
+    );
+    final sink = AdapterMaterialSink(
+      root: root,
+      partTree: _treeFor(address),
+      materialExtensionSupport: support,
+      authoredCoreMaterialPatches: const <PartAddress, MaterialPatch>{},
+      authoredExtensionMaterialPatches: const <PartAddress,
+          Map<MaterialExtensionPatchGroup, MaterialPatch>>{},
+      runtimeAdapter: runtimeAdapter,
+      materialExtensionPolicy: policy,
+    );
+    final controller = FlutterSceneViewerController()..attach(sink);
+    await controller.load(ModelSource.bytes(Uint8List.fromList(<int>[1])));
+
+    await controller.setPartMaterial(
+      address,
+      const MaterialPatch(transmission: 0.6, ior: 1.4),
+    );
+    final liveAfterSuccess = body.mesh!.primitives.single.material
+        as flutter_scene.PhysicallyBasedMaterial;
+    expect(liveAfterSuccess.transmissionFactor, 0.6);
+    expect(controller.materialOverrides.patchFor(address)?.transmission, 0.6);
+    expect(sink.renderRequests, 1);
+
+    await controller.setPartMaterial(
+      address,
+      MaterialPatch(
+        transmission: 0.9,
+        transmissionTextureBinding: MaterialTextureBinding(
+          source: const TextureSource.asset('assets/failing.png'),
+        ),
+      ),
+    );
+
+    expect(controller.diagnostics, hasLength(1));
+    expect(controller.diagnostics.single.code,
+        ViewerDiagnosticCode.assetLoadFailure);
+    expect(body.mesh!.primitives.single.material, same(liveAfterSuccess));
+    expect(liveAfterSuccess.transmissionFactor, 0.6);
+    final persisted = controller.materialOverrides.patchFor(address)!;
+    expect(persisted.transmission, 0.6);
+    expect(persisted.ior, 1.4);
+    expect(persisted.transmissionTextureBinding, isNull);
     expect(sink.renderRequests, 1);
   });
 
@@ -886,7 +958,7 @@ void main() {
 
   test('authored groups reach the renderer-native adapter independently',
       () async {
-    final material = _NativePbrMaterial();
+    final material = flutter_scene.PhysicallyBasedMaterial();
     final body = flutter_scene.Node(
       name: 'Body',
       mesh: flutter_scene.Mesh(_AdapterUvGeometry(), material),
@@ -929,17 +1001,19 @@ void main() {
 
     await controller.load(ModelSource.bytes(Uint8List.fromList(<int>[1])));
 
-    expect(material.baseColorFactor.x, closeTo(0.2, 0.0001));
-    expect(material.baseColorFactor.y, closeTo(0.3, 0.0001));
-    expect(material.baseColorFactor.z, closeTo(0.4, 0.0001));
-    expect(material.roughnessFactor, closeTo(0.65, 0.0001));
+    final applied = body.mesh!.primitives.single.material
+        as flutter_scene.PhysicallyBasedMaterial;
+    expect(applied.baseColorFactor.x, closeTo(0.2, 0.0001));
+    expect(applied.baseColorFactor.y, closeTo(0.3, 0.0001));
+    expect(applied.baseColorFactor.z, closeTo(0.4, 0.0001));
+    expect(applied.roughnessFactor, closeTo(0.65, 0.0001));
     expect(body.mesh, isNot(same(originalMesh)));
-    expect(body.mesh!.primitives.single.material, same(material));
-    expect(material.alphaMode, flutter_scene.AlphaMode.mask);
-    expect(material.alphaCutoff, closeTo(0.35, 0.0001));
-    expect(material.appliedClearcoat, closeTo(0.8, 0.0001));
-    expect(material.appliedTransmission, closeTo(0.9, 0.0001));
-    expect(material.appliedIor, closeTo(1.45, 0.0001));
+    expect(applied, isNot(same(material)));
+    expect(applied.alphaMode, flutter_scene.AlphaMode.mask);
+    expect(applied.alphaCutoff, closeTo(0.35, 0.0001));
+    expect(applied.clearcoatFactor, closeTo(0.8, 0.0001));
+    expect(applied.transmissionFactor, closeTo(0.9, 0.0001));
+    expect(applied.ior, closeTo(1.45, 0.0001));
     expect(controller.diagnostics, hasLength(1));
     expect(
       controller.diagnostics.single.details['extensions'],
@@ -1656,46 +1730,6 @@ final class AdapterMaterialSink implements ViewerCommandSink {
   }
 }
 
-final class _NativePbrMaterial extends flutter_scene.PhysicallyBasedMaterial
-    implements NativeMaterialExtensionMaterial {
-  double? appliedTransmission;
-  double? appliedIor;
-  double? appliedClearcoat;
-
-  @override
-  set transmissionFactor(double value) => appliedTransmission = value;
-
-  @override
-  set ior(double value) => appliedIor = value;
-
-  @override
-  set clearcoatFactor(double value) => appliedClearcoat = value;
-
-  @override
-  set thicknessFactor(double value) {}
-
-  @override
-  set attenuationDistance(double value) {}
-
-  @override
-  set attenuationColor(List<double> value) {}
-
-  @override
-  set clearcoatRoughnessFactor(double value) {}
-
-  @override
-  set clearcoatNormalScale(double value) {}
-
-  @override
-  set clearcoatTexture(Object? value) {}
-
-  @override
-  set clearcoatRoughnessTexture(Object? value) {}
-
-  @override
-  set clearcoatNormalTexture(Object? value) {}
-}
-
 final class _ControllerExtendedPbrBackend
     implements FlutterSceneExtendedPbrMaterialBackend {
   final List<FlutterSceneExtendedPbrMaterialConfig> configs =
@@ -1731,9 +1765,9 @@ final class _ControllerExtendedPbrMaterial extends flutter_scene
         specularColorFactor = List<double>.unmodifiable(
           config.specularColorFactor,
         ),
-        ior = config.ior,
         specularFactorTexture = config.specularFactorTexture,
         specularColorTexture = config.specularColorTexture {
+    ior = config.ior;
     metallicFactor = config.source.metallicFactor;
     roughnessFactor = config.source.roughnessFactor;
   }
@@ -1745,14 +1779,15 @@ final class _ControllerExtendedPbrMaterial extends flutter_scene
   @override
   final List<double> specularColorFactor;
   @override
-  final double ior;
-  @override
   final flutter_scene.TextureSource? specularFactorTexture;
   @override
   final flutter_scene.TextureSource? specularColorTexture;
 }
 
 final class _ControllerTextureFactory implements FlutterSceneTextureFactory {
+  _ControllerTextureFactory({this.assetFailure});
+
+  final Object? assetFailure;
   final List<flutter_scene.TextureSource> createdSources =
       <flutter_scene.TextureSource>[];
 
@@ -1769,8 +1804,11 @@ final class _ControllerTextureFactory implements FlutterSceneTextureFactory {
     String assetPath, {
     required flutter_scene.TextureContent content,
     required flutter_scene.TextureSampling sampling,
-  }) async =>
-      _create(sampling);
+  }) async {
+    final failure = assetFailure;
+    if (failure != null) throw failure;
+    return _create(sampling);
+  }
 
   @override
   Future<flutter_scene.TextureSource> fromImage(

@@ -112,48 +112,53 @@ final class MaterialPatch {
 
   /// KHR_materials_transmission scalar.
   ///
-  /// This field is intentionally rejected by the current adapter until
-  /// flutter_scene exposes real transmission/refraction support.
+  /// Applied only when the selected material-extension policy and renderer
+  /// capability expose real transmission/refraction support; otherwise the
+  /// patch is rejected before live material mutation.
   final double? transmission;
 
   /// KHR_materials_transmission texture.
   ///
-  /// This field is intentionally rejected by the current adapter until
-  /// flutter_scene exposes real transmission/refraction support.
+  /// Applied only when the selected material-extension policy and renderer
+  /// capability expose real transmission/refraction support. The renderer
+  /// samples the red channel, following the glTF contract.
   final TextureSource? transmissionTexture;
 
   final MaterialTextureBinding? transmissionTextureBinding;
 
   /// KHR_materials_ior index of refraction.
   ///
-  /// This field is intentionally rejected by the current adapter until
-  /// flutter_scene exposes real IOR support.
+  /// Applied only when the selected material-extension policy and renderer
+  /// capability expose real IOR support; otherwise the patch is rejected
+  /// before live material mutation.
   final double? ior;
 
   /// KHR_materials_volume thickness scalar.
   ///
-  /// This field is intentionally rejected by the current adapter until
-  /// flutter_scene exposes real volume attenuation support.
+  /// Applied only when the selected material-extension policy and renderer
+  /// capability expose real volume support; otherwise the patch is rejected
+  /// before live material mutation.
   final double? thickness;
 
   /// KHR_materials_volume thickness texture.
   ///
-  /// This field is intentionally rejected by the current adapter until
-  /// flutter_scene exposes real volume attenuation support.
+  /// Applied only when the selected material-extension policy and renderer
+  /// capability expose real volume support. The renderer samples the green
+  /// channel, following the glTF contract.
   final TextureSource? thicknessTexture;
 
   final MaterialTextureBinding? thicknessTextureBinding;
 
   /// KHR_materials_volume attenuation color.
   ///
-  /// This field is intentionally rejected by the current adapter until
-  /// flutter_scene exposes real volume attenuation support.
+  /// Applied only when the selected material-extension policy and renderer
+  /// capability expose real volume attenuation support.
   final List<double>? attenuationColor;
 
   /// KHR_materials_volume attenuation distance.
   ///
-  /// This field is intentionally rejected by the current adapter until
-  /// flutter_scene exposes real volume attenuation support.
+  /// Applied only when the selected material-extension policy and renderer
+  /// capability expose real volume attenuation support.
   final double? attenuationDistance;
 
   /// KHR_materials_clearcoat clearcoat factor.
@@ -197,28 +202,32 @@ final class MaterialPatch {
 
   /// KHR_materials_specular scalar strength.
   ///
-  /// This field is intentionally rejected by the current adapter until
-  /// flutter_scene exposes real specular support.
+  /// Applied only when the selected material-extension policy and renderer
+  /// capability expose real specular support; otherwise the patch is rejected
+  /// before live material mutation.
   final double? specular;
 
   /// KHR_materials_specular scalar strength texture.
   ///
-  /// This field is intentionally rejected by the current adapter until
-  /// flutter_scene exposes real specular support.
+  /// Applied only when the selected material-extension policy and renderer
+  /// capability expose real specular support. The renderer samples the alpha
+  /// channel, following the glTF contract.
   final TextureSource? specularTexture;
 
   final MaterialTextureBinding? specularTextureBinding;
 
   /// KHR_materials_specular RGB color factor.
   ///
-  /// This field is intentionally rejected by the current adapter until
-  /// flutter_scene exposes real specular support.
+  /// Applied only when the selected material-extension policy and renderer
+  /// capability expose real specular-color support; otherwise the patch is
+  /// rejected before live material mutation.
   final List<double>? specularColorFactor;
 
   /// KHR_materials_specular RGB color texture.
   ///
-  /// This field is intentionally rejected by the current adapter until
-  /// flutter_scene exposes real specular support.
+  /// Applied only when the selected material-extension policy and renderer
+  /// capability expose real specular-color support. The renderer decodes the
+  /// RGB channels as sRGB, following the glTF contract.
   final TextureSource? specularColorTexture;
 
   final MaterialTextureBinding? specularColorTextureBinding;

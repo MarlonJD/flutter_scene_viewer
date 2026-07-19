@@ -34,9 +34,9 @@ environment intensity, or adding an unrelated rim-light term.
   albedo-scaling technique that prevents the sheen layer from adding energy
   without reducing the base response.
 - The stable viewer dependency remains `flutter_scene` revision
-  `ccf7372428961ebe0abb053727fe443150547a74`. Its material model, glTF
-  importer, standard PBR shader, and DFG lookup expose native clearcoat but do
-  not expose sheen.
+  `5dcf6fce7dc36719e64e536faba9538fe9fa1022`. Its material model, glTF
+  importer, standard PBR shader, and DFG lookup expose native clearcoat plus
+  transmission/volume/glass IOR but do not expose sheen.
 - The current viewer has no sheen fields in `MaterialPatch`, no
   `MaterialExtensionFeature.sheen`, no authored sheen patch group, no sheen
   texture roles, and no typed sheen capability row. An authored optional sheen
@@ -283,19 +283,22 @@ mistaken for full modern-glTF material coverage.
 | `KHR_materials_anisotropy` | absent | brushed metal, machined finishes, carbon fiber, directional highlights | [Plan 022](022_khr_materials_anisotropy.md): renderer-native tangent, direct, and IBL work after Plan 019. |
 | `KHR_materials_iridescence` | absent | thin-film coatings, automotive paint, coated glass/plastic | [Plan 023](023_khr_materials_iridescence.md): renderer-native thin-film response and composition. |
 | `KHR_materials_emissive_strength` | absent | LEDs, displays, lamps, bright emissive product accents | [Plan 021](021_khr_materials_emissive_strength.md): HDR emission, exposure, tone mapping, and independent bloom evidence. |
-| `KHR_materials_dispersion` | absent | wavelength-separated refractive glass/gems | [Plan 025](025_khr_materials_dispersion.md), blocked by Plan 016 native transmission/volume. |
+| `KHR_materials_dispersion` | absent | wavelength-separated refractive glass/gems | [Plan 025](025_khr_materials_dispersion.md); Plan 016's native transport prerequisite is complete, but Plan 025 remains deferred pending explicit promotion. |
 | `KHR_materials_variants` | absent | named product color/material configurations | [Plan 020](020_khr_materials_variants.md): atomic source-material selection and persistence, no BRDF. |
 | `KHR_materials_diffuse_transmission` | absent; Khronos release candidate | thin translucent cloth, paper, leaves | [Plan 024](024_khr_materials_diffuse_transmission.md): spec-gated feasibility, diagnostics, then native BTDF. |
 | `KHR_materials_subsurface` | absent; Khronos initial draft | skin, wax, thick scattering materials | [Plan 026](026_khr_materials_subsurface.md): research-only until explicit promotion gates pass. |
 | `KHR_materials_pbrSpecularGlossiness` | absent; archived | compatibility with older assets | [Plan 027](027_khr_materials_pbr_specular_glossiness_compatibility.md): bounded legacy conversion/fallback only. |
 | `KHR_materials_unlit` | imported by pinned `flutter_scene` and surfaced as lit/unlit state | labels, UI-like meshes, baked-looking assets | Not a missing material lobe; retain tests and improve any remaining alpha-mask limitations separately. |
-| `KHR_materials_transmission` / `KHR_materials_volume` | package-local candidate; native work deferred to Plan 016 | glass and transparent product parts | Continue Plan 016; do not describe the current candidate as production-ready. |
+| `KHR_materials_transmission` / `KHR_materials_volume` | renderer-native published implementation; iOS Simulator `verified locally`; release pending | glass and transparent product parts | Completed Plan 016; physical iOS, Android, Web, packaging, and production-ready evidence remain open. |
 | `KHR_materials_clearcoat` | renderer-native published implementation; stable pin `release pending` in completed Plan 015 | automotive/product coatings | Completed prerequisite. |
 | `KHR_materials_specular` / opaque `KHR_materials_ior` | package-local `candidate-only`; iOS Simulator `verified locally` | dielectric reflectance and material matching | Preserve existing Plan 014 labels; physical iOS, Android, and Web remain `not run`. |
 | `KHR_lights_punctual` | imported playback absent; viewer has one directional studio key | point/spot/directional authored-light parity | [Plan 019](019_khr_lights_punctual.md): shared standard-material direct-light loop for every lobe. |
 
 ## Progress log
 
+- 2026-07-17: Plan 016 updated the stable renderer pin with native
+  transmission/volume/IOR but did not add sheen fields. This plan remains
+  deferred and its implementation/evidence items remain `not run`.
 - 2026-07-16: Created as deferred at the user's direction. The plan separates
   immediate silent-drop diagnostics, a specular-like package-local candidate,
   and renderer-native release support. Current implementation and target

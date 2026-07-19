@@ -25,6 +25,48 @@ V1 release-blocker capability to verify:
 Adapter implementation must keep direct `flutter_scene` imports isolated so API
 breakage is easy to repair.
 
+## 2026-07-17 Plan 016 renderer-native transmission and volume
+
+Published `flutter_scene` commit
+`5dcf6fce7dc36719e64e536faba9538fe9fa1022` adds the complete selected
+`KHR_materials_transmission`, `KHR_materials_volume`, and glass
+`KHR_materials_ior` contract while retaining Plan 015 clearcoat. The runtime
+and offline importers, serialized scene path, standard material, renderer-owned
+opaque scene-color phase, and transmission shader consume factor/red texture,
+thickness/green texture, UV metadata, attenuation color/distance, roughness,
+node/world scale, and variable IOR including exact `ior == 0` compatibility.
+Optical transmission stays independent of alpha-as-coverage, zero effective
+transmission preserves the ordinary lit base response, and metallic response
+does not transmit.
+
+The render graph captures opaque scene color before transmissive materials.
+Positive thickness applies mesh-space thickness under model scale to
+world-space attenuation and refraction. Double-sided closed surfaces render a
+far-interface back-face prepass into a private depth boundary before the final
+front interface; the immutable opaque target and final scene depth are not
+corrupted. Rough transmission samples bounded scene-color mip levels. The
+dedicated transmission standard-material variant stays at 16 fragment samplers
+by omitting only secondary-environment crossfade, while retaining primary IBL,
+direct light, shadows, SSAO, clearcoat, and emission.
+
+The viewer pins this exact revision in `pubspec.yaml` and `pubspec.lock`; the
+lockfile `resolved-ref` matches and no `pubspec_overrides.yaml` exists. Native
+capability detection reports transmission, glass IOR, volume, and clearcoat
+independently. For the exact current probe, iOS Simulator maturity is
+`releasePending` and evidence is `verifiedLocally`; physical iOS, Android, and
+Web remain `diagnosticOnly`/`notRun`, no release targets are claimed, and
+aggregate production readiness remains false.
+
+The iPhone 17 iOS 26.5 Simulator completed the fixed 16-model x 3-pass matrix
+through Impeller Metal against stock Three.js r167 at state hash
+`3fce01a715f596c513ee7d0f527638c3928cb44aeae32262e7dad16a912c9c96`.
+All calibrated camera, transmission, IOR, thickness, attenuation, roughness,
+normal, scale, texture-channel, and cross-renderer checks pass. Exact evidence,
+diagnostic boundaries, metrics, and visual-board paths are recorded in
+`material_extension_platform_evidence.md`. This is `verified locally`
+Simulator evidence, not physical-device, cross-platform, packaging, or
+production-ready evidence.
+
 ## 2026-07-16 Plan 015 renderer-native clearcoat
 
 Published `flutter_scene` commit
@@ -56,11 +98,12 @@ ToyCar retained one expected diagnostic for its optional unsupported
 are recorded in `tools/material_extension_acceptance/manifest.json` and
 `material_extension_platform_evidence.md`.
 
-The stable dependency pin resolves the published commit from
-`https://github.com/MarlonJD/flutter_scene`. Runtime capability is `verified
-locally` on the iOS Simulator; release maturity is `release pending`,
-production readiness is `false`, and physical iOS, Android, and Web are `not
-run`.
+The current stable dependency pin
+`5dcf6fce7dc36719e64e536faba9538fe9fa1022` retains that published clearcoat
+contract from `https://github.com/MarlonJD/flutter_scene`. Runtime capability
+is `verified locally` on the iOS Simulator; release maturity is `release
+pending`, production readiness is `false`, and physical iOS, Android, and Web
+are `not run`.
 
 ## 2026-07-14 Plan 014 extended-PBR amendment
 
@@ -429,12 +472,14 @@ Those skips, WaterBottle/GlassVase captures, opaque-behind-glass trends, iOS
 Simulator, physical iOS, Android material rendering, Web material rendering,
 packaging, and release evidence remain `not run`.
 
-Only scalar factor-driven thin screen-space compositing remains
-`candidate-only`. It is not renderer-owned reflection/transmission transport,
-positive volume, nested glass, order-independent transparency, or a general
-PBR renderer. Renderer-native work is deferred in
-[`016_renderer_native_transmission_volume.md`](../exec-plans/deferred/016_renderer_native_transmission_volume.md),
-and the v1 glass release gate remains blocked.
+Only scalar factor-driven thin screen-space compositing remained
+`candidate-only` at that checkpoint. It was not renderer-owned
+reflection/transmission transport, positive volume, nested glass,
+order-independent transparency, or a general PBR renderer. The subsequently
+completed renderer-native work is recorded in
+[`016_renderer_native_transmission_volume.md`](../exec-plans/completed/016_renderer_native_transmission_volume.md).
+Its iOS Simulator gate is now `verified locally`; physical-device,
+cross-platform, packaging, and production-ready gates remain open.
 
 ## Local verification note
 

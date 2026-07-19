@@ -10,7 +10,7 @@ Each completed plan should update this table.
 | Material overrides | 1/5 | Public types exist | Bind to flutter_scene materials |
 | Adaptive render | 1/5 | Policy enum exists | Implement scheduler |
 | Tooling | 3/5 | Checks and repo lints exist | Add fixture tests |
-| Selected glTF extension evidence | 3/5 | Host parsing/codec/rewrite evidence and an explicit [feature/target matrix](generated/capability_matrix.md) exist | Run current target captures; resolve upstream renderer blockers |
+| Selected glTF extension evidence | 4/5 | Host parsing/codec/rewrite evidence, the Plan 014 [feature/target matrix](generated/capability_matrix.md), and renderer-native clearcoat plus transmission/volume iOS Simulator evidence exist | Run physical iOS, Android, Web, packaging, and release evidence without promoting unchecked targets |
 | Docs | 4/5 | Project docs, plans, and generated capability truth exist | Keep plan logs and target rows current |
 
 Scores are intentionally conservative. Do not inflate without executable checks.

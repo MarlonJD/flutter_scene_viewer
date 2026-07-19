@@ -316,14 +316,15 @@ supported imported materials onto a lit or unlit base material. Runtime
 gate for advanced material extension validation. The default diagnostics-only
 policy reports unsupported glass and clearcoat before those patches reach the
 adapter or persistence store. The source-compatible `productionShaders()` name
-opts into the repo-owned custom shader candidate for transmission, IOR, volume,
-and clearcoat. After shader preflight passes, the adapter may route available
-patches through `backendKind: flutterSceneCustomShader`; preflight proves shader
-availability and routing only, not Khronos correctness or physical-device
-release readiness. The adapter/backend must still
-return diagnostics for any feature it cannot honestly render.
+opts into the complete native material contract at pinned `flutter_scene`
+revision `5dcf6fce7dc36719e64e536faba9538fe9fa1022`. The adapter routes available
+transmission, glass IOR, volume, and clearcoat patches through
+`backendKind: rendererNative`; package-local shader preflight remains a
+compatibility fallback and proves routing only, not physical-device release
+readiness. The adapter/backend must still return diagnostics for any feature it
+cannot honestly render.
 
-The `.fmat` material packaging path uses `hook/build.dart` and
+Historically, the `.fmat` material packaging path used `hook/build.dart` and
 `flutter_scene/build_hooks.dart` `buildMaterials(...)`. Task 011 hardens the
 package-local material extension backend. Transmission uses a bounded
 screen-space background render texture, IOR-derived Fresnel energy splitting,
@@ -339,9 +340,16 @@ Simulator evidence is separately labeled `verified locally`. Physical iOS,
 Android material rendering, and Web material rendering remain `not run`.
 
 The [generated capability matrix](generated/capability_matrix.md) is the
-completed Plan 014 feature/target closure snapshot. Plan 014 iOS Simulator evidence is `verified locally` for `KHR_texture_transform`, `KHR_materials_specular`, opaque `KHR_materials_ior`, and the A1B32 Draco load; physical iOS, Android, and Web remain `not run`. Other historical runs remain context, and host decoder, rewrite, validator, or reference-renderer results remain separate from target runtime and release maturity. Plan 017 owns decoder lifecycle, authored-mip, physical-target, packaging, and release-evidence follow-up.
+completed Plan 014 feature/target closure snapshot. Plan 014 iOS Simulator evidence is `verified locally` for `KHR_texture_transform`,
+`KHR_materials_specular`, opaque `KHR_materials_ior`, and the A1B32 Draco load;
+physical iOS, Android, and Web remain `not run`. Other historical runs remain
+context, and host decoder, rewrite, validator, or reference-renderer results
+remain separate from target runtime and release maturity. Completed Plans 015
+and 016 add separate renderer-native clearcoat and transmission/volume target
+evidence. Plan 017 owns decoder lifecycle, authored-mip, physical-target,
+packaging, and aggregate release-evidence follow-up.
 
-As of 2026-07-03, the installed `flutter_scene` 0.18.1 target does not expose
+The 2026-07-03 historical `flutter_scene` 0.18.1 target did not expose
 real transmission/glass or clearcoat support. The local audit found no public
 `PhysicallyBasedMaterial` fields for transmission, IOR, thickness,
 attenuation, clearcoat factor, or clearcoat roughness, and the runtime glTF
@@ -359,31 +367,28 @@ evidence remains a separate durable `verified locally` record. Physical iOS,
 Android material rendering, and Web material rendering remain `not run`. Alpha blending is not
 accepted as a glass substitute,
 and low roughness is not accepted as a clearcoat substitute. Upstream
-renderer-native material fields remain useful future PR candidates rather than
-the active production gate.
+renderer-native material fields were future work rather than the active
+production gate at that checkpoint.
 
-Plan 015 supersedes that historical clearcoat implementation conclusion with a
-renderer-native path. Published and pinned `flutter_scene` revision
-`ccf7372428961ebe0abb053727fe443150547a74` parses, validates, copies,
-imports, binds, and shades every selected `KHR_materials_clearcoat` field in the
-standard PBR lighting path. The viewer stages native clearcoat and core PBR
-state before one atomic replacement, retains transformed-core state across
-later clearcoat deltas, and uses a bounded combined shader variant where the
-standard 16-sampler floor requires it. Khronos ClearCoatTest,
-ClearCoatCarPaint, and ToyCar are `verified locally` on the iOS Simulator
-with the immutable Git dependency, without a path override. This closes the
-renderer-native clearcoat implementation and pin gate; it does not promote
-release maturity or production readiness for untested targets.
+Plans 015 and 016 supersede those historical clearcoat and glass conclusions
+with renderer-native paths. Published and pinned `flutter_scene` revision
+`5dcf6fce7dc36719e64e536faba9538fe9fa1022` parses, validates, copies,
+imports, binds, and shades every selected `KHR_materials_clearcoat`,
+`KHR_materials_transmission`, `KHR_materials_volume`, and glass
+`KHR_materials_ior` field. Clearcoat uses the standard layered PBR lighting
+path. Glass uses renderer-owned opaque scene color, a double-sided back-face
+prepass with private depth, thin and positive-volume transport, rough
+refraction, world-scale attenuation, and standard lit base response. The
+viewer stages native extension/core state before atomic replacement and keeps
+the combined transformed-core variants within the 16-sampler floor. Controlled
+Khronos and synthetic evidence is `verified locally` on the iOS Simulator with
+the immutable Git dependency and no path override. Release maturity remains
+`release pending`, production readiness is `false`, and untested targets remain
+`not run`.
 
-Upstream `flutter_scene` PR candidates:
-
-- importer support for `KHR_materials_transmission`;
-- importer support for `KHR_materials_ior`;
-- importer support for `KHR_materials_volume`;
-- importer support for `KHR_materials_clearcoat`;
-- stable material-extension hooks or first-class PBR extension fields so this
-  package does not need package-local GLB JSON parsing for authored extension
-  intent.
+Remaining upstream material-extension opportunities include first-class
+`KHR_materials_specular` and opaque-only IOR fields so those package-local
+extended-PBR inputs can eventually leave the wrapper shader boundary.
 
 The current lighting adapter maps direct lighting to one
 `flutter_scene.DirectionalLight` and indirect/sky lighting to the scene
