@@ -50,12 +50,13 @@ namespace draco {
 // 2-manifold surface.
 // If the CornerTable is constructed from a non-manifold surface, the input
 // non-manifold edges and vertices are automatically split.
-class CornerTable {
+class CornerTable : public FsvDecodeAllocated {
  public:
   // Corner table face type.
   typedef std::array<VertexIndex, 3> FaceType;
 
   CornerTable();
+  explicit CornerTable(FsvDecodeControl *control);
   static std::unique_ptr<CornerTable> Create(
       const IndexTypeVector<FaceIndex, FaceType> &faces);
 
@@ -386,6 +387,7 @@ class CornerTable {
   IndexTypeVector<VertexIndex, VertexIndex> non_manifold_vertex_parents_;
 
   draco::ValenceCache<CornerTable> valence_cache_;
+  FsvDecodeControl *fsv_decode_control_ = nullptr;
 };
 
 // A special case to denote an invalid corner table triangle.

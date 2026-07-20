@@ -14,17 +14,29 @@
 //
 #include "draco/metadata/metadata_decoder.h"
 
+#include <algorithm>
 #include <string>
 
 #include "draco/core/varint_decoding.h"
 
 namespace draco {
 
-MetadataDecoder::MetadataDecoder() : buffer_(nullptr) {}
+namespace {
+constexpr size_t kFsvMetadataCopyChunkBytes = 256;
+}
+
+MetadataDecoder::MetadataDecoder() : MetadataDecoder(nullptr) {}
+
+MetadataDecoder::MetadataDecoder(FsvDecodeControl *control)
+    : buffer_(nullptr), control_(control) {}
+
+bool MetadataDecoder::ShouldStopDecoding() const {
+  return control_ != nullptr && control_->ShouldStopDecoding();
+}
 
 bool MetadataDecoder::DecodeMetadata(DecoderBuffer *in_buffer,
                                      Metadata *metadata) {
-  if (!metadata) {
+  if (!metadata || ShouldStopDecoding()) {
     return false;
   }
   buffer_ = in_buffer;
@@ -33,7 +45,7 @@ bool MetadataDecoder::DecodeMetadata(DecoderBuffer *in_buffer,
 
 bool MetadataDecoder::DecodeGeometryMetadata(DecoderBuffer *in_buffer,
                                              GeometryMetadata *metadata) {
-  if (!metadata) {
+  if (!metadata || ShouldStopDecoding()) {
     return false;
   }
   buffer_ = in_buffer;
@@ -43,12 +55,16 @@ bool MetadataDecoder::DecodeGeometryMetadata(DecoderBuffer *in_buffer,
   }
   // Decode attribute metadata.
   for (uint32_t i = 0; i < num_att_metadata; ++i) {
+    if (ShouldStopDecoding()) {
+      return false;
+    }
     uint32_t att_unique_id;
     if (!DecodeVarint(&att_unique_id, buffer_)) {
       return false;
     }
     std::unique_ptr<AttributeMetadata> att_metadata =
-        std::unique_ptr<AttributeMetadata>(new AttributeMetadata());
+        std::unique_ptr<AttributeMetadata>(
+            new (control_) AttributeMetadata(control_));
     att_metadata->set_att_unique_id(att_unique_id);
     if (!DecodeMetadata(static_cast<Metadata *>(att_metadata.get()))) {
       return false;
@@ -67,9 +83,13 @@ bool MetadataDecoder::DecodeMetadata(Metadata *metadata) {
     Metadata *decoded_metadata;
     int level;
   };
-  std::vector<MetadataTuple> metadata_stack;
+  FsvVector<MetadataTuple> metadata_stack{
+      FsvDecodeAllocator<MetadataTuple>(control_)};
   metadata_stack.push_back({nullptr, metadata, 0});
   while (!metadata_stack.empty()) {
+    if (ShouldStopDecoding()) {
+      return false;
+    }
     const MetadataTuple mp = metadata_stack.back();
     metadata_stack.pop_back();
     metadata = mp.decoded_metadata;
@@ -78,14 +98,14 @@ bool MetadataDecoder::DecodeMetadata(Metadata *metadata) {
       if (mp.level > kMaxSubmetadataLevel) {
         return false;
       }
-      std::string sub_metadata_name;
+      FsvString sub_metadata_name{FsvDecodeAllocator<char>(control_)};
       if (!DecodeName(&sub_metadata_name)) {
         return false;
       }
       std::unique_ptr<Metadata> sub_metadata =
-          std::unique_ptr<Metadata>(new Metadata());
+          std::unique_ptr<Metadata>(new (control_) Metadata(control_));
       metadata = sub_metadata.get();
-      if (!mp.parent_metadata->AddSubMetadata(sub_metadata_name,
+      if (!mp.parent_metadata->AddSubMetadata(std::move(sub_metadata_name),
                                               std::move(sub_metadata))) {
         return false;
       }
@@ -99,6 +119,9 @@ bool MetadataDecoder::DecodeMetadata(Metadata *metadata) {
       return false;
     }
     for (uint32_t i = 0; i < num_entries; ++i) {
+      if (ShouldStopDecoding()) {
+        return false;
+      }
       if (!DecodeEntry(metadata)) {
         return false;
       }
@@ -112,6 +135,9 @@ bool MetadataDecoder::DecodeMetadata(Metadata *metadata) {
       return false;
     }
     for (uint32_t i = 0; i < num_sub_metadata; ++i) {
+      if (ShouldStopDecoding()) {
+        return false;
+      }
       metadata_stack.push_back(
           {metadata, nullptr, mp.parent_metadata ? mp.level + 1 : mp.level});
     }
@@ -120,7 +146,10 @@ bool MetadataDecoder::DecodeMetadata(Metadata *metadata) {
 }
 
 bool MetadataDecoder::DecodeEntry(Metadata *metadata) {
-  std::string entry_name;
+  if (ShouldStopDecoding()) {
+    return false;
+  }
+  FsvString entry_name{FsvDecodeAllocator<char>(control_)};
   if (!DecodeName(&entry_name)) {
     return false;
   }
@@ -134,15 +163,29 @@ bool MetadataDecoder::DecodeEntry(Metadata *metadata) {
   if (data_size > buffer_->remaining_size()) {
     return false;
   }
-  std::vector<uint8_t> entry_value(data_size);
-  if (!buffer_->Decode(&entry_value[0], data_size)) {
-    return false;
+  FsvVector<uint8_t> entry_value{FsvDecodeAllocator<uint8_t>(control_)};
+  entry_value.resize(data_size);
+  size_t copied = 0;
+  while (copied < data_size) {
+    if (ShouldStopDecoding()) {
+      return false;
+    }
+    const size_t chunk =
+        std::min(kFsvMetadataCopyChunkBytes,
+                 static_cast<size_t>(data_size) - copied);
+    if (!buffer_->Decode(entry_value.data() + copied, chunk)) {
+      return false;
+    }
+    copied += chunk;
   }
-  metadata->AddEntryBinary(entry_name, entry_value);
+  metadata->AddEntryBinary(std::move(entry_name), std::move(entry_value));
   return true;
 }
 
-bool MetadataDecoder::DecodeName(std::string *name) {
+bool MetadataDecoder::DecodeName(FsvString *name) {
+  if (ShouldStopDecoding()) {
+    return false;
+  }
   uint8_t name_len = 0;
   if (!buffer_->Decode(&name_len)) {
     return false;
@@ -154,6 +197,6 @@ bool MetadataDecoder::DecodeName(std::string *name) {
   if (!buffer_->Decode(&name->at(0), name_len)) {
     return false;
   }
-  return true;
+  return !ShouldStopDecoding();
 }
 }  // namespace draco

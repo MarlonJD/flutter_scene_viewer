@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -7,12 +8,14 @@ import 'package:flutter_scene_viewer/src/internal/glb_capability_reader.dart';
 import 'package:flutter_scene_viewer/src/internal/glb_decode_budget.dart';
 import 'package:flutter_scene_viewer/src/internal/glb_meshopt_rewriter.dart';
 import 'package:flutter_scene_viewer/src/internal/meshopt_decoder.dart';
+import 'package:flutter_scene_viewer/src/model_load_cancellation.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 const _meshoptFixtureRoot = 'test/fixtures/meshopt/MeshoptCubeTest/glTF';
 
 void main() {
-  test('rewrites meshopt-compressed bufferViews into embedded BIN bytes', () {
+  test('rewrites meshopt-compressed bufferViews into embedded BIN bytes',
+      () async {
     final encoded = _attributeStreamV0(<int>[1, 2, 3, 4]);
     final source = _glbWithBin(
       <String, Object?>{
@@ -60,7 +63,7 @@ void main() {
       encoded,
     );
 
-    final result = rewriteMeshoptCompressedGlb(
+    final result = await rewriteMeshoptCompressedGlb(
       source,
       debugName: 'meshopt.glb',
     );
@@ -87,11 +90,12 @@ void main() {
     );
   });
 
-  test('commits decoded bytes to a shared tracker exactly once on success', () {
+  test('commits decoded bytes to a shared tracker exactly once on success',
+      () async {
     final tracker = GlbDecodeBudgetTracker(const GlbDecodeBudget())
       ..reserveDecodedBytes(3, stage: 'seed');
 
-    final result = rewriteMeshoptCompressedGlb(
+    final result = await rewriteMeshoptCompressedGlb(
       _meshoptGlb(count: 1),
       debugName: 'meshopt-success-accounting.glb',
       budgetTracker: tracker,
@@ -102,7 +106,7 @@ void main() {
     expect(tracker.totalDecodedBytes, 7);
   });
 
-  test('rejects EXT ATTRIBUTES v1 before decode budget reservation', () {
+  test('rejects EXT ATTRIBUTES v1 before decode budget reservation', () async {
     final source = _meshoptGlb(
       count: 1,
       encodedStream: _attributeStreamV1(<int>[1, 2, 3, 4]),
@@ -110,7 +114,7 @@ void main() {
     final tracker = GlbDecodeBudgetTracker(const GlbDecodeBudget())
       ..reserveDecodedBytes(3, stage: 'seed');
 
-    final result = rewriteMeshoptCompressedGlb(
+    final result = await rewriteMeshoptCompressedGlb(
       source,
       debugName: 'ext-meshopt-v1.glb',
       budgetTracker: tracker,
@@ -135,13 +139,13 @@ void main() {
     );
   });
 
-  test('rewrites an official v0 quantized primitive derivative', () {
+  test('rewrites an official v0 quantized primitive derivative', () async {
     final fixture = _officialMesh26ExtFixture();
     final source = _readGlb(fixture.glb);
     expect(source.bin[0], 0xa0);
     expect(source.bin[124], 0xa0);
 
-    final result = rewriteMeshoptCompressedGlb(
+    final result = await rewriteMeshoptCompressedGlb(
       fixture.glb,
       debugName: 'official-mesh26-ext-derivative.glb',
     );
@@ -213,10 +217,11 @@ void main() {
     );
   });
 
-  test('rejects declared output over budget before decode or allocation', () {
+  test('rejects declared output over budget before decode or allocation',
+      () async {
     final source = _meshoptGlb(count: 2);
 
-    final result = rewriteMeshoptCompressedGlb(
+    final result = await rewriteMeshoptCompressedGlb(
       source,
       debugName: 'oversized-meshopt.glb',
       budget: const GlbDecodeBudget(maxTotalDecodedBytes: 4),
@@ -241,8 +246,8 @@ void main() {
     );
   });
 
-  test('rejects a JSON chunk over the configured decode budget', () {
-    final result = rewriteMeshoptCompressedGlb(
+  test('rejects a JSON chunk over the configured decode budget', () async {
+    final result = await rewriteMeshoptCompressedGlb(
       _meshoptGlb(count: 1),
       debugName: 'json-budget.glb',
       budget: const GlbDecodeBudget(maxJsonBytes: 8),
@@ -260,12 +265,12 @@ void main() {
     );
   });
 
-  test('accepts a JSON chunk exactly at the configured budget', () {
+  test('accepts a JSON chunk exactly at the configured budget', () async {
     final source = _meshoptGlb(count: 1);
     final jsonLength =
         ByteData.sublistView(source).getUint32(12, Endian.little);
 
-    final result = rewriteMeshoptCompressedGlb(
+    final result = await rewriteMeshoptCompressedGlb(
       source,
       debugName: 'exact-json-budget.glb',
       budget: GlbDecodeBudget(maxJsonBytes: jsonLength),
@@ -275,7 +280,8 @@ void main() {
     expect(result.bytes, isNotNull);
   });
 
-  test('rejects declared embedded BIN length before padding allocation', () {
+  test('rejects declared embedded BIN length before padding allocation',
+      () async {
     final source = _glbWithBin(
       <String, Object?>{
         'asset': <String, Object?>{'version': '2.0'},
@@ -303,7 +309,7 @@ void main() {
       Uint8List.fromList(<int>[0xa1, 0, 0, 0]),
     );
 
-    final result = rewriteMeshoptCompressedGlb(
+    final result = await rewriteMeshoptCompressedGlb(
       source,
       debugName: 'declared-bin-too-large.glb',
     );
@@ -320,7 +326,8 @@ void main() {
     expect(result.diagnostics.single.details['actual'], 8);
   });
 
-  test('rejects negative and unsafe meshopt operands before decoder entry', () {
+  test('rejects negative and unsafe meshopt operands before decoder entry',
+      () async {
     final unsafeInteger = int.parse('9007199254740992');
     for (final entry in <({int count, int stride})>[
       (count: -1, stride: 4),
@@ -328,7 +335,7 @@ void main() {
       (count: 1, stride: -1),
       (count: 1, stride: unsafeInteger),
     ]) {
-      final result = rewriteMeshoptCompressedGlb(
+      final result = await rewriteMeshoptCompressedGlb(
         _meshoptGlb(count: entry.count, byteStride: entry.stride),
         debugName: 'invalid-meshopt-operand.glb',
       );
@@ -347,10 +354,10 @@ void main() {
     }
   });
 
-  test('aggregate failure returns no partially rewritten GLB', () {
+  test('aggregate failure returns no partially rewritten GLB', () async {
     final source = _twoViewMeshoptGlb();
 
-    final result = rewriteMeshoptCompressedGlb(
+    final result = await rewriteMeshoptCompressedGlb(
       source,
       debugName: 'aggregate-budget.glb',
       budget: const GlbDecodeBudget(maxTotalDecodedBytes: 4),
@@ -377,19 +384,20 @@ void main() {
     }
   });
 
-  test('timeout returns a typed diagnostic and rolls back tracker state', () {
+  test('timeout returns a typed diagnostic and rolls back tracker state',
+      () async {
     final source = _twoViewMeshoptGlb();
     final tracker = GlbDecodeBudgetTracker(const GlbDecodeBudget())
       ..reserveDecodedBytes(3, stage: 'seed');
     var elapsedReads = 0;
 
-    final result = rewriteMeshoptCompressedGlb(
+    final result = await rewriteMeshoptCompressedGlb(
       source,
       debugName: 'meshopt-timeout.glb',
       budgetTracker: tracker,
       decodeControl: MeshoptDecodeControl(
         timeout: const Duration(milliseconds: 1),
-        checkInterval: 1,
+        checkInterval: 4,
         elapsed: () => elapsedReads++ < 3
             ? Duration.zero
             : const Duration(milliseconds: 2),
@@ -430,13 +438,14 @@ void main() {
     );
   });
 
-  test('mid-decode timeout maps started work and rolls back tracker state', () {
+  test('mid-decode timeout maps started work and rolls back tracker state',
+      () async {
     final source = _meshoptGlb(count: 1);
     final tracker = GlbDecodeBudgetTracker(const GlbDecodeBudget())
       ..reserveDecodedBytes(3, stage: 'seed');
     var elapsedReads = 0;
 
-    final result = rewriteMeshoptCompressedGlb(
+    final result = await rewriteMeshoptCompressedGlb(
       source,
       debugName: 'meshopt-mid-decode-timeout.glb',
       budgetTracker: tracker,
@@ -474,6 +483,48 @@ void main() {
     expect(sourceCapabilities.meshoptCompressedBufferViewCount, 1);
     expect(
       sourceCapabilities.extensionsRequired,
+      contains('EXT_meshopt_compression'),
+    );
+  });
+
+  test('cancellation on a later bufferView rolls back bytes and tracker',
+      () async {
+    final source = _twoViewMeshoptGlb();
+    final sourceSnapshot = Uint8List.fromList(source);
+    final tracker = GlbDecodeBudgetTracker(const GlbDecodeBudget())
+      ..reserveDecodedBytes(3, stage: 'seed');
+    final cancellation = ModelLoadCancellationController();
+
+    final rewrite = rewriteMeshoptCompressedGlb(
+      source,
+      debugName: 'meshopt-cancelled.glb',
+      budgetTracker: tracker,
+      decodeControl: MeshoptDecodeControl(
+        timeout: const Duration(hours: 1),
+        checkInterval: 4,
+        elapsed: () => Duration.zero,
+      ),
+      cancellationToken: cancellation.token,
+    );
+    Timer.run(() => cancellation.cancel('later-buffer-view'));
+    final result = await rewrite;
+
+    expect(result.bytes, isNull);
+    expect(result.diagnostics, hasLength(1));
+    final diagnostic = result.diagnostics.single;
+    expect(diagnostic.code, ViewerDiagnosticCode.modelLoadCancelled);
+    expect(diagnostic.details['source'], 'meshopt-cancelled.glb');
+    expect(diagnostic.details['extension'], 'EXT_meshopt_compression');
+    expect(diagnostic.details['stage'], 'meshoptAttributes');
+    expect(diagnostic.details['reason'], 'later-buffer-view');
+    expect(diagnostic.details['status'], 'cancelled');
+    expect(diagnostic.details['bufferViewIndex'], 1);
+    expect(tracker.totalDecodedBytes, 3);
+    expect(source, orderedEquals(sourceSnapshot));
+    final capabilities = readGlbAssetCapabilities(source);
+    expect(capabilities.meshoptCompressedBufferViewCount, 2);
+    expect(
+      capabilities.extensionsRequired,
       contains('EXT_meshopt_compression'),
     );
   });

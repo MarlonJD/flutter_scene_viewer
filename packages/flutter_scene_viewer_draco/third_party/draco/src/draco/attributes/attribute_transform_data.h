@@ -16,6 +16,7 @@
 #define DRACO_ATTRIBUTES_ATTRIBUTE_TRANSFORM_DATA_H_
 
 #include <memory>
+#include <utility>
 
 #include "draco/attributes/attribute_transform_type.h"
 #include "draco/core/data_buffer.h"
@@ -27,10 +28,22 @@ namespace draco {
 // that holds quantized values. This class provides only a basic storage for
 // attribute transform parameters and it should be accessed only through wrapper
 // classes for a specific transform (e.g. AttributeQuantizationTransform).
-class AttributeTransformData {
+class AttributeTransformData : public FsvDecodeAllocated {
  public:
   AttributeTransformData() : transform_type_(ATTRIBUTE_INVALID_TRANSFORM) {}
-  AttributeTransformData(const AttributeTransformData &data) = default;
+  explicit AttributeTransformData(FsvDecodeControl *control)
+      : transform_type_(ATTRIBUTE_INVALID_TRANSFORM), buffer_(control) {}
+  AttributeTransformData(const AttributeTransformData &data)
+      : transform_type_(data.transform_type_), buffer_(data.buffer_) {}
+  AttributeTransformData(const AttributeTransformData &data,
+                         FsvDecodeControl *control)
+      : transform_type_(data.transform_type_), buffer_(data.buffer_, control) {}
+  AttributeTransformData(AttributeTransformData &&data)
+      : transform_type_(data.transform_type_), buffer_(std::move(data.buffer_)) {}
+  AttributeTransformData(AttributeTransformData &&data,
+                         FsvDecodeControl *control)
+      : transform_type_(data.transform_type_),
+        buffer_(std::move(data.buffer_), control) {}
 
   // Returns the type of the attribute transform that is described by the class.
   AttributeTransformType transform_type() const { return transform_type_; }

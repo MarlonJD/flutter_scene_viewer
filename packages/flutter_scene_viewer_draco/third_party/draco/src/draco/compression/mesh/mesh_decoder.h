@@ -22,11 +22,14 @@
 
 namespace draco {
 
+class FsvDecodeControl;
+
 // Class that reconstructs a 3D mesh from input data that was encoded by
 // MeshEncoder.
 class MeshDecoder : public PointCloudDecoder {
  public:
   MeshDecoder();
+  explicit MeshDecoder(FsvDecodeControl *control);
 
   EncodedGeometryType GetGeometryType() const override {
     return TRIANGULAR_MESH;
@@ -34,7 +37,7 @@ class MeshDecoder : public PointCloudDecoder {
 
   // The main entry point for mesh decoding.
   Status Decode(const DecoderOptions &options, DecoderBuffer *in_buffer,
-                Mesh *out_mesh);
+                Mesh *out_mesh, FsvDecodeControl *control = nullptr);
 
   // Returns the base connectivity of the decoded mesh (or nullptr if it is not
   // initialized).

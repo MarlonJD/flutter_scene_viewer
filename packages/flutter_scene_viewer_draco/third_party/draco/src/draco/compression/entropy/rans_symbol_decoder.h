@@ -30,7 +30,11 @@ namespace draco {
 template <int unique_symbols_bit_length_t>
 class RAnsSymbolDecoder {
  public:
-  RAnsSymbolDecoder() : num_symbols_(0) {}
+  RAnsSymbolDecoder() : RAnsSymbolDecoder(nullptr) {}
+  explicit RAnsSymbolDecoder(FsvDecodeControl *control)
+      : probability_table_(FsvDecodeAllocator<uint32_t>(control)),
+        num_symbols_(0),
+        ans_(control) {}
 
   // Initialize the decoder and decode the probability table.
   bool Create(DecoderBuffer *buffer);
@@ -49,7 +53,7 @@ class RAnsSymbolDecoder {
           unique_symbols_bit_length_t);
   static constexpr int rans_precision_ = 1 << rans_precision_bits_;
 
-  std::vector<uint32_t> probability_table_;
+  FsvVector<uint32_t> probability_table_;
   uint32_t num_symbols_;
   RAnsDecoder<rans_precision_bits_> ans_;
 };

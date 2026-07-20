@@ -17,6 +17,13 @@ dev_dependencies:
   lints: ^5.0.0
 
 flutter:
+  assets:
+    - third_party/basis_universal/LICENSE
+    - third_party/basis_universal/NOTICE
+    - third_party/basis_universal/FSV_LOCAL_MODIFICATIONS.md
+    - third_party/basis_universal/FSV_CODEC_CONTROL_PROVENANCE.sha256
+    - third_party/basis_universal/VENDORED_SOURCES.sha256
+    - third_party/basis_universal/zstd/LICENSE
   plugin:
     platforms:
       android:

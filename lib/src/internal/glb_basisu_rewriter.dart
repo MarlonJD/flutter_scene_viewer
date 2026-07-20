@@ -10,20 +10,76 @@ const int _binChunkType = 0x004E4942;
 const int _maxGlbUint32 = 0xffffffff;
 const String _basisuExtension = 'KHR_texture_basisu';
 
+final class GlbDecodedBasisuMipLevel {
+  const GlbDecodedBasisuMipLevel({
+    required this.level,
+    required this.width,
+    required this.height,
+    required this.rgbaBytes,
+  });
+
+  final int level;
+  final int width;
+  final int height;
+  final Uint8List rgbaBytes;
+}
+
+final class GlbBasisuSamplerIntent {
+  const GlbBasisuSamplerIntent({
+    required this.magFilter,
+    required this.minFilter,
+    required this.wrapS,
+    required this.wrapT,
+  });
+
+  final int magFilter;
+  final int minFilter;
+  final int wrapS;
+  final int wrapT;
+}
+
+final class GlbDecodedBasisuTextureBinding {
+  const GlbDecodedBasisuTextureBinding({
+    required this.textureIndex,
+    required this.sampler,
+    this.samplerIndex,
+  });
+
+  final int textureIndex;
+  final int? samplerIndex;
+  final GlbBasisuSamplerIntent sampler;
+}
+
 final class GlbDecodedBasisuImage {
   const GlbDecodedBasisuImage({
     required this.imageIndex,
-    required this.mimeType,
-    required this.width,
-    required this.height,
-    required this.bytes,
-  });
+    this.contentRole = 'structuralOnly',
+    this.levels = const <GlbDecodedBasisuMipLevel>[],
+    this.textureBindings = const <GlbDecodedBasisuTextureBinding>[],
+    String? mimeType,
+    int? width,
+    int? height,
+    Uint8List? bytes,
+  })  : _mimeType = mimeType,
+        _width = width,
+        _height = height,
+        _bytes = bytes;
 
   final int imageIndex;
-  final String mimeType;
-  final int width;
-  final int height;
-  final Uint8List bytes;
+  final String contentRole;
+  final List<GlbDecodedBasisuMipLevel> levels;
+  final List<GlbDecodedBasisuTextureBinding> textureBindings;
+  final String? _mimeType;
+  final int? _width;
+  final int? _height;
+  final Uint8List? _bytes;
+
+  /// Legacy single-level compatibility payload. Authored mip output uses
+  /// [levels] and is never PNG-flattened into these fields.
+  String get mimeType => _mimeType ?? '';
+  int get width => _width ?? -1;
+  int get height => _height ?? -1;
+  Uint8List get bytes => _bytes ?? Uint8List(0);
 }
 
 final class GlbBasisuRewriteResult {
@@ -229,6 +285,32 @@ GlbBasisuRewriteResult rewriteBasisuTexturesInGlb(
           details: <String, Object?>{
             'decodedImageIndex': decodedIndex,
             'imageIndex': decoded.imageIndex,
+          },
+        ),
+      );
+      continue;
+    }
+    if (decoded.levels.isNotEmpty) {
+      final issue = _decodedMipChainIssue(decoded, decodedIndex);
+      diagnostics.add(
+        _typedFailure(
+          debugName,
+          json,
+          issue == null
+              ? 'Raw authored BasisU mip levels require the mip-aware importer.'
+              : 'Native BasisU decoder returned a malformed mip chain.',
+          limitation:
+              issue == null ? 'authoredMipImporter' : 'decodedPayloadSchema',
+          status:
+              issue == null ? 'mipAwareImporterRequired' : 'malformedOutput',
+          field: issue?.field ?? 'decodedImages[$decodedIndex].levels',
+          limit: issue?.limit ??
+              'repo-local authored-mip upload and material binding',
+          actual: issue?.actual ?? decoded.levels.length,
+          details: <String, Object?>{
+            'decodedImageIndex': decodedIndex,
+            'imageIndex': decoded.imageIndex,
+            'contentRole': decoded.contentRole,
           },
         ),
       );
@@ -975,6 +1057,68 @@ int? _intValue(Object? value) {
     return value;
   }
   return null;
+}
+
+_DecodedMipChainIssue? _decodedMipChainIssue(
+  GlbDecodedBasisuImage image,
+  int decodedIndex,
+) {
+  if (image.contentRole != 'color' &&
+      image.contentRole != 'nonColor' &&
+      image.contentRole != 'structuralOnly') {
+    return _DecodedMipChainIssue(
+      'decodedImages[$decodedIndex].contentRole',
+      'color, nonColor, or structuralOnly',
+      image.contentRole,
+    );
+  }
+  final base = image.levels.first;
+  if (base.level != 0 || base.width <= 0 || base.height <= 0) {
+    return _DecodedMipChainIssue(
+      'decodedImages[$decodedIndex].levels[0]',
+      'level 0 with positive dimensions',
+      <String, Object?>{
+        'level': base.level,
+        'width': base.width,
+        'height': base.height,
+      },
+    );
+  }
+  for (var index = 0; index < image.levels.length; index += 1) {
+    final level = image.levels[index];
+    final expectedWidth = base.width >> index == 0 ? 1 : base.width >> index;
+    final expectedHeight = base.height >> index == 0 ? 1 : base.height >> index;
+    final expectedBytes = expectedWidth * expectedHeight * 4;
+    if (level.level != index ||
+        level.width != expectedWidth ||
+        level.height != expectedHeight ||
+        level.rgbaBytes.lengthInBytes != expectedBytes) {
+      return _DecodedMipChainIssue(
+        'decodedImages[$decodedIndex].levels[$index]',
+        <String, Object?>{
+          'level': index,
+          'width': expectedWidth,
+          'height': expectedHeight,
+          'rgbaBytes': expectedBytes,
+        },
+        <String, Object?>{
+          'level': level.level,
+          'width': level.width,
+          'height': level.height,
+          'rgbaBytes': level.rgbaBytes.lengthInBytes,
+        },
+      );
+    }
+  }
+  return null;
+}
+
+final class _DecodedMipChainIssue {
+  const _DecodedMipChainIssue(this.field, this.limit, this.actual);
+
+  final String field;
+  final Object limit;
+  final Object actual;
 }
 
 final class _GlbReadResult {

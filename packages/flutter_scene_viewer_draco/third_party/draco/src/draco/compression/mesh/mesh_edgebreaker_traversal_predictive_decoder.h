@@ -29,8 +29,12 @@ class MeshEdgebreakerTraversalPredictiveDecoder
     : public MeshEdgebreakerTraversalDecoder {
  public:
   MeshEdgebreakerTraversalPredictiveDecoder()
-      : corner_table_(nullptr),
+      : MeshEdgebreakerTraversalPredictiveDecoder(nullptr) {}
+  explicit MeshEdgebreakerTraversalPredictiveDecoder(FsvDecodeControl *control)
+      : MeshEdgebreakerTraversalDecoder(control),
+        corner_table_(nullptr),
         num_vertices_(0),
+        vertex_valences_(FsvDecodeAllocator<int>(control)),
         last_symbol_(-1),
         predicted_symbol_(-1) {}
   void Init(MeshEdgebreakerDecoderImplInterface *decoder) {
@@ -122,7 +126,7 @@ class MeshEdgebreakerTraversalPredictiveDecoder
  private:
   const CornerTable *corner_table_;
   int num_vertices_;
-  std::vector<int> vertex_valences_;
+  FsvVector<int> vertex_valences_;
   BinaryDecoder prediction_decoder_;
   int last_symbol_;
   int predicted_symbol_;

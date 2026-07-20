@@ -28,6 +28,17 @@ CornerTable::CornerTable()
       num_isolated_vertices_(0),
       valence_cache_(*this) {}
 
+CornerTable::CornerTable(FsvDecodeControl *control)
+    : corner_to_vertex_map_(control),
+      opposite_corners_(control),
+      vertex_corners_(control),
+      num_original_vertices_(0),
+      num_degenerated_faces_(0),
+      num_isolated_vertices_(0),
+      non_manifold_vertex_parents_(control),
+      valence_cache_(*this, control),
+      fsv_decode_control_(control) {}
+
 std::unique_ptr<CornerTable> CornerTable::Create(
     const IndexTypeVector<FaceIndex, FaceType> &faces) {
   std::unique_ptr<CornerTable> ct(new CornerTable());
@@ -97,7 +108,8 @@ bool CornerTable::ComputeOppositeCorners(int *num_vertices) {
 
   // First compute the number of outgoing half-edges (corners) attached to each
   // vertex.
-  std::vector<int> num_corners_on_vertices;
+  std::vector<int, FsvDecodeAllocator<int>> num_corners_on_vertices{
+      FsvDecodeAllocator<int>(fsv_decode_control_)};
   num_corners_on_vertices.reserve(num_corners());
   for (CornerIndex c(0); c < num_corners(); ++c) {
     const VertexIndex v1 = Vertex(c);
@@ -121,13 +133,17 @@ bool CornerTable::ComputeOppositeCorners(int *num_vertices) {
     VertexIndex sink_vert;
     CornerIndex edge_corner;
   };
-  std::vector<VertexEdgePair> vertex_edges(num_corners(), VertexEdgePair());
+  std::vector<VertexEdgePair, FsvDecodeAllocator<VertexEdgePair>> vertex_edges(
+      num_corners(), VertexEdgePair(),
+      FsvDecodeAllocator<VertexEdgePair>(fsv_decode_control_));
 
   // For each vertex compute the offset (location where the first half-edge
   // entry of a given vertex is going to be stored). This way each vertex is
   // guaranteed to have a non-overlapping storage with respect to the other
   // vertices.
-  std::vector<int> vertex_offset(num_corners_on_vertices.size());
+  std::vector<int, FsvDecodeAllocator<int>> vertex_offset(
+      num_corners_on_vertices.size(), 0,
+      FsvDecodeAllocator<int>(fsv_decode_control_));
   int offset = 0;
   for (size_t i = 0; i < num_corners_on_vertices.size(); ++i) {
     vertex_offset[i] = offset;
@@ -224,8 +240,13 @@ bool CornerTable::BreakNonManifoldEdges() {
   // function ComputeVertexCorners() that automatically creates new vertices
   // on disjoint 1-ring surface patches.
 
-  std::vector<bool> visited_corners(num_corners(), false);
-  std::vector<std::pair<VertexIndex, CornerIndex>> sink_vertices;
+  std::vector<bool, FsvDecodeAllocator<bool>> visited_corners(
+      num_corners(), false, FsvDecodeAllocator<bool>(fsv_decode_control_));
+  std::vector<std::pair<VertexIndex, CornerIndex>,
+              FsvDecodeAllocator<std::pair<VertexIndex, CornerIndex>>>
+      sink_vertices{
+          FsvDecodeAllocator<std::pair<VertexIndex, CornerIndex>>(
+              fsv_decode_control_)};
   bool mesh_connectivity_updated = false;
   do {
     mesh_connectivity_updated = false;
@@ -322,8 +343,10 @@ bool CornerTable::ComputeVertexCorners(int num_vertices) {
   vertex_corners_.resize(num_vertices, kInvalidCornerIndex);
   // Arrays for marking visited vertices and corners that allow us to detect
   // non-manifold vertices.
-  std::vector<bool> visited_vertices(num_vertices, false);
-  std::vector<bool> visited_corners(num_corners(), false);
+  std::vector<bool, FsvDecodeAllocator<bool>> visited_vertices(
+      num_vertices, false, FsvDecodeAllocator<bool>(fsv_decode_control_));
+  std::vector<bool, FsvDecodeAllocator<bool>> visited_corners(
+      num_corners(), false, FsvDecodeAllocator<bool>(fsv_decode_control_));
 
   for (FaceIndex f(0); f < num_faces(); ++f) {
     const CornerIndex first_face_corner = FirstCorner(f);

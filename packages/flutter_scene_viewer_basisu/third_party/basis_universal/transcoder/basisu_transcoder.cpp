@@ -173,7 +173,7 @@
 #if BASISD_SUPPORT_KTX2
    // If BASISD_SUPPORT_KTX2_ZSTD is 0, UASTC files compressed with Zstd cannot be loaded.
 	#if BASISD_SUPPORT_KTX2_ZSTD
-		// We only use two Zstd API's: ZSTD_decompress() and ZSTD_isError()
+			// We use the one-shot Zstd APIs plus a request-scoped static DCtx wrapper.
 		#include "../zstd/zstd.h"
 	#endif
 #endif
@@ -8253,6 +8253,16 @@ namespace basist
 	{
 	}
 
+	void basisu_lowlevel_etc1s_transcoder::set_fsv_transcode_control(fsv_transcode_control* control)
+	{
+		if (m_fsv_control != control)
+		{
+			clear();
+			fsv_bind_allocator(control ? control->fsv_get_vector_allocator() : nullptr);
+		}
+		m_fsv_control = control;
+	}
+
 	bool basisu_lowlevel_etc1s_transcoder::decode_palettes(
 		uint32_t num_endpoints, const uint8_t* pEndpoints_data, uint32_t endpoints_data_size,
 		uint32_t num_selectors, const uint8_t* pSelectors_data, uint32_t selectors_data_size)
@@ -8264,7 +8274,10 @@ namespace basist
 		}
 		bitwise_decoder sym_codec;
 
-		huffman_decoding_table color5_delta_model0, color5_delta_model1, color5_delta_model2, inten_delta_model;
+		basisu::fsv_vector_allocator* allocator =
+			m_fsv_control ? m_fsv_control->fsv_get_vector_allocator() : nullptr;
+		huffman_decoding_table color5_delta_model0(allocator), color5_delta_model1(allocator),
+			color5_delta_model2(allocator), inten_delta_model(allocator);
 
 		if (!sym_codec.init(pEndpoints_data, endpoints_data_size))
 		{
@@ -8304,7 +8317,8 @@ namespace basist
 
 		const bool endpoints_are_grayscale = sym_codec.get_bits(1) != 0;
 
-		m_local_endpoints.resize(num_endpoints);
+		if (!m_local_endpoints.try_resize(num_endpoints))
+			return false;
 
 		color32 prev_color5(16, 16, 16, 0);
 		uint32_t prev_inten = 0;
@@ -8341,7 +8355,8 @@ namespace basist
 
 		sym_codec.stop();
 
-		m_local_selectors.resize(num_selectors);
+		if (!m_local_selectors.try_resize(num_selectors))
+			return false;
 		
 		if (!sym_codec.init(pSelectors_data, selectors_data_size))
 		{
@@ -8349,7 +8364,7 @@ namespace basist
 			return false;
 		}
 
-		basist::huffman_decoding_table delta_selector_pal_model;
+		basist::huffman_decoding_table delta_selector_pal_model(allocator);
 
 		const bool used_global_selector_cb = (sym_codec.get_bits(1) == 1);
 
@@ -8563,8 +8578,9 @@ namespace basist
 			}
 
 			pPrev_frame_indices = &pState->m_prev_frame_indices[is_alpha_slice][level_index];
-			if (pPrev_frame_indices->size() < total_blocks)
-				pPrev_frame_indices->resize(total_blocks);
+			if (pPrev_frame_indices->size() < total_blocks &&
+				!pPrev_frame_indices->try_resize(total_blocks))
+				return false;
 		}
 
 		basist::bitwise_decoder sym_codec;
@@ -8575,7 +8591,11 @@ namespace basist
 			return false;
 		}
 
-		approx_move_to_front selector_history_buf(m_selector_history_buf_size);
+		basisu::fsv_vector_allocator* allocator =
+			m_fsv_control ? m_fsv_control->fsv_get_vector_allocator() : nullptr;
+		approx_move_to_front selector_history_buf(allocator);
+		if (!selector_history_buf.init(m_selector_history_buf_size))
+			return false;
 				
 		uint32_t cur_selector_rle_count = 0;
 
@@ -8612,8 +8632,13 @@ namespace basist
 
 		if (pState->m_block_endpoint_preds[0].size() < num_blocks_x)
 		{
-			pState->m_block_endpoint_preds[0].resize(num_blocks_x);
-			pState->m_block_endpoint_preds[1].resize(num_blocks_x);
+			if (!pState->m_block_endpoint_preds[0].try_resize(num_blocks_x) ||
+				!pState->m_block_endpoint_preds[1].try_resize(num_blocks_x))
+			{
+				if (pPVRTC_work_mem)
+					free(pPVRTC_work_mem);
+				return false;
+			}
 		}
 
 		uint32_t cur_pred_bits = 0;
@@ -8656,6 +8681,9 @@ namespace basist
 
 		for (uint32_t block_y = 0; block_y < num_blocks_y; block_y++)
 		{
+			// FSV LOCAL MODIFICATION (Apache-2.0 section 4(b)).
+			if (m_fsv_control && !m_fsv_control->fsv_checkpoint("blockRow"))
+				return false;
 			const uint32_t cur_block_endpoint_pred_array = block_y & 1;
 
 			for (uint32_t block_x = 0; block_x < num_blocks_x; block_x++)
@@ -10135,6 +10163,9 @@ namespace basist
 		{
 			for (uint32_t block_y = 0; block_y < num_blocks_y; ++block_y)
 			{
+				// FSV LOCAL MODIFICATION (Apache-2.0 section 4(b)).
+				if (m_fsv_control && !m_fsv_control->fsv_checkpoint("blockRow"))
+					return false;
 				void* pDst_block = (uint8_t*)pDst_blocks + block_y * output_row_pitch_in_blocks_or_pixels * output_block_or_pixel_stride_in_bytes;
 								
 				for (uint32_t block_x = 0; block_x < num_blocks_x; ++block_x, ++pSource_block, pDst_block = (uint8_t *)pDst_block + output_block_or_pixel_stride_in_bytes)
@@ -19486,6 +19517,7 @@ namespace basist
 	const uint8_t g_ktx2_file_identifier[12] = { 0xAB, 0x4B, 0x54, 0x58, 0x20, 0x32, 0x30, 0xBB, 0x0D, 0x0A, 0x1A, 0x0A };
 
 	ktx2_transcoder::ktx2_transcoder() :
+		m_fsv_control(nullptr),
 		m_etc1s_transcoder()
 	{
 		clear();
@@ -19530,6 +19562,9 @@ namespace basist
 
 	bool ktx2_transcoder::init(const void* pData, uint32_t data_size)
 	{
+		// FSV LOCAL MODIFICATION (Apache-2.0 section 4(b)).
+		if (!fsv_checkpoint("init"))
+			return false;
 		clear();
 
 		if (!pData)
@@ -19680,7 +19715,10 @@ namespace basist
 				BASISU_DEVEL_ERROR("ktx2_transcoder::init: Invalid level byte length\n");
 			}
 
-			if ((m_levels[i].m_byte_offset.get_uint64() + m_levels[i].m_byte_length.get_uint64()) > m_data_size)
+			const uint64_t level_byte_offset = m_levels[i].m_byte_offset.get_uint64();
+			const uint64_t level_byte_length = m_levels[i].m_byte_length.get_uint64();
+			if ((level_byte_offset > m_data_size) ||
+				(level_byte_length > m_data_size - level_byte_offset))
 			{
 				BASISU_DEVEL_ERROR("ktx2_transcoder::init: Invalid level offset and/or length\n");
 				return false;
@@ -19715,6 +19753,9 @@ namespace basist
 				}
 			}
 		}
+
+		if (!fsv_checkpoint("metadataLevelIndex"))
+			return false;
 
 		const uint32_t DFD_MINIMUM_SIZE = 44, DFD_MAXIMUM_SIZE = 60;
 		if ((m_header.m_dfd_byte_length != DFD_MINIMUM_SIZE) && (m_header.m_dfd_byte_length != DFD_MAXIMUM_SIZE))
@@ -19966,6 +20007,9 @@ namespace basist
 			return false;
 		}
 				
+		if (!fsv_checkpoint("metadataDfd"))
+			return false;
+
 		if (!read_key_values())
 		{
 			BASISU_DEVEL_ERROR("ktx2_transcoder::init: read_key_values() failed\n");
@@ -19997,7 +20041,7 @@ namespace basist
 			}
 		}
 
-		return true;
+		return fsv_checkpoint("metadata");
 	}
 
 	uint32_t ktx2_transcoder::get_etc1s_image_descs_image_flags(uint32_t level_index, uint32_t layer_index, uint32_t face_index) const
@@ -20027,6 +20071,8 @@ namespace basist
 	
 	bool ktx2_transcoder::start_transcoding()
 	{
+		if (!fsv_checkpoint("startTranscoding"))
+			return false;
 		if (!m_pData)
 		{
 			BASISU_DEVEL_ERROR("ktx2_transcoder::start_transcoding: Must call init() first\n");
@@ -20105,7 +20151,7 @@ namespace basist
 #endif
 		}
 
-		return true;
+		return fsv_checkpoint("startTranscodingComplete");
 	}
 
 	bool ktx2_transcoder::get_image_level_info(ktx2_image_level_info& level_info, uint32_t level_index, uint32_t layer_index, uint32_t face_index) const
@@ -20180,14 +20226,27 @@ namespace basist
 		uint32_t decode_flags, uint32_t output_row_pitch_in_blocks_or_pixels, uint32_t output_rows_in_pixels, int channel0, int channel1,
 		ktx2_transcoder_state* pState)
 	{
+		if (!pState)
+			pState = &m_def_transcoder_state;
+		pState->set_fsv_vector_allocator(
+			m_fsv_control ? m_fsv_control->fsv_get_vector_allocator() : nullptr);
+		// FSV LOCAL MODIFICATION: request-owned decoded level storage is released
+		// and unbound on every success/error/cancellation return while codec
+		// control is active, before a caller-owned control may be destroyed.
+		struct fsv_state_release_guard
+		{
+			ktx2_transcoder_state* state;
+			fsv_transcode_control* control;
+			~fsv_state_release_guard() { if (control) state->set_fsv_vector_allocator(nullptr); }
+		} fsv_release_guard{ pState, m_fsv_control };
+
+		if (!fsv_checkpoint("imageLevel"))
+			return false;
 		if (!m_pData)
 		{
 			BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_level: Must call init() first\n");
 			return false;
 		}
-
-		if (!pState)
-			pState = &m_def_transcoder_state;
 										
 		if (level_index >= m_levels.size())
 		{
@@ -20233,7 +20292,7 @@ namespace basist
 			if ((int)level_index != pState->m_uncomp_data_level_index)
 			{
 				// Uncompress the entire level's supercompressed data.
-				if (!decompress_level_data(level_index, pState->m_level_uncomp_data))
+				if (!decompress_level_data(level_index, *pState))
 				{
 					BASISU_DEVEL_ERROR("ktx2_transcoder::transcode_image_level: decompress_level_data() failed\n");
 					return false;
@@ -20530,11 +20589,12 @@ namespace basist
 			return false;
 		}
 
-		return true;
+		return fsv_checkpoint("imageLevelComplete");
 	}
 		
-	bool ktx2_transcoder::decompress_level_data(uint32_t level_index, basisu::uint8_vec& uncomp_data)
+	bool ktx2_transcoder::decompress_level_data(uint32_t level_index, ktx2_transcoder_state& state)
 	{
+		basisu::uint8_vec& uncomp_data = state.m_level_uncomp_data;
 		const uint8_t* pComp_data = m_levels[level_index].m_byte_offset.get_uint64() + m_pData;
 		const uint64_t comp_size = m_levels[level_index].m_byte_length.get_uint64();
 						
@@ -20553,6 +20613,7 @@ namespace basist
 
 		if (!uncomp_data.try_resize((size_t)uncomp_size))
 		{
+			state.clear();
 			BASISU_DEVEL_ERROR("ktx2_transcoder::decompress_level_data: Out of memory\n");
 			return false;
 		}
@@ -20560,9 +20621,52 @@ namespace basist
 		if (m_header.m_supercompression_scheme == KTX2_SS_ZSTANDARD)
 		{
 #if BASISD_SUPPORT_KTX2_ZSTD
-			size_t actualUncompSize = ZSTD_decompress(uncomp_data.data(), (size_t)uncomp_size, pComp_data, (size_t)comp_size);
+			if (!fsv_checkpoint("zstdOutput"))
+				return false;
+			basisu::fsv_allocation_result dctx_allocation;
+			basisu::fsv_vector_allocator* dctx_allocator = nullptr;
+			void* dctx_workspace = nullptr;
+			size_t dctx_workspace_size = 0;
+			size_t dctx_alignment = 0;
+			if (m_fsv_control)
+			{
+				dctx_allocator = m_fsv_control->fsv_get_vector_allocator();
+				dctx_workspace_size = ZSTD_fsv_dctx_allocation_size();
+				dctx_alignment = ZSTD_fsv_dctx_alignment();
+				if ((!dctx_allocator) || (!dctx_workspace_size) || (!dctx_alignment))
+				{
+					m_fsv_control->fsv_note_allocation_failure();
+					return false;
+				}
+				basisu::fsv_allocation_result allocated =
+					dctx_allocator->fsv_allocate(dctx_workspace_size, dctx_alignment);
+				dctx_allocation.swap(allocated);
+				if (dctx_allocation.m_outcome != basisu::fsv_allocation_outcome::kSuccess)
+				{
+					if (dctx_allocation.m_outcome == basisu::fsv_allocation_outcome::kHeapFailure)
+						m_fsv_control->fsv_note_allocation_failure();
+					return false;
+				}
+				dctx_workspace = dctx_allocation.m_p;
+			}
+			size_t actualUncompSize = ZSTD_decompress_fsv(
+				uncomp_data.data(), (size_t)uncomp_size, pComp_data,
+				(size_t)comp_size, dctx_workspace, dctx_workspace_size,
+				&ktx2_transcoder::fsv_zstd_checkpoint, this);
+			if (dctx_workspace && !dctx_allocator->fsv_release(
+					dctx_allocation, dctx_workspace, dctx_workspace_size,
+					dctx_alignment))
+			{
+				m_fsv_control->fsv_note_allocation_failure();
+				return false;
+			}
+			if (!fsv_checkpoint("zstdOutput"))
+				return false;
 			if (ZSTD_isError(actualUncompSize))
 			{
+				if (m_fsv_control &&
+					ZSTD_getErrorCode(actualUncompSize) == ZSTD_error_memory_allocation)
+					m_fsv_control->fsv_note_allocation_failure();
 				BASISU_DEVEL_ERROR("ktx2_transcoder::decompress_level_data: Zstd decompression failed, file is invalid or corrupted\n");
 				return false;
 			}
@@ -20580,6 +20684,12 @@ namespace basist
 		}
 
 		return true;
+	}
+
+	int ktx2_transcoder::fsv_zstd_checkpoint(void* opaque, size_t produced_bytes)
+	{
+		BASISU_NOTE_UNUSED(produced_bytes);
+		return static_cast<ktx2_transcoder*>(opaque)->fsv_checkpoint("zstdOutput") ? 1 : 0;
 	}
 
 	bool ktx2_transcoder::read_slice_offset_len_global_data(bool read_std_structs)
@@ -20759,6 +20869,9 @@ namespace basist
 			return false;
 		}
 
+		if (!fsv_checkpoint("metadataKvdOuter"))
+			return false;
+
 		while (src_left > sizeof(uint32_t))
 		{
 			uint32_t l = basisu::read_le_dword(pSrc);
@@ -20778,7 +20891,11 @@ namespace basist
 				return false;
 			}
 
-			if (!m_key_values.try_resize(m_key_values.size() + 1))
+			if ((m_key_values.size() == m_key_values.capacity()) &&
+				!fsv_checkpoint("metadataKvdRelocate"))
+				return false;
+
+			if (!m_key_values.try_emplace_back(m_key_values.fsv_allocator()))
 			{
 				BASISU_DEVEL_ERROR("ktx2_transcoder::read_key_values: Out of memory\n");
 				return false;
@@ -20844,6 +20961,9 @@ namespace basist
 
 			pSrc += alignment_bytes;
 			src_left -= alignment_bytes;
+
+			if (!fsv_checkpoint("metadataKvdEntry"))
+				return false;
 		}
 
 		return true;
@@ -41971,4 +42091,3 @@ bool basisu_lowlevel_xuastc_ldr_transcoder::transcode_image(
 }
 
 } // namespace basist
-

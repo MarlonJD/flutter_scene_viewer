@@ -21,6 +21,12 @@ namespace draco {
 AttributesDecoder::AttributesDecoder()
     : point_cloud_decoder_(nullptr), point_cloud_(nullptr) {}
 
+AttributesDecoder::AttributesDecoder(FsvDecodeControl *control)
+    : point_attribute_ids_(FsvDecodeAllocator<int32_t>(control)),
+      point_attribute_to_local_id_map_(FsvDecodeAllocator<int32_t>(control)),
+      point_cloud_decoder_(nullptr),
+      point_cloud_(nullptr) {}
+
 bool AttributesDecoder::Init(PointCloudDecoder *decoder, PointCloud *pc) {
   point_cloud_decoder_ = decoder;
   point_cloud_ = pc;
@@ -109,8 +115,9 @@ bool AttributesDecoder::DecodeAttributesDecoderData(DecoderBuffer *in_buffer) {
       }
       ga.set_unique_id(unique_id);
     }
-    const int att_id = pc->AddAttribute(
-        std::unique_ptr<PointAttribute>(new PointAttribute(ga)));
+    const int att_id = pc->AddAttribute(std::unique_ptr<PointAttribute>(
+        new (pc->fsv_decode_control())
+            PointAttribute(ga, pc->fsv_decode_control())));
     pc->attribute(att_id)->set_unique_id(unique_id);
     point_attribute_ids_[i] = att_id;
 

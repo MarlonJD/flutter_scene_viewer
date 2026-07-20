@@ -17,9 +17,15 @@
 
 #include <ostream>
 #include <string>
+#include <string_view>
+#include <utility>
+
+#include "draco/core/fsv_decode_allocator.h"
 
 namespace draco {
 
+// FSV LOCAL MODIFICATION (Apache-2.0 section 4(b)): controlled decode status
+// text is request-owned and ordinary copies detach from source controls.
 // Class encapsulating a return status of an operation with an optional error
 // message. Intended to be used as a return type for functions instead of bool.
 class Status {
@@ -35,47 +41,70 @@ class Status {
     UNSUPPORTED_FEATURE = -6,  // Input contains feature that is not supported.
   };
 
-  Status() : code_(OK) {}
-  Status(const Status &status) = default;
-  Status(Status &&status) = default;
-  explicit Status(Code code) : code_(code) {}
-  Status(Code code, const std::string &error_msg)
-      : code_(code), error_msg_(error_msg) {}
+  Status();
+  Status(const Status &status);
+  Status(const Status &status, FsvDecodeControl *control);
+  Status(Status &&status);
+  Status(Status &&status, FsvDecodeControl *control);
+  explicit Status(Code code);
+  Status(Code code, const std::string &error_msg);
+  Status(Code code, const std::string &error_msg, FsvDecodeControl *control);
+  Status(Code code, std::string_view error_msg, FsvDecodeControl *control);
+  Status(Code code, const char *error_msg);
+  Status(Code code, const char *error_msg, FsvDecodeControl *control);
 
   Code code() const { return code_; }
-  const std::string &error_msg_string() const { return error_msg_; }
-  const char *error_msg() const { return error_msg_.c_str(); }
+  const std::string &error_msg_string() const;
+  const char *error_msg() const;
   std::string code_string() const;
   std::string code_and_error_string() const;
 
   bool operator==(Code code) const { return code == code_; }
   bool ok() const { return code_ == OK; }
 
-  Status &operator=(const Status &) = default;
+  Status &operator=(const Status &status);
+  Status &operator=(Status &&status);
 
  private:
+  FsvDecodeControl *fsv_decode_control() const { return control_; }
+
   Code code_;
+  FsvDecodeControl *control_ = nullptr;
   std::string error_msg_;
+  FsvString controlled_error_msg_;
+  mutable std::string public_error_cache_;
+
+  friend Status MoveStatusPreservingControl(Status &&status);
 };
+
+Status MoveStatusPreservingControl(Status &&status);
 
 inline std::ostream &operator<<(std::ostream &os, const Status &status) {
   os << status.error_msg_string();
   return os;
 }
 
-inline Status OkStatus() { return Status(Status::OK); }
-inline Status ErrorStatus(const std::string &msg) {
-  return Status(Status::DRACO_ERROR, msg);
+inline Status OkStatus(FsvDecodeControl *control = nullptr) {
+  return Status(Status::OK, std::string_view(), control);
+}
+inline Status ErrorStatus(const std::string &msg,
+                          FsvDecodeControl *control = nullptr) {
+  return Status(Status::DRACO_ERROR, msg, control);
+}
+inline Status ErrorStatus(const char *msg,
+                          FsvDecodeControl *control = nullptr) {
+  return Status(Status::DRACO_ERROR, msg, control);
 }
 
 // Evaluates an expression that returns draco::Status. If the status is not OK,
 // the macro returns the status object.
-#define DRACO_RETURN_IF_ERROR(expression)             \
-  {                                                   \
-    const draco::Status _local_status = (expression); \
-    if (!_local_status.ok()) {                        \
-      return _local_status;                           \
-    }                                                 \
+#define DRACO_RETURN_IF_ERROR(expression)                           \
+  {                                                                 \
+    draco::Status _local_status = (expression);                      \
+    if (!_local_status.ok()) {                                      \
+      return draco::MoveStatusPreservingControl(                    \
+          std::move(_local_status));                                \
+    }                                                               \
   }
 
 }  // namespace draco

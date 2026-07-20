@@ -183,6 +183,65 @@ void main() {
   });
 
   group('production preflight', () {
+    test('accepted replacement retries an unavailable shader preflight',
+        () async {
+      var libraryLoads = 0;
+      var shaderLibraryAvailable = false;
+      final backend = FlutterSceneMaterialExtensionBackend(
+        loadShaderLibrary: (_) async {
+          libraryLoads += 1;
+          if (!shaderLibraryAvailable) {
+            return null;
+          }
+          return const _FakeShaderLibrary(
+            entries: <String>{
+              FlutterSceneMaterialExtensionBackend.transmissionShaderName,
+              FlutterSceneMaterialExtensionBackend.clearcoatShaderName,
+            },
+          );
+        },
+      );
+
+      final unavailable = await backend.preflightProductionSupport();
+      expect(
+          unavailable.support.backendKind, MaterialExtensionBackendKind.none);
+      final unavailableLoads = libraryLoads;
+
+      shaderLibraryAvailable = true;
+      backend.clear(preserveProductionPreflight: true);
+      final available = await backend.preflightProductionSupport();
+
+      expect(libraryLoads, unavailableLoads + 1);
+      expect(
+        available.support.backendKind,
+        MaterialExtensionBackendKind.flutterSceneCustomShader,
+      );
+      expect(available.diagnostics, isEmpty);
+    });
+
+    test('accepted scene replacement preserves cached shader preflight',
+        () async {
+      var libraryLoads = 0;
+      final backend = FlutterSceneMaterialExtensionBackend(
+        loadShaderLibrary: (_) async {
+          libraryLoads += 1;
+          return const _FakeShaderLibrary(
+            entries: <String>{
+              FlutterSceneMaterialExtensionBackend.transmissionShaderName,
+              FlutterSceneMaterialExtensionBackend.clearcoatShaderName,
+            },
+          );
+        },
+      );
+
+      await backend.preflightProductionSupport();
+      backend.clear(preserveProductionPreflight: true);
+      await backend.preflightProductionSupport();
+
+      expect(libraryLoads, 1);
+      expect(backend.debugHasProductionPreflight, isTrue);
+    });
+
     test('production preflight reports unavailable shaders', () async {
       final backend = FlutterSceneMaterialExtensionBackend(
         loadShaderLibrary: (_) async => null,

@@ -30,12 +30,20 @@ class MeshEdgebreakerTraversalValenceDecoder
     : public MeshEdgebreakerTraversalDecoder {
  public:
   MeshEdgebreakerTraversalValenceDecoder()
-      : corner_table_(nullptr),
+      : MeshEdgebreakerTraversalValenceDecoder(nullptr) {}
+  explicit MeshEdgebreakerTraversalValenceDecoder(FsvDecodeControl *control)
+      : MeshEdgebreakerTraversalDecoder(control),
+        corner_table_(nullptr),
         num_vertices_(0),
+        vertex_valences_(control),
         last_symbol_(-1),
         active_context_(-1),
         min_valence_(2),
-        max_valence_(7) {}
+        max_valence_(7),
+        context_symbols_(
+            FsvDecodeAllocator<FsvVector<uint32_t>>(control)),
+        context_counters_(FsvDecodeAllocator<int>(control)),
+        control_(control) {}
   void Init(MeshEdgebreakerDecoderImplInterface *decoder) {
     MeshEdgebreakerTraversalDecoder::Init(decoder);
     corner_table_ = decoder->GetCornerTable();
@@ -102,7 +110,11 @@ class MeshEdgebreakerTraversalValenceDecoder
     const int num_unique_valences = max_valence_ - min_valence_ + 1;
 
     // Decode all symbols for all contexts.
-    context_symbols_.resize(num_unique_valences);
+    context_symbols_.clear();
+    context_symbols_.reserve(num_unique_valences);
+    for (int i = 0; i < num_unique_valences; ++i) {
+      context_symbols_.emplace_back(FsvDecodeAllocator<uint32_t>(control_));
+    }
     context_counters_.resize(context_symbols_.size());
     for (int i = 0; i < context_symbols_.size(); ++i) {
       uint32_t num_symbols;
@@ -114,7 +126,10 @@ class MeshEdgebreakerTraversalValenceDecoder
       }
       if (num_symbols > 0) {
         context_symbols_[i].resize(num_symbols);
-        DecodeSymbols(num_symbols, 1, out_buffer, context_symbols_[i].data());
+        if (!DecodeSymbols(num_symbols, 1, out_buffer,
+                           context_symbols_[i].data(), control_)) {
+          return false;
+        }
         // All symbols are going to be processed from the back.
         context_counters_[i] = num_symbols;
       }
@@ -209,9 +224,10 @@ class MeshEdgebreakerTraversalValenceDecoder
 
   int min_valence_;
   int max_valence_;
-  std::vector<std::vector<uint32_t>> context_symbols_;
+  FsvVector<FsvVector<uint32_t>> context_symbols_;
   // Points to the active symbol in each context.
-  std::vector<int> context_counters_;
+  FsvVector<int> context_counters_;
+  FsvDecodeControl *control_;
 };
 
 }  // namespace draco

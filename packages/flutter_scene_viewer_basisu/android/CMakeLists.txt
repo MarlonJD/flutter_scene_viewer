@@ -7,6 +7,7 @@ add_library(
   SHARED
   src/main/cpp/flutter_scene_viewer_basisu_jni.cc
   src/main/cpp/fsv_basisu_budget.cc
+  src/main/cpp/fsv_basisu_control.cc
   src/main/cpp/fsv_basisu_bridge.cc
   ../third_party/basis_universal/transcoder/basisu_transcoder.cpp
   ../third_party/basis_universal/zstd/zstddeclib.c

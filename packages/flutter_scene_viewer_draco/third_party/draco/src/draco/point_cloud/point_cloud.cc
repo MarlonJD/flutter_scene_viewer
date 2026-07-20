@@ -26,6 +26,16 @@ namespace draco {
 
 PointCloud::PointCloud() : num_points_(0) {}
 
+PointCloud::PointCloud(FsvDecodeControl *control)
+    : attributes_(FsvDecodeAllocator<std::unique_ptr<PointAttribute>>(control)),
+      num_points_(0),
+      fsv_decode_control_(control) {
+  for (auto &indices : named_attribute_index_) {
+    indices = std::vector<int32_t, FsvDecodeAllocator<int32_t>>(
+        FsvDecodeAllocator<int32_t>(control));
+  }
+}
+
 #ifdef DRACO_TRANSCODER_SUPPORTED
 void PointCloud::Copy(const PointCloud &src) {
   num_points_ = src.num_points_;
@@ -154,7 +164,9 @@ std::unique_ptr<PointAttribute> PointCloud::CreateAttribute(
     return nullptr;
   }
   std::unique_ptr<PointAttribute> pa =
-      std::unique_ptr<PointAttribute>(new PointAttribute(att));
+      std::unique_ptr<PointAttribute>(
+          new (fsv_decode_control_)
+              PointAttribute(att, fsv_decode_control_));
   // Initialize point cloud specific attribute data.
   if (!identity_mapping) {
     // First create mapping between indices.

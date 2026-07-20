@@ -20,6 +20,7 @@ class FlutterSceneViewerBasisu {
   }
 
   static Future<Map<String, Object?>?> decodeGlb({
+    required String requestId,
     required Uint8List bytes,
     required List<String> requiredExtensions,
     required Map<String, Object?> decodeBudget,
@@ -30,6 +31,7 @@ class FlutterSceneViewerBasisu {
     return channel.invokeMapMethod<String, Object?>(
       'decodeGlb',
       <String, Object?>{
+        'requestId': requestId,
         'bytes': bytes,
         'requiredExtensions': requiredExtensions,
         'source': source,
@@ -37,6 +39,15 @@ class FlutterSceneViewerBasisu {
         'decodeBudget': decodeBudget,
         'decodeBudgetState': decodeBudgetState,
       },
+    );
+  }
+
+  static Future<Map<String, Object?>?> cancelDecode({
+    required String requestId,
+  }) {
+    return channel.invokeMapMethod<String, Object?>(
+      'cancelDecode',
+      <String, Object?>{'requestId': requestId},
     );
   }
 }

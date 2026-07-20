@@ -50,8 +50,17 @@ target. The policy does not permit fake fallbacks: if the backend cannot render
 the requested feature, it must report `unsupportedMaterialFeature`. Physical
 iOS, Android material rendering, and Web material rendering remain `not run`.
 
-The [generated capability matrix](generated/capability_matrix.md) is the
-completed Plan 014 feature/target closure snapshot. Plan 014 iOS Simulator evidence is `verified locally` for `KHR_texture_transform`, `KHR_materials_specular`, opaque `KHR_materials_ior`, and the A1B32 Draco load; physical iOS, Android, and Web remain `not run`. These are `candidate-only` target rows, not release or production-ready claims; host parser, codec, rewrite, and validator results do not promote any other row. Plan 017 owns migration to a non-plan-specific live capability source.
+The [generated capability matrix](generated/capability_matrix.md) is generated
+from the stable live capability source. Its completed Plan 014 rows remain
+fingerprinted historical context. Plan 014 iOS Simulator evidence is `verified locally`
+for `KHR_texture_transform`, `KHR_materials_specular`, opaque
+`KHR_materials_ior`, and the A1B32 Draco load, while physical iOS, Android,
+and Web remain `not run`. These are `candidate-only` rows, not release or
+`production-ready` claims. Plan 017's tracked
+[decoder/mip evidence contract](../tools/decoder_mip_acceptance/README.md)
+requires durable evidence for the exact feature and target before a live row
+can advance. Its current discovery records do not prove runtime or packaging;
+the aggregate remains `release pending`.
 
 `MaterialExtensionSupport.supportFor(MaterialExtensionFeature)` is the
 authoritative feature query. Each `MaterialExtensionFeatureSupport` keeps
@@ -162,6 +171,34 @@ await controller.setCameraPosition(
   target: [0.0, 0.0, 0.0],
 );
 ```
+
+Pass a `ModelLoadCancellationToken` to a load when the caller owns its
+lifecycle:
+
+```dart
+final cancellation = ModelLoadCancellationController();
+final load = controller.load(
+  ModelSource.network(modelUrl),
+  cancellationToken: cancellation.token,
+);
+// For example, when the surrounding route is dismissed.
+cancellation.cancel('route-dismissed');
+await load;
+```
+
+`cancel` is idempotent and retains its first reason until the adapter accepts
+its one live-publication commit. That acceptance atomically closes the token,
+so a later `cancel` returns `false` and the accepted load finishes normally,
+including authored and initial material application. Earlier cancellation emits
+one `modelLoadCancelled` diagnostic with `status: cancelled`; it is distinct
+from a timeout or a load failure. A cancelled initial load leaves the
+controller empty. A cancelled replacement keeps the previously published part
+tree and persisted overrides, and does not request a render frame for the
+cancelled load. Asset acquisition races cancellation without allowing late
+values or errors to publish. Network acquisition uses a request-scoped abort
+and cancels only that response subscription; a shared HTTP client remains
+usable by later loads. Whichever source result, caller cancellation, or load
+timeout is observed first owns the terminal result.
 
 `loadState.status` reports `idle`, `loading`, `success`, or `error`.
 Failed loads attach a `ViewerDiagnostic` to `loadState.diagnostic` and also add

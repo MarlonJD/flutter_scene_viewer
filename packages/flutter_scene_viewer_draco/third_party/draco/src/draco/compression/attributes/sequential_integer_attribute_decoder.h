@@ -28,12 +28,12 @@ class SequentialIntegerAttributeDecoder : public SequentialAttributeDecoder {
   bool Init(PointCloudDecoder *decoder, int attribute_id) override;
 
   bool TransformAttributeToOriginalFormat(
-      const std::vector<PointIndex> &point_ids) override;
+      const FsvVector<PointIndex> &point_ids) override;
 
  protected:
-  bool DecodeValues(const std::vector<PointIndex> &point_ids,
+  bool DecodeValues(const FsvVector<PointIndex> &point_ids,
                     DecoderBuffer *in_buffer) override;
-  virtual bool DecodeIntegerValues(const std::vector<PointIndex> &point_ids,
+  virtual bool DecodeIntegerValues(const FsvVector<PointIndex> &point_ids,
                                    DecoderBuffer *in_buffer);
 
   // Returns a prediction scheme that should be used for decoding of the

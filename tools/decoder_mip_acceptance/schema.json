@@ -1,0 +1,635 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/flutter_scene_viewer/plan017-decoder-mip-evidence.schema.json",
+  "title": "Plan 017 decoder and authored-mip evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "artifactRoot",
+    "rendererCommit",
+    "packageVersions",
+    "discovery",
+    "claims",
+    "records",
+    "aggregateMaturity",
+    "productionReady"
+  ],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "artifactRoot": {"const": "tools/out/plan017_decoder_mip_acceptance"},
+    "rendererCommit": {
+      "const": "5dcf6fce7dc36719e64e536faba9538fe9fa1022"
+    },
+    "packageVersions": {"$ref": "#/$defs/packageVersions"},
+    "discovery": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/discovery"}
+    },
+    "claims": {
+      "type": "array",
+      "minItems": 12,
+      "maxItems": 12,
+      "items": {"$ref": "#/$defs/claim"}
+    },
+    "records": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^records/[a-z0-9][a-z0-9._-]*\\.json$"
+      }
+    },
+    "aggregateMaturity": {"$ref": "#/$defs/maturity"},
+    "productionReady": {"type": "boolean"}
+  },
+  "$defs": {
+    "nonemptyString": {"type": "string", "minLength": 1},
+    "recordId": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]*$"
+    },
+    "rfc3339DateTime": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?(?:Z|[+-][0-9]{2}:[0-9]{2})$"
+    },
+    "artifactPath": {
+      "type": "string",
+      "pattern": "^tools/out/plan017_decoder_mip_acceptance/[A-Za-z0-9][A-Za-z0-9._-]*(?:/[A-Za-z0-9][A-Za-z0-9._-]*)*$"
+    },
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "commitSha": {"type": "string", "pattern": "^[a-f0-9]{40}$"},
+    "nonnegativeInteger": {"type": "integer", "minimum": 0},
+    "positiveInteger": {"type": "integer", "minimum": 1},
+    "evidenceStatus": {
+      "enum": ["verified locally", "not run", "blocked"]
+    },
+    "maturity": {
+      "enum": ["candidate-only", "release pending", "production-ready"]
+    },
+    "feature": {
+      "enum": [
+        "EXT_meshopt_compression",
+        "KHR_draco_mesh_compression",
+        "KHR_texture_basisu"
+      ]
+    },
+    "claimTarget": {
+      "enum": ["ios_simulator", "ios_physical", "android", "web"]
+    },
+    "targetKind": {
+      "enum": [
+        "host",
+        "ios_simulator",
+        "ios_physical",
+        "android_build",
+        "android_physical",
+        "web_runtime"
+      ]
+    },
+    "gate": {
+      "enum": [
+        "host-validation",
+        "discovery",
+        "package-install",
+        "release-build",
+        "runtime",
+        "runtime-diagnostic",
+        "cancellation-resource",
+        "authored-mip-sampling"
+      ]
+    },
+    "contentRole": {"enum": ["color", "data", "normal"]},
+    "storageRole": {"enum": ["color", "nonColor"]},
+    "materialSlot": {
+      "enum": [
+        "baseColor",
+        "metallicRoughness",
+        "normal",
+        "occlusion",
+        "emissive",
+        "transmission",
+        "thickness",
+        "clearcoat",
+        "clearcoatRoughness",
+        "clearcoatNormal",
+        "specular",
+        "specularColor"
+      ]
+    },
+    "packageVersions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "flutter_scene_viewer",
+        "flutter_scene_viewer_draco",
+        "flutter_scene_viewer_basisu"
+      ],
+      "properties": {
+        "flutter_scene_viewer": {"$ref": "#/$defs/nonemptyString"},
+        "flutter_scene_viewer_draco": {"$ref": "#/$defs/nonemptyString"},
+        "flutter_scene_viewer_basisu": {"$ref": "#/$defs/nonemptyString"}
+      }
+    },
+    "discovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target", "status", "device", "deviceId", "os", "scope"],
+      "properties": {
+        "target": {"$ref": "#/$defs/targetKind"},
+        "status": {"$ref": "#/$defs/evidenceStatus"},
+        "device": {"$ref": "#/$defs/nonemptyString"},
+        "deviceId": {"$ref": "#/$defs/nonemptyString"},
+        "os": {"$ref": "#/$defs/nonemptyString"},
+        "scope": {"$ref": "#/$defs/nonemptyString"}
+      }
+    },
+    "gateSetSimulator": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/gate"},
+      "allOf": [
+        {"contains": {"const": "package-install"}},
+        {"contains": {"const": "runtime"}},
+        {"contains": {"const": "cancellation-resource"}}
+      ]
+    },
+    "gateSetPhysical": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/gate"},
+      "allOf": [
+        {"contains": {"const": "package-install"}},
+        {"contains": {"const": "release-build"}},
+        {"contains": {"const": "runtime"}},
+        {"contains": {"const": "cancellation-resource"}}
+      ]
+    },
+    "gateSetBasisSimulator": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/gate"},
+      "allOf": [
+        {"contains": {"const": "package-install"}},
+        {"contains": {"const": "runtime"}},
+        {"contains": {"const": "cancellation-resource"}},
+        {"contains": {"const": "authored-mip-sampling"}}
+      ]
+    },
+    "gateSetBasisPhysical": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/gate"},
+      "allOf": [
+        {"contains": {"const": "package-install"}},
+        {"contains": {"const": "release-build"}},
+        {"contains": {"const": "runtime"}},
+        {"contains": {"const": "cancellation-resource"}},
+        {"contains": {"const": "authored-mip-sampling"}}
+      ]
+    },
+    "gateSetNativeWebDiagnostic": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/gate"},
+      "allOf": [
+        {"contains": {"const": "package-install"}},
+        {"contains": {"const": "release-build"}},
+        {"contains": {"const": "runtime-diagnostic"}}
+      ]
+    },
+    "claim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "feature",
+        "target",
+        "requiredGates",
+        "evidenceStatus",
+        "maturity",
+        "recordIds",
+        "blocker"
+      ],
+      "properties": {
+        "feature": {"$ref": "#/$defs/feature"},
+        "target": {"$ref": "#/$defs/claimTarget"},
+        "requiredGates": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/gate"}
+        },
+        "evidenceStatus": {"$ref": "#/$defs/evidenceStatus"},
+        "maturity": {"$ref": "#/$defs/maturity"},
+        "recordIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$"}
+        },
+        "blocker": {"$ref": "#/$defs/nonemptyString"}
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {"target": {"const": "ios_simulator"}},
+            "required": ["target"]
+          },
+          "then": {
+            "if": {
+              "properties": {"feature": {"const": "KHR_texture_basisu"}},
+              "required": ["feature"]
+            },
+            "then": {"properties": {"requiredGates": {"$ref": "#/$defs/gateSetBasisSimulator"}}},
+            "else": {"properties": {"requiredGates": {"$ref": "#/$defs/gateSetSimulator"}}}
+          }
+        },
+        {
+          "if": {
+            "properties": {"target": {"enum": ["ios_physical", "android"]}},
+            "required": ["target"]
+          },
+          "then": {
+            "if": {
+              "properties": {"feature": {"const": "KHR_texture_basisu"}},
+              "required": ["feature"]
+            },
+            "then": {"properties": {"requiredGates": {"$ref": "#/$defs/gateSetBasisPhysical"}}},
+            "else": {"properties": {"requiredGates": {"$ref": "#/$defs/gateSetPhysical"}}}
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "target": {"const": "web"},
+              "feature": {"enum": ["KHR_draco_mesh_compression", "KHR_texture_basisu"]}
+            },
+            "required": ["target", "feature"]
+          },
+          "then": {"properties": {"requiredGates": {"$ref": "#/$defs/gateSetNativeWebDiagnostic"}}}
+        },
+        {
+          "if": {
+            "properties": {
+              "target": {"const": "web"},
+              "feature": {"const": "EXT_meshopt_compression"}
+            },
+            "required": ["target", "feature"]
+          },
+          "then": {"properties": {"requiredGates": {"$ref": "#/$defs/gateSetPhysical"}}}
+        }
+      ]
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["viewerBaseCommit", "viewerDiffSha256", "rendererCommit", "packageVersions"],
+      "properties": {
+        "viewerBaseCommit": {"$ref": "#/$defs/commitSha"},
+        "viewerDiffSha256": {"$ref": "#/$defs/sha256"},
+        "rendererCommit": {"const": "5dcf6fce7dc36719e64e536faba9538fe9fa1022"},
+        "packageVersions": {"$ref": "#/$defs/packageVersions"}
+      }
+    },
+    "codec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "upstreamBase",
+        "localPatchManifestPath",
+        "localPatchManifestSha256",
+        "compiledSourceManifestPath",
+        "compiledSourceManifestSha256"
+      ],
+      "properties": {
+        "id": {"$ref": "#/$defs/nonemptyString"},
+        "upstreamBase": {"$ref": "#/$defs/commitSha"},
+        "localPatchManifestPath": {"$ref": "#/$defs/nonemptyString"},
+        "localPatchManifestSha256": {"$ref": "#/$defs/sha256"},
+        "compiledSourceManifestPath": {"$ref": "#/$defs/nonemptyString"},
+        "compiledSourceManifestSha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "source", "sha256", "byteLength"],
+      "properties": {
+        "id": {"$ref": "#/$defs/nonemptyString"},
+        "source": {"$ref": "#/$defs/nonemptyString"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "byteLength": {"$ref": "#/$defs/positiveInteger"}
+      }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "deviceId", "device", "os", "architecture", "buildMode", "backend"],
+      "properties": {
+        "kind": {"$ref": "#/$defs/targetKind"},
+        "deviceId": {"$ref": "#/$defs/nonemptyString"},
+        "device": {"$ref": "#/$defs/nonemptyString"},
+        "os": {"$ref": "#/$defs/nonemptyString"},
+        "architecture": {"$ref": "#/$defs/nonemptyString"},
+        "buildMode": {"$ref": "#/$defs/nonemptyString"},
+        "backend": {"$ref": "#/$defs/nonemptyString"}
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["maxSourceBytes", "maxWorkingBytes", "maxNativeOutputBytes", "maxTextureDimension", "maxMipLevels"],
+      "properties": {
+        "maxSourceBytes": {"$ref": "#/$defs/positiveInteger"},
+        "maxWorkingBytes": {"$ref": "#/$defs/positiveInteger"},
+        "maxNativeOutputBytes": {"$ref": "#/$defs/positiveInteger"},
+        "maxTextureDimension": {"$ref": "#/$defs/positiveInteger"},
+        "maxMipLevels": {"$ref": "#/$defs/positiveInteger"}
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["loadSucceeded", "renderSucceeded", "readbackSucceeded", "renderArtifactId", "readbackArtifactId"],
+      "properties": {
+        "loadSucceeded": {"type": "boolean"},
+        "renderSucceeded": {"type": "boolean"},
+        "readbackSucceeded": {"type": "boolean"},
+        "renderArtifactId": {"$ref": "#/$defs/nonemptyString"},
+        "readbackArtifactId": {"$ref": "#/$defs/nonemptyString"}
+      }
+    },
+    "runtimeDiagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["emitted", "code", "count", "nativePluginInvocationCount", "artifactId"],
+      "properties": {
+        "emitted": {"type": "boolean"},
+        "code": {"$ref": "#/$defs/nonemptyString"},
+        "count": {"$ref": "#/$defs/nonnegativeInteger"},
+        "nativePluginInvocationCount": {"$ref": "#/$defs/nonnegativeInteger"},
+        "artifactId": {"$ref": "#/$defs/nonemptyString"}
+      }
+    },
+    "cancellation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["trigger", "latencyMicros", "maxUiGapMicros", "workerExited", "terminalDiagnosticCount", "latePublicationCount", "registryEntriesAfter", "subsequentLoadSucceeded", "artifactId"],
+      "properties": {
+        "trigger": {"$ref": "#/$defs/nonemptyString"},
+        "latencyMicros": {"$ref": "#/$defs/nonnegativeInteger"},
+        "maxUiGapMicros": {"$ref": "#/$defs/nonnegativeInteger"},
+        "workerExited": {"type": "boolean"},
+        "terminalDiagnosticCount": {"$ref": "#/$defs/nonnegativeInteger"},
+        "latePublicationCount": {"$ref": "#/$defs/nonnegativeInteger"},
+        "registryEntriesAfter": {"$ref": "#/$defs/nonnegativeInteger"},
+        "subsequentLoadSucceeded": {"type": "boolean"},
+        "artifactId": {
+          "anyOf": [{"$ref": "#/$defs/nonemptyString"}, {"type": "null"}]
+        }
+      }
+    },
+    "allocations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["limitBytes", "peakLiveBytes", "liveBytesAfter", "allocationCount", "releaseCount"],
+      "properties": {
+        "limitBytes": {"$ref": "#/$defs/nonnegativeInteger"},
+        "peakLiveBytes": {"$ref": "#/$defs/nonnegativeInteger"},
+        "liveBytesAfter": {"$ref": "#/$defs/nonnegativeInteger"},
+        "allocationCount": {"$ref": "#/$defs/nonnegativeInteger"},
+        "releaseCount": {"$ref": "#/$defs/nonnegativeInteger"}
+      }
+    },
+    "materialConsumer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["textureIndex", "materialSlot", "contentRole", "magFilter", "minFilter", "wrapS", "wrapT"],
+      "properties": {
+        "textureIndex": {"$ref": "#/$defs/nonnegativeInteger"},
+        "materialSlot": {"$ref": "#/$defs/materialSlot"},
+        "contentRole": {"$ref": "#/$defs/contentRole"},
+        "magFilter": {"enum": [9728, 9729]},
+        "minFilter": {"enum": [9728, 9729, 9984, 9985, 9986, 9987]},
+        "wrapS": {"enum": [33071, 33648, 10497]},
+        "wrapT": {"enum": [33071, 33648, 10497]}
+      }
+    },
+    "mipLevel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["level", "width", "height", "byteLength", "rgbaSha256"],
+      "properties": {
+        "level": {"$ref": "#/$defs/nonnegativeInteger"},
+        "width": {"$ref": "#/$defs/positiveInteger"},
+        "height": {"$ref": "#/$defs/positiveInteger"},
+        "byteLength": {"$ref": "#/$defs/positiveInteger"},
+        "rgbaSha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "mipChain": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["imageIndex", "fixtureId", "storageRole", "materialConsumers", "levels"],
+      "properties": {
+        "imageIndex": {"$ref": "#/$defs/nonnegativeInteger"},
+        "fixtureId": {"$ref": "#/$defs/nonemptyString"},
+        "storageRole": {"$ref": "#/$defs/storageRole"},
+        "materialConsumers": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/materialConsumer"}
+        },
+        "levels": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/mipLevel"}
+        }
+      }
+    },
+    "rgb": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {"type": "integer", "minimum": 0, "maximum": 255}
+    },
+    "lodSample": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["level", "expectedRgb", "observedRgb", "artifactId"],
+      "properties": {
+        "level": {"$ref": "#/$defs/nonnegativeInteger"},
+        "expectedRgb": {"$ref": "#/$defs/rgb"},
+        "observedRgb": {"$ref": "#/$defs/rgb"},
+        "artifactId": {"$ref": "#/$defs/nonemptyString"}
+      }
+    },
+    "baseOnlyNegativeControl": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["lod", "expectedBaseRgb", "observedRgb", "authoredLodRgb", "artifactId"],
+      "properties": {
+        "lod": {"$ref": "#/$defs/positiveInteger"},
+        "expectedBaseRgb": {"$ref": "#/$defs/rgb"},
+        "observedRgb": {"$ref": "#/$defs/rgb"},
+        "authoredLodRgb": {"$ref": "#/$defs/rgb"},
+        "artifactId": {"$ref": "#/$defs/nonemptyString"}
+      }
+    },
+    "mipSampling": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["imageIndex", "storageRole", "lodSamples", "baseOnlyNegativeControl"],
+      "properties": {
+        "imageIndex": {"$ref": "#/$defs/nonnegativeInteger"},
+        "storageRole": {"$ref": "#/$defs/storageRole"},
+        "lodSamples": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/lodSample"}
+        },
+        "baseOnlyNegativeControl": {"$ref": "#/$defs/baseOnlyNegativeControl"}
+      }
+    },
+    "validator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "passed", "reportArtifactId"],
+      "properties": {
+        "name": {"$ref": "#/$defs/nonemptyString"},
+        "version": {"$ref": "#/$defs/nonemptyString"},
+        "passed": {"type": "boolean"},
+        "reportArtifactId": {"$ref": "#/$defs/nonemptyString"}
+      }
+    },
+    "package": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pluginRegistered", "nativeSymbolsVerified", "licensesVerified", "releaseStrippingVerified", "layoutArtifactId", "symbolsArtifactId", "licensesArtifactId", "releaseArtifactId"],
+      "properties": {
+        "pluginRegistered": {"type": "boolean"},
+        "nativeSymbolsVerified": {"type": "boolean"},
+        "licensesVerified": {"type": "boolean"},
+        "releaseStrippingVerified": {"type": "boolean"},
+        "layoutArtifactId": {"anyOf": [{"$ref": "#/$defs/nonemptyString"}, {"type": "null"}]},
+        "symbolsArtifactId": {"anyOf": [{"$ref": "#/$defs/nonemptyString"}, {"type": "null"}]},
+        "licensesArtifactId": {"anyOf": [{"$ref": "#/$defs/nonemptyString"}, {"type": "null"}]},
+        "releaseArtifactId": {"anyOf": [{"$ref": "#/$defs/nonemptyString"}, {"type": "null"}]}
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "path", "sha256", "byteLength", "kind"],
+      "properties": {
+        "id": {"$ref": "#/$defs/nonemptyString"},
+        "path": {"$ref": "#/$defs/artifactPath"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "byteLength": {"$ref": "#/$defs/positiveInteger"},
+        "kind": {
+          "enum": [
+            "runtime-render",
+            "runtime-readback",
+            "runtime-diagnostic",
+            "validator-report",
+            "package-layout",
+            "package-symbols",
+            "package-licenses",
+            "package-release",
+            "mip-lod-readback",
+            "mip-base-only-control",
+            "log"
+          ]
+        }
+      }
+    },
+    "record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "id",
+        "capturedAt",
+        "evidenceStatus",
+        "maturity",
+        "features",
+        "gates",
+        "source",
+        "codecs",
+        "fixtures",
+        "target",
+        "limits",
+        "runtime",
+        "runtimeDiagnostic",
+        "cancellation",
+        "allocations",
+        "mipChains",
+        "mipSampling",
+        "validator",
+        "package",
+        "artifacts",
+        "blockers"
+      ],
+      "properties": {
+        "schemaVersion": {"const": 1},
+        "id": {"$ref": "#/$defs/recordId"},
+        "capturedAt": {"$ref": "#/$defs/rfc3339DateTime"},
+        "evidenceStatus": {"const": "verified locally"},
+        "maturity": {"$ref": "#/$defs/maturity"},
+        "features": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/feature"}
+        },
+        "gates": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/gate"}
+        },
+        "source": {"$ref": "#/$defs/source"},
+        "codecs": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/codec"}
+        },
+        "fixtures": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/fixture"}
+        },
+        "target": {"$ref": "#/$defs/target"},
+        "limits": {"$ref": "#/$defs/limits"},
+        "runtime": {"anyOf": [{"$ref": "#/$defs/runtime"}, {"type": "null"}]},
+        "runtimeDiagnostic": {"anyOf": [{"$ref": "#/$defs/runtimeDiagnostic"}, {"type": "null"}]},
+        "cancellation": {"$ref": "#/$defs/cancellation"},
+        "allocations": {"$ref": "#/$defs/allocations"},
+        "mipChains": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/mipChain"}
+        },
+        "mipSampling": {"anyOf": [{"$ref": "#/$defs/mipSampling"}, {"type": "null"}]},
+        "validator": {"$ref": "#/$defs/validator"},
+        "package": {"$ref": "#/$defs/package"},
+        "artifacts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/artifact"}
+        },
+        "blockers": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/nonemptyString"}
+        }
+      }
+    }
+  }
+}

@@ -26,6 +26,9 @@ namespace draco {
 
 MeshSequentialDecoder::MeshSequentialDecoder() {}
 
+MeshSequentialDecoder::MeshSequentialDecoder(FsvDecodeControl *control)
+    : MeshDecoder(control) {}
+
 bool MeshSequentialDecoder::DecodeConnectivity() {
   uint32_t num_faces;
   uint32_t num_points;
@@ -72,6 +75,8 @@ bool MeshSequentialDecoder::DecodeConnectivity() {
     if (num_points < 256) {
       // Decode indices as uint8_t.
       for (uint32_t i = 0; i < num_faces; ++i) {
+        // FSV LOCAL MODIFICATION (Apache-2.0 section 4(b)).
+        if ((i & 255U) == 0U && ShouldStopDecoding()) return false;
         Mesh::Face face;
         for (int j = 0; j < 3; ++j) {
           uint8_t val;
@@ -85,6 +90,7 @@ bool MeshSequentialDecoder::DecodeConnectivity() {
     } else if (num_points < (1 << 16)) {
       // Decode indices as uint16_t.
       for (uint32_t i = 0; i < num_faces; ++i) {
+        if ((i & 255U) == 0U && ShouldStopDecoding()) return false;
         Mesh::Face face;
         for (int j = 0; j < 3; ++j) {
           uint16_t val;
@@ -99,6 +105,7 @@ bool MeshSequentialDecoder::DecodeConnectivity() {
                bitstream_version() >= DRACO_BITSTREAM_VERSION(2, 2)) {
       // Decode indices as uint32_t.
       for (uint32_t i = 0; i < num_faces; ++i) {
+        if ((i & 255U) == 0U && ShouldStopDecoding()) return false;
         Mesh::Face face;
         for (int j = 0; j < 3; ++j) {
           uint32_t val;
@@ -112,6 +119,7 @@ bool MeshSequentialDecoder::DecodeConnectivity() {
     } else {
       // Decode faces as uint32_t (default).
       for (uint32_t i = 0; i < num_faces; ++i) {
+        if ((i & 255U) == 0U && ShouldStopDecoding()) return false;
         Mesh::Face face;
         for (int j = 0; j < 3; ++j) {
           uint32_t val;
@@ -133,15 +141,20 @@ bool MeshSequentialDecoder::CreateAttributesDecoder(int32_t att_decoder_id) {
   return SetAttributesDecoder(
       att_decoder_id,
       std::unique_ptr<AttributesDecoder>(
-          new SequentialAttributeDecodersController(
+          new (fsv_decode_control()) SequentialAttributeDecodersController(
               std::unique_ptr<PointsSequencer>(
-                  new LinearSequencer(point_cloud()->num_points())))));
+                  new (fsv_decode_control())
+                      LinearSequencer(point_cloud()->num_points())),
+              fsv_decode_control())));
 }
 
 bool MeshSequentialDecoder::DecodeAndDecompressIndices(uint32_t num_faces) {
   // Get decoded indices differences that were encoded with an entropy code.
-  std::vector<uint32_t> indices_buffer(num_faces * 3);
-  if (!DecodeSymbols(num_faces * 3, 1, buffer(), indices_buffer.data())) {
+  std::vector<uint32_t, FsvDecodeAllocator<uint32_t>> indices_buffer(
+      num_faces * 3, 0,
+      FsvDecodeAllocator<uint32_t>(fsv_decode_control()));
+  if (!DecodeSymbols(num_faces * 3, 1, buffer(), indices_buffer.data(),
+                     fsv_decode_control())) {
     return false;
   }
   // Reconstruct the indices from the differences.
@@ -149,6 +162,7 @@ bool MeshSequentialDecoder::DecodeAndDecompressIndices(uint32_t num_faces) {
   int32_t last_index_value = 0;  // This will always be >= 0.
   int vertex_index = 0;
   for (uint32_t i = 0; i < num_faces; ++i) {
+    if ((i & 255U) == 0U && ShouldStopDecoding()) return false;
     Mesh::Face face;
     for (int j = 0; j < 3; ++j) {
       const uint32_t encoded_val = indices_buffer[vertex_index++];

@@ -31,8 +31,10 @@ class PredictionSchemeDeltaDecoder
   explicit PredictionSchemeDeltaDecoder(const PointAttribute *attribute)
       : PredictionSchemeDecoder<DataTypeT, TransformT>(attribute) {}
   PredictionSchemeDeltaDecoder(const PointAttribute *attribute,
-                               const TransformT &transform)
-      : PredictionSchemeDecoder<DataTypeT, TransformT>(attribute, transform) {}
+                               const TransformT &transform,
+                               FsvDecodeControl *control = nullptr)
+      : PredictionSchemeDecoder<DataTypeT, TransformT>(attribute, transform,
+                                                       control) {}
 
   bool ComputeOriginalValues(const CorrType *in_corr, DataTypeT *out_data,
                              int size, int num_components,
@@ -49,8 +51,10 @@ bool PredictionSchemeDeltaDecoder<DataTypeT, TransformT>::ComputeOriginalValues(
     const PointIndex *) {
   this->transform().Init(num_components);
   // Decode the original value for the first element.
-  std::unique_ptr<DataTypeT[]> zero_vals(new DataTypeT[num_components]());
-  this->transform().ComputeOriginalValue(zero_vals.get(), in_corr, out_data);
+  FsvVector<DataTypeT> zero_vals(
+      num_components, DataTypeT(),
+      FsvDecodeAllocator<DataTypeT>(this->fsv_decode_control()));
+  this->transform().ComputeOriginalValue(zero_vals.data(), in_corr, out_data);
 
   // Decode data from the front using D(i) = D(i) + D(i - 1).
   for (int i = num_components; i < size; i += num_components) {

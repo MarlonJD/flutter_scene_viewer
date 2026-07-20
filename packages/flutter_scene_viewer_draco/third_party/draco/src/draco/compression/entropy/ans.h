@@ -25,6 +25,7 @@
 #include "draco/core/divide.h"
 #endif
 #include "draco/core/macros.h"
+#include "draco/core/fsv_decode_allocator.h"
 
 namespace draco {
 
@@ -413,7 +414,10 @@ struct rans_dec_sym {
 template <int rans_precision_bits_t>
 class RAnsDecoder {
  public:
-  RAnsDecoder() {}
+  RAnsDecoder() : RAnsDecoder(nullptr) {}
+  explicit RAnsDecoder(FsvDecodeControl *control)
+      : lut_table_(FsvDecodeAllocator<uint32_t>(control)),
+        probability_table_(FsvDecodeAllocator<rans_sym>(control)) {}
 
   // Initializes the decoder from the input buffer. The |offset| specifies the
   // number of bytes encoded by the encoder. A non zero return value is an
@@ -511,8 +515,8 @@ class RAnsDecoder {
 
   static constexpr int rans_precision = 1 << rans_precision_bits_t;
   static constexpr int l_rans_base = rans_precision * 4;
-  std::vector<uint32_t> lut_table_;
-  std::vector<rans_sym> probability_table_;
+  FsvVector<uint32_t> lut_table_;
+  FsvVector<rans_sym> probability_table_;
   AnsDecoder ans_;
 };
 

@@ -19,27 +19,68 @@
 namespace draco {
 
 AttributeMetadata::AttributeMetadata(const AttributeMetadata &metadata)
-    : Metadata(metadata) {
-  att_unique_id_ = metadata.att_unique_id_;
-}
+    : AttributeMetadata(metadata, nullptr) {}
+
+AttributeMetadata::AttributeMetadata(const AttributeMetadata &metadata,
+                                     FsvDecodeControl *control)
+    : Metadata(metadata, control), att_unique_id_(metadata.att_unique_id_) {}
+
+AttributeMetadata::AttributeMetadata(AttributeMetadata &&metadata)
+    : AttributeMetadata(static_cast<const AttributeMetadata &>(metadata),
+                        nullptr) {}
+
+AttributeMetadata::AttributeMetadata(AttributeMetadata &&metadata,
+                                     FsvDecodeControl *control)
+    : AttributeMetadata(static_cast<const AttributeMetadata &>(metadata),
+                        control) {}
 
 GeometryMetadata::GeometryMetadata(const GeometryMetadata &metadata)
-    : Metadata(metadata) {
-  for (size_t i = 0; i < metadata.att_metadatas_.size(); ++i) {
-    att_metadatas_.push_back(std::unique_ptr<AttributeMetadata>(
-        new AttributeMetadata(*metadata.att_metadatas_[i])));
+    : GeometryMetadata(metadata, nullptr) {}
+
+GeometryMetadata::GeometryMetadata(const GeometryMetadata &metadata,
+                                   FsvDecodeControl *control)
+    : Metadata(metadata, control),
+      controlled_att_metadatas_(
+          FsvDecodeAllocator<std::unique_ptr<AttributeMetadata>>(control)) {
+  if (metadata.fsv_decode_control() == nullptr) {
+    for (const auto &attribute : metadata.att_metadatas_) {
+      AddAttributeMetadata(std::unique_ptr<AttributeMetadata>(
+          new (control) AttributeMetadata(*attribute, control)));
+    }
+  } else {
+    for (const auto &attribute : metadata.controlled_att_metadatas_) {
+      AddAttributeMetadata(std::unique_ptr<AttributeMetadata>(
+          new (control) AttributeMetadata(*attribute, control)));
+    }
   }
 }
 
+GeometryMetadata::GeometryMetadata(GeometryMetadata &&metadata)
+    : GeometryMetadata(static_cast<const GeometryMetadata &>(metadata),
+                       nullptr) {}
+
+GeometryMetadata::GeometryMetadata(GeometryMetadata &&metadata,
+                                   FsvDecodeControl *control)
+    : GeometryMetadata(static_cast<const GeometryMetadata &>(metadata),
+                       control) {}
+
 const AttributeMetadata *GeometryMetadata::GetAttributeMetadataByStringEntry(
     const std::string &entry_name, const std::string &entry_value) const {
-  for (auto &&att_metadata : att_metadatas_) {
-    std::string value;
-    if (!att_metadata->GetEntryString(entry_name, &value)) {
-      continue;
+  if (fsv_decode_control() == nullptr) {
+    for (auto &&att_metadata : att_metadatas_) {
+      std::string value;
+      if (att_metadata->GetEntryString(entry_name, &value) &&
+          value == entry_value) {
+        return att_metadata.get();
+      }
     }
-    if (value == entry_value) {
-      return att_metadata.get();
+  } else {
+    for (auto &&att_metadata : controlled_att_metadatas_) {
+      std::string value;
+      if (att_metadata->GetEntryString(entry_name, &value) &&
+          value == entry_value) {
+        return att_metadata.get();
+      }
     }
   }
   // No attribute has the requested entry.
@@ -51,7 +92,31 @@ bool GeometryMetadata::AddAttributeMetadata(
   if (!att_metadata) {
     return false;
   }
-  att_metadatas_.push_back(std::move(att_metadata));
+  if (fsv_decode_control() == nullptr) {
+    if (att_metadata->fsv_decode_control() != nullptr) {
+      att_metadata.reset(new AttributeMetadata(*att_metadata));
+    }
+    att_metadatas_.push_back(std::move(att_metadata));
+    return true;
+  }
+  if (att_metadata->fsv_decode_control() != fsv_decode_control()) {
+    att_metadata.reset(new (fsv_decode_control()) AttributeMetadata(
+        *att_metadata, fsv_decode_control()));
+  }
+  controlled_att_metadatas_.push_back(std::move(att_metadata));
   return true;
+}
+
+const std::vector<std::unique_ptr<AttributeMetadata>> &
+GeometryMetadata::attribute_metadatas() const {
+  if (fsv_decode_control() == nullptr) {
+    return att_metadatas_;
+  }
+  public_att_metadatas_cache_.clear();
+  for (const auto &attribute : controlled_att_metadatas_) {
+    public_att_metadatas_cache_.push_back(
+        std::unique_ptr<AttributeMetadata>(new AttributeMetadata(*attribute)));
+  }
+  return public_att_metadatas_cache_;
 }
 }  // namespace draco

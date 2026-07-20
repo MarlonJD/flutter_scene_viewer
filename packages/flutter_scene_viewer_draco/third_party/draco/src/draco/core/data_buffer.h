@@ -20,6 +20,7 @@
 #include <vector>
 
 #include "draco/core/draco_types.h"
+#include "draco/core/fsv_decode_allocator.h"
 
 namespace draco {
 
@@ -33,9 +34,14 @@ struct DataBufferDescriptor {
 };
 
 // Class used for storing raw buffer data.
-class DataBuffer {
+class DataBuffer : public FsvDecodeAllocated {
  public:
   DataBuffer();
+  explicit DataBuffer(FsvDecodeControl *control);
+  DataBuffer(const DataBuffer &data);
+  DataBuffer(const DataBuffer &data, FsvDecodeControl *control);
+  DataBuffer(DataBuffer &&data);
+  DataBuffer(DataBuffer &&data, FsvDecodeControl *control);
   bool Update(const void *data, int64_t size);
   bool Update(const void *data, int64_t size, int64_t offset);
 
@@ -72,7 +78,7 @@ class DataBuffer {
   void set_buffer_id(int64_t buffer_id) { descriptor_.buffer_id = buffer_id; }
 
  private:
-  std::vector<uint8_t> data_;
+  std::vector<uint8_t, FsvDecodeAllocator<uint8_t>> data_;
   // Counter incremented by Update() calls.
   DataBufferDescriptor descriptor_;
 };

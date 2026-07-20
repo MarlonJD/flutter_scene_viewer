@@ -35,10 +35,10 @@ class SequentialNormalAttributeDecoder
   int32_t GetNumValueComponents() const override {
     return 2;  // We quantize everything into two components.
   }
-  bool DecodeIntegerValues(const std::vector<PointIndex> &point_ids,
+  bool DecodeIntegerValues(const FsvVector<PointIndex> &point_ids,
                            DecoderBuffer *in_buffer) override;
   bool DecodeDataNeededByPortableTransform(
-      const std::vector<PointIndex> &point_ids,
+      const FsvVector<PointIndex> &point_ids,
       DecoderBuffer *in_buffer) override;
   bool StoreValues(uint32_t num_points) override;
 

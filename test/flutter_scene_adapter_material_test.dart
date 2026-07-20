@@ -6,6 +6,7 @@ import 'package:flutter_scene/scene.dart' as flutter_scene;
 import 'package:flutter_scene/src/gpu/gpu.dart' as flutter_scene_internal_gpu;
 import 'package:flutter_scene_viewer/flutter_scene_viewer.dart';
 import 'package:flutter_scene_viewer/src/internal/flutter_scene_adapter.dart';
+import 'package:flutter_scene_viewer/src/internal/flutter_scene_authored_mip_texture.dart';
 import 'package:flutter_scene_viewer/src/internal/flutter_scene_extended_pbr_backend.dart';
 import 'package:flutter_scene_viewer/src/internal/flutter_scene_extended_pbr_material.dart';
 import 'package:flutter_scene_viewer/src/internal/flutter_scene_material_extension_backend.dart';
@@ -15,6 +16,272 @@ import 'package:vector_math/vector_math.dart' as vm;
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  group('authored mip staged material binding', () {
+    test('uploads one image once and binds every same-role consuming slot', () {
+      final interop = _RecordingMipInterop();
+      final first = flutter_scene.PhysicallyBasedMaterial();
+      final second = flutter_scene.PhysicallyBasedMaterial();
+      final root = flutter_scene.Node(
+        name: 'root',
+        mesh: flutter_scene.Mesh.primitives(
+          primitives: <flutter_scene.MeshPrimitive>[
+            flutter_scene.MeshPrimitive(_UvStubGeometry(), first),
+            flutter_scene.MeshPrimitive(_UvStubGeometry(), second),
+          ],
+        ),
+      );
+      final plan = FlutterSceneAuthoredMipBindingPlan(
+        uploads: <FlutterSceneAuthoredMipImageUpload>[
+          FlutterSceneAuthoredMipImageUpload(
+            imageIndex: 3,
+            contentRole: FlutterSceneAuthoredMipContentRole.data,
+            levels: _authoredLevels(2),
+            textureBindings: <FlutterSceneAuthoredMipTextureBinding>[
+              FlutterSceneAuthoredMipTextureBinding(
+                textureIndex: 4,
+                sampler: _authoredMipSampler,
+                targets: <FlutterSceneAuthoredMipMaterialTarget>[
+                  FlutterSceneAuthoredMipMaterialTarget(
+                    nodeChildPath: <int>[],
+                    primitiveIndex: 0,
+                    slot: FlutterSceneAuthoredMipMaterialSlot.metallicRoughness,
+                    required: true,
+                  ),
+                  FlutterSceneAuthoredMipMaterialTarget(
+                    nodeChildPath: <int>[],
+                    primitiveIndex: 1,
+                    slot: FlutterSceneAuthoredMipMaterialSlot.occlusion,
+                    required: true,
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ],
+      );
+
+      final diagnostics = debugApplyFlutterSceneAuthoredMipBindingPlan(
+        root,
+        plan,
+        uploader: FlutterSceneAuthoredMipTextureUploader(interop: interop),
+      );
+
+      expect(diagnostics, isEmpty);
+      expect(interop.allocations, hasLength(1));
+      expect(interop.uploadMipLevels, <int>[0, 1]);
+      // ignore: invalid_use_of_internal_member
+      final firstSource = first.metallicRoughnessTextureSource;
+      // ignore: invalid_use_of_internal_member
+      final secondSource = second.occlusionTextureSource;
+      expect(firstSource, isNotNull);
+      expect(secondSource, same(firstSource));
+    });
+
+    test('uploads one nonColor chain once across normal and data slots', () {
+      final interop = _RecordingMipInterop();
+      final material = flutter_scene.PhysicallyBasedMaterial();
+      final root = flutter_scene.Node(
+        name: 'root',
+        mesh: flutter_scene.Mesh.primitives(
+          primitives: <flutter_scene.MeshPrimitive>[
+            flutter_scene.MeshPrimitive(_UvStubGeometry(), material),
+          ],
+        ),
+      );
+      final plan = FlutterSceneAuthoredMipBindingPlan(
+        uploads: <FlutterSceneAuthoredMipImageUpload>[
+          FlutterSceneAuthoredMipImageUpload(
+            imageIndex: 8,
+            contentRole: FlutterSceneAuthoredMipContentRole.data,
+            levels: _authoredLevels(2),
+            textureBindings: <FlutterSceneAuthoredMipTextureBinding>[
+              FlutterSceneAuthoredMipTextureBinding(
+                textureIndex: 9,
+                sampler: _authoredMipSampler,
+                targets: <FlutterSceneAuthoredMipMaterialTarget>[
+                  FlutterSceneAuthoredMipMaterialTarget(
+                    nodeChildPath: const <int>[],
+                    primitiveIndex: 0,
+                    slot: FlutterSceneAuthoredMipMaterialSlot.normal,
+                    required: true,
+                  ),
+                ],
+              ),
+              FlutterSceneAuthoredMipTextureBinding(
+                textureIndex: 10,
+                sampler: const FlutterSceneAuthoredMipSamplerIntent(
+                  magFilter: 9728,
+                  minFilter: 9984,
+                  wrapS: 33071,
+                  wrapT: 33648,
+                ),
+                targets: <FlutterSceneAuthoredMipMaterialTarget>[
+                  FlutterSceneAuthoredMipMaterialTarget(
+                    nodeChildPath: const <int>[],
+                    primitiveIndex: 0,
+                    slot: FlutterSceneAuthoredMipMaterialSlot.occlusion,
+                    required: true,
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ],
+      );
+
+      final diagnostics = debugApplyFlutterSceneAuthoredMipBindingPlan(
+        root,
+        plan,
+        uploader: FlutterSceneAuthoredMipTextureUploader(interop: interop),
+      );
+
+      expect(diagnostics, isEmpty);
+      expect(interop.allocations, hasLength(1));
+      expect(interop.uploadMipLevels, <int>[0, 1]);
+      // ignore: invalid_use_of_internal_member
+      final normalSource = material.normalTextureSource;
+      // ignore: invalid_use_of_internal_member
+      final occlusionSource = material.occlusionTextureSource;
+      expect(normalSource, isNotNull);
+      expect(occlusionSource, isNotNull);
+      expect(normalSource, isNot(same(occlusionSource)));
+      expect(
+          normalSource!.sampledTexture, same(occlusionSource!.sampledTexture));
+      expect(
+        normalSource.sampledSampler.widthAddressMode,
+        isNot(occlusionSource.sampledSampler.widthAddressMode),
+      );
+    });
+
+    test('retains distinct sampler intent for texture indices sharing pixels',
+        () {
+      final interop = _RecordingMipInterop();
+      final first = flutter_scene.PhysicallyBasedMaterial();
+      final second = flutter_scene.PhysicallyBasedMaterial();
+      final root = flutter_scene.Node(
+        name: 'root',
+        mesh: flutter_scene.Mesh.primitives(
+          primitives: <flutter_scene.MeshPrimitive>[
+            flutter_scene.MeshPrimitive(_UvStubGeometry(), first),
+            flutter_scene.MeshPrimitive(_UvStubGeometry(), second),
+          ],
+        ),
+      );
+      final plan = FlutterSceneAuthoredMipBindingPlan(
+        uploads: <FlutterSceneAuthoredMipImageUpload>[
+          FlutterSceneAuthoredMipImageUpload(
+            imageIndex: 5,
+            contentRole: FlutterSceneAuthoredMipContentRole.color,
+            levels: _authoredLevels(2),
+            textureBindings: <FlutterSceneAuthoredMipTextureBinding>[
+              FlutterSceneAuthoredMipTextureBinding(
+                textureIndex: 6,
+                sampler: _authoredMipSampler,
+                targets: <FlutterSceneAuthoredMipMaterialTarget>[
+                  FlutterSceneAuthoredMipMaterialTarget(
+                    nodeChildPath: <int>[],
+                    primitiveIndex: 0,
+                    slot: FlutterSceneAuthoredMipMaterialSlot.baseColor,
+                    required: true,
+                  ),
+                ],
+              ),
+              FlutterSceneAuthoredMipTextureBinding(
+                textureIndex: 7,
+                sampler: const FlutterSceneAuthoredMipSamplerIntent(
+                  magFilter: 9728,
+                  minFilter: 9984,
+                  wrapS: 33071,
+                  wrapT: 33648,
+                ),
+                targets: <FlutterSceneAuthoredMipMaterialTarget>[
+                  FlutterSceneAuthoredMipMaterialTarget(
+                    nodeChildPath: <int>[],
+                    primitiveIndex: 1,
+                    slot: FlutterSceneAuthoredMipMaterialSlot.baseColor,
+                    required: true,
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ],
+      );
+
+      final diagnostics = debugApplyFlutterSceneAuthoredMipBindingPlan(
+        root,
+        plan,
+        uploader: FlutterSceneAuthoredMipTextureUploader(interop: interop),
+      );
+
+      expect(diagnostics, isEmpty);
+      expect(interop.allocations, hasLength(1));
+      // ignore: invalid_use_of_internal_member
+      final firstSource = first.baseColorTextureSource!;
+      // ignore: invalid_use_of_internal_member
+      final secondSource = second.baseColorTextureSource!;
+      expect(firstSource, isNot(same(secondSource)));
+      expect(
+        firstSource.sampledSampler.widthAddressMode,
+        flutter_scene_internal_gpu.SamplerAddressMode.repeat,
+      );
+      expect(
+        secondSource.sampledSampler.widthAddressMode,
+        flutter_scene_internal_gpu.SamplerAddressMode.clampToEdge,
+      );
+      expect(
+        secondSource.sampledSampler.heightAddressMode,
+        flutter_scene_internal_gpu.SamplerAddressMode.mirror,
+      );
+    });
+
+    test('required later upload failure leaves every staged slot unchanged',
+        () {
+      final interop = _RecordingMipInterop(failAllocationAt: 2);
+      final first = flutter_scene.PhysicallyBasedMaterial();
+      final second = flutter_scene.PhysicallyBasedMaterial();
+      final root = flutter_scene.Node(
+        name: 'root',
+        mesh: flutter_scene.Mesh.primitives(
+          primitives: <flutter_scene.MeshPrimitive>[
+            flutter_scene.MeshPrimitive(_UvStubGeometry(), first),
+            flutter_scene.MeshPrimitive(_UvStubGeometry(), second),
+          ],
+        ),
+      );
+      final plan = FlutterSceneAuthoredMipBindingPlan(
+        uploads: <FlutterSceneAuthoredMipImageUpload>[
+          _singleTargetMipUpload(
+            imageIndex: 8,
+            primitiveIndex: 0,
+            slot: FlutterSceneAuthoredMipMaterialSlot.baseColor,
+            role: FlutterSceneAuthoredMipContentRole.color,
+          ),
+          _singleTargetMipUpload(
+            imageIndex: 9,
+            primitiveIndex: 1,
+            slot: FlutterSceneAuthoredMipMaterialSlot.normal,
+            role: FlutterSceneAuthoredMipContentRole.normal,
+          ),
+        ],
+      );
+
+      final diagnostics = debugApplyFlutterSceneAuthoredMipBindingPlan(
+        root,
+        plan,
+        uploader: FlutterSceneAuthoredMipTextureUploader(interop: interop),
+      );
+
+      expect(diagnostics, hasLength(1));
+      expect(diagnostics.single.details['blocking'], isTrue);
+      expect(diagnostics.single.details['imageIndex'], 9);
+      // ignore: invalid_use_of_internal_member
+      expect(first.baseColorTextureSource, isNull);
+      // ignore: invalid_use_of_internal_member
+      expect(second.normalTextureSource, isNull);
+    });
+  });
 
   group('texture binding renderer plan', () {
     test('maps symmetric repeat clamp and mirror sampler state', () {
@@ -3601,4 +3868,99 @@ final class _StubGeometry extends flutter_scene.Geometry {
   }) {
     throw UnsupportedError('Stub geometry is not renderable.');
   }
+}
+
+const FlutterSceneAuthoredMipSamplerIntent _authoredMipSampler =
+    FlutterSceneAuthoredMipSamplerIntent(
+  magFilter: 9729,
+  minFilter: 9987,
+  wrapS: 10497,
+  wrapT: 10497,
+);
+
+List<FlutterSceneAuthoredMipLevel> _authoredLevels(int count) =>
+    <FlutterSceneAuthoredMipLevel>[
+      if (count >= 1)
+        FlutterSceneAuthoredMipLevel(
+          level: 0,
+          width: 2,
+          height: 2,
+          rgbaBytes: Uint8List.fromList(List<int>.filled(16, 1)),
+        ),
+      if (count >= 2)
+        FlutterSceneAuthoredMipLevel(
+          level: 1,
+          width: 1,
+          height: 1,
+          rgbaBytes: Uint8List.fromList(List<int>.filled(4, 2)),
+        ),
+    ];
+
+FlutterSceneAuthoredMipImageUpload _singleTargetMipUpload({
+  required int imageIndex,
+  required int primitiveIndex,
+  required FlutterSceneAuthoredMipMaterialSlot slot,
+  required FlutterSceneAuthoredMipContentRole role,
+}) =>
+    FlutterSceneAuthoredMipImageUpload(
+      imageIndex: imageIndex,
+      contentRole: role,
+      levels: _authoredLevels(2),
+      textureBindings: <FlutterSceneAuthoredMipTextureBinding>[
+        FlutterSceneAuthoredMipTextureBinding(
+          textureIndex: imageIndex,
+          sampler: _authoredMipSampler,
+          targets: <FlutterSceneAuthoredMipMaterialTarget>[
+            FlutterSceneAuthoredMipMaterialTarget(
+              nodeChildPath: const <int>[],
+              primitiveIndex: primitiveIndex,
+              slot: slot,
+              required: true,
+            ),
+          ],
+        ),
+      ],
+    );
+
+final class _RecordingMipInterop
+    implements FlutterSceneAuthoredMipTextureInterop {
+  _RecordingMipInterop({this.failAllocationAt});
+
+  final int? failAllocationAt;
+  final List<(int, int, int)> allocations = <(int, int, int)>[];
+  final List<int> uploadMipLevels = <int>[];
+  int _allocationAttempts = 0;
+
+  @override
+  int rendererMipLevelLimit({required int width, required int height}) => 16;
+
+  @override
+  Object allocateRgba8Texture({
+    required int width,
+    required int height,
+    required int mipLevelCount,
+  }) {
+    _allocationAttempts += 1;
+    if (_allocationAttempts == failAllocationAt) {
+      throw StateError('injected authored mip allocation failure');
+    }
+    allocations.add((width, height, mipLevelCount));
+    return Object();
+  }
+
+  @override
+  void overwriteRgba8(
+    Object texture,
+    ByteData rgbaBytes, {
+    required int mipLevel,
+  }) {
+    uploadMipLevels.add(mipLevel);
+  }
+
+  @override
+  flutter_scene.TextureSource wrapTexture(
+    Object texture, {
+    required flutter_scene_internal_gpu.SamplerOptions sampler,
+  }) =>
+      _StubTextureSource(sampler);
 }

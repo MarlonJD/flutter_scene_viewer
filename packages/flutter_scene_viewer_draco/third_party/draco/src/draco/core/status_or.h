@@ -20,6 +20,8 @@
 
 namespace draco {
 
+// FSV LOCAL MODIFICATION (Apache-2.0 section 4(b)): rvalue Status handoffs
+// retain request ownership until the receiving StatusOr is destroyed.
 // Class StatusOr is used to wrap a Status along with a value of a specified
 // type |T|. StatusOr is intended to be returned from functions in situations
 // where it is desirable to carry over more information about the potential
@@ -35,12 +37,15 @@ class StatusOr {
   StatusOr(const StatusOr &) = default;
   StatusOr(StatusOr &&) = default;
   StatusOr(const Status &status) : status_(status) {}
+  StatusOr(Status &&status)
+      : status_(MoveStatusPreservingControl(std::move(status))) {}
   StatusOr(const T &value) : status_(OkStatus()), value_(value) {}
   StatusOr(T &&value) : status_(OkStatus()), value_(std::move(value)) {}
   StatusOr(const Status &status, const T &value)
       : status_(status), value_(value) {}
 
-  const Status &status() const { return status_; }
+  const Status &status() const & { return status_; }
+  Status &&status() && { return std::move(status_); }
   const T &value() const & { return value_; }
   const T &&value() const && { return std::move(value_); }
   T &&value() && { return std::move(value_); }
@@ -64,13 +69,16 @@ class StatusOr {
 //
 #define DRACO_ASSIGN_OR_RETURN(lhs, expression)                                \
   DRACO_ASSIGN_OR_RETURN_IMPL_(DRACO_MACROS_IMPL_CONCAT_(_statusor, __LINE__), \
-                               lhs, expression, _status)
+                               lhs, expression,                               \
+                               draco::MoveStatusPreservingControl(            \
+                                   std::move(_status)))
 
 // The actual implementation of the above macro.
 #define DRACO_ASSIGN_OR_RETURN_IMPL_(statusor, lhs, expression, error_expr) \
   auto statusor = (expression);                                             \
   if (!statusor.ok()) {                                                     \
-    auto _status = std::move(statusor.status());                            \
+    auto _status = draco::MoveStatusPreservingControl(                     \
+        std::move(statusor).status());                                      \
     (void)_status; /* error_expression may not use it */                    \
     return error_expr;                                                      \
   }                                                                         \

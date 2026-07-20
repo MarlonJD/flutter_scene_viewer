@@ -39,6 +39,7 @@ void main() {
     messenger.setMockMethodCallHandler(channel, (MethodCall call) async {
       expect(call.method, 'decodeGlb');
       final arguments = call.arguments as Map<Object?, Object?>;
+      expect(arguments['requestId'], 'draco-test-1');
       expect(arguments['bytes'], sourceBytes);
       expect(arguments['requiredExtensions'], <String>[
         'KHR_draco_mesh_compression',
@@ -54,6 +55,7 @@ void main() {
     });
 
     final result = await FlutterSceneViewerDraco.decodeGlb(
+      requestId: 'draco-test-1',
       bytes: sourceBytes,
       requiredExtensions: const <String>['KHR_draco_mesh_compression'],
       source: 'compressed.glb',
@@ -63,5 +65,23 @@ void main() {
     );
 
     expect(result?['bytes'], decodedBytes);
+  });
+
+  test('cancelDecode sends the active request id', () async {
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    const channel = FlutterSceneViewerDraco.channel;
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    messenger.setMockMethodCallHandler(channel, (MethodCall call) async {
+      expect(call.method, 'cancelDecode');
+      expect(call.arguments, <String, Object?>{'requestId': 'draco-test-2'});
+      return <String, Object?>{'status': 'cancelled'};
+    });
+
+    final result = await FlutterSceneViewerDraco.cancelDecode(
+      requestId: 'draco-test-2',
+    );
+
+    expect(result, <String, Object?>{'status': 'cancelled'});
   });
 }

@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import '../diagnostics.dart';
+import '../model_load_cancellation.dart';
 import 'glb_decode_budget.dart';
 import 'meshopt_decoder.dart';
 
@@ -21,13 +22,14 @@ final class GlbMeshoptRewriteResult {
   final List<ViewerDiagnostic> diagnostics;
 }
 
-GlbMeshoptRewriteResult rewriteMeshoptCompressedGlb(
+Future<GlbMeshoptRewriteResult> rewriteMeshoptCompressedGlb(
   Uint8List bytes, {
   String? debugName,
   GlbDecodeBudget budget = const GlbDecodeBudget(),
   GlbDecodeBudgetTracker? budgetTracker,
   MeshoptDecodeControl? decodeControl,
-}) {
+  ModelLoadCancellationToken? cancellationToken,
+}) async {
   final tracker = budgetTracker ?? GlbDecodeBudgetTracker(budget);
   final rewriteTracker = GlbDecodeBudgetTracker(tracker.budget);
   if (tracker.totalDecodedBytes > 0) {
@@ -158,7 +160,7 @@ GlbMeshoptRewriteResult rewriteMeshoptCompressedGlb(
         bytesPerElement: byteStride,
         stage: 'meshoptDeclaredOutput',
       );
-      final decoded = decodeMeshoptGltfBuffer(
+      final decoded = await decodeMeshoptGltfBuffer(
         Uint8List.sublistView(
           bin,
           sourceByteOffset,
@@ -169,6 +171,7 @@ GlbMeshoptRewriteResult rewriteMeshoptCompressedGlb(
         mode: mode,
         filter: filter,
         control: control,
+        cancellationToken: cancellationToken,
       );
       if (decoded.lengthInBytes != expectedByteLength) {
         diagnostics.add(
@@ -213,13 +216,27 @@ GlbMeshoptRewriteResult rewriteMeshoptCompressedGlb(
           ),
         ],
       );
-    } on MeshoptDecodeDeadlineExceeded catch (error) {
+    } on MeshoptDecodeStopped catch (error) {
+      if (error.kind == MeshoptDecodeStopKind.cancelled) {
+        return GlbMeshoptRewriteResult(
+          diagnostics: <ViewerDiagnostic>[
+            _cancellationFailure(
+              debugName,
+              json,
+              error,
+              cancellationToken,
+              bufferViewIndex: viewIndex,
+            ),
+          ],
+        );
+      }
       return GlbMeshoptRewriteResult(
         diagnostics: <ViewerDiagnostic>[
           _timeoutFailure(
             debugName,
             json,
             error,
+            timeout: control.timeout,
             bufferViewIndex: viewIndex,
           ),
         ],
@@ -565,7 +582,8 @@ ViewerDiagnostic _budgetFailure(
 ViewerDiagnostic _timeoutFailure(
   String? debugName,
   Map<String, Object?> json,
-  MeshoptDecodeDeadlineExceeded error, {
+  MeshoptDecodeStopped error, {
+  required Duration timeout,
   required int bufferViewIndex,
 }) {
   final extensionsRequired = _list(json['extensionsRequired']);
@@ -581,14 +599,44 @@ ViewerDiagnostic _timeoutFailure(
       'limitation': 'meshoptDecodeDeadline',
       'status': 'timedOut',
       'stage': error.stage,
-      'timeoutMilliseconds': error.timeout.inMilliseconds,
-      'timeoutMicroseconds': error.timeout.inMicroseconds,
+      'timeoutMilliseconds': timeout.inMilliseconds,
+      'timeoutMicroseconds': timeout.inMicroseconds,
       'decoderWork': error.stage == 'meshoptDecodeStart'
           ? 'notStartedForBufferView'
           : 'started',
       'dartResourceRelease': 'collectibleAfterStackUnwind',
       'deterministicResourceRelease': 'notGuaranteed',
       'cancellation': 'notAvailable',
+      'bufferViewIndex': bufferViewIndex,
+      'fallback': 'diagnosticOnly',
+    },
+  );
+}
+
+ViewerDiagnostic _cancellationFailure(
+  String? debugName,
+  Map<String, Object?> json,
+  MeshoptDecodeStopped error,
+  ModelLoadCancellationToken? cancellationToken, {
+  required int bufferViewIndex,
+}) {
+  final extensionsRequired = _list(json['extensionsRequired']);
+  return ViewerDiagnostic(
+    code: ViewerDiagnosticCode.modelLoadCancelled,
+    message: 'Model load was cancelled by the caller during Meshopt decode.',
+    details: <String, Object?>{
+      'source': debugName,
+      'extension': kMeshoptCompressionExtension,
+      'decoder': 'meshopt',
+      'required':
+          extensionsRequired?.contains(kMeshoptCompressionExtension) ?? true,
+      'stage': error.stage,
+      'reason': cancellationToken?.reason ?? 'caller',
+      'status': 'cancelled',
+      'decoderWork': error.stage == 'meshoptDecodeStart'
+          ? 'notStartedForBufferView'
+          : 'started',
+      'dartResourceRelease': 'collectibleAfterStackUnwind',
       'bufferViewIndex': bufferViewIndex,
       'fallback': 'diagnosticOnly',
     },

@@ -26,7 +26,15 @@ namespace draco {
 // Attribute transform for quantized attributes.
 class AttributeQuantizationTransform : public AttributeTransform {
  public:
-  AttributeQuantizationTransform() : quantization_bits_(-1), range_(0.f) {}
+  AttributeQuantizationTransform()
+      : quantization_bits_(-1),
+        min_values_(FsvDecodeAllocator<float>(nullptr)),
+        range_(0.f) {}
+  explicit AttributeQuantizationTransform(FsvDecodeControl *control)
+      : quantization_bits_(-1),
+        min_values_(FsvDecodeAllocator<float>(control)),
+        range_(0.f),
+        fsv_decode_control_(control) {}
   // Return attribute transform type.
   AttributeTransformType Type() const override {
     return ATTRIBUTE_QUANTIZATION_TRANSFORM;
@@ -58,7 +66,7 @@ class AttributeQuantizationTransform : public AttributeTransform {
 
   int32_t quantization_bits() const { return quantization_bits_; }
   float min_value(int axis) const { return min_values_[axis]; }
-  const std::vector<float> &min_values() const { return min_values_; }
+  const FsvVector<float> &min_values() const { return min_values_; }
   float range() const { return range_; }
   bool is_initialized() const { return quantization_bits_ != -1; }
 
@@ -91,10 +99,11 @@ class AttributeQuantizationTransform : public AttributeTransform {
   int32_t quantization_bits_;
 
   // Minimal dequantized value for each component of the attribute.
-  std::vector<float> min_values_;
+  FsvVector<float> min_values_;
 
   // Bounds of the dequantized attribute (max delta over all components).
   float range_;
+  FsvDecodeControl *fsv_decode_control_ = nullptr;
 };
 
 }  // namespace draco

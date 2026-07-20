@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/services.dart';
@@ -6,10 +8,319 @@ import 'package:flutter_scene_viewer/src/diagnostics.dart';
 import 'package:flutter_scene_viewer/src/internal/glb_capability_reader.dart';
 import 'package:flutter_scene_viewer/src/internal/glb_decode_budget.dart';
 import 'package:flutter_scene_viewer/src/internal/glb_native_decoder_probe.dart';
+import 'package:flutter_scene_viewer/src/model_load_cancellation.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('BasisU request construction is included in the shared deadline',
+      () async {
+    final source = await File(
+      'lib/src/internal/glb_native_decoder_probe.dart',
+    ).readAsString();
+    final methodStart = source.indexOf(
+      'Future<GlbNativeDecodeResult> _decodeBasisuGlb({',
+    );
+    final methodEnd = source.indexOf(
+      'on _NativeDecodeDeadlineExpired',
+      methodStart,
+    );
+    final method = source.substring(methodStart, methodEnd);
+    final requestBuild = method.indexOf(
+      'final basisuImages = _basisuImageRequestsFromGlb(bytes);',
+    );
+    final remainingBudget = method.indexOf(
+      'final remaining = deadline.remainingOrThrow();',
+    );
+
+    expect(requestBuild, greaterThanOrEqualTo(0));
+    expect(remainingBudget, greaterThan(requestBuild));
+    expect(method, contains("'basisuImages': basisuImages"));
+  });
+
+  test('pre-cancelled native load never dispatches or sends cancel', () async {
+    const channel = MethodChannel('test/flutter_scene_viewer/pre-cancelled');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    final methods = <String>[];
+    messenger.setMockMethodCallHandler(channel, (MethodCall call) async {
+      methods.add(call.method);
+      return <String, Object?>{};
+    });
+    final cancellation = ModelLoadCancellationController()
+      ..cancel('left-screen');
+
+    final result = await const MethodChannelGlbNativeDecoderProbe(
+      channel: channel,
+    ).decodeGlb(
+      bytes: _compressedGlb(mode: 4),
+      requiredExtensions: const <String>{'KHR_draco_mesh_compression'},
+      budget: const GlbDecodeBudget(),
+      budgetTracker: GlbDecodeBudgetTracker(const GlbDecodeBudget()),
+      cancellationToken: cancellation.token,
+      source: 'pre-cancelled.glb',
+    );
+
+    expect(methods, isEmpty);
+    expect(result.bytes, isNull);
+    expect(result.diagnostics, hasLength(1));
+    expect(result.diagnostics.single.code,
+        ViewerDiagnosticCode.modelLoadCancelled);
+    expect(result.diagnostics.single.details,
+        containsPair('reason', 'left-screen'));
+    expect(
+      result.diagnostics.single.details,
+      containsPair('nativeDispatch', 'notStarted'),
+    );
+    expect(result.diagnostics.single.details.containsKey('requestId'), isFalse);
+  });
+
+  test('caller cancellation sends exactly one cancel and discards late success',
+      () async {
+    const channel = MethodChannel('test/flutter_scene_viewer/cancel-active');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    final decodeStarted = Completer<String>();
+    final lateDecode = Completer<Map<String, Object?>?>();
+    final cancelledIds = <String>[];
+    messenger.setMockMethodCallHandler(channel, (MethodCall call) async {
+      final arguments = call.arguments as Map<Object?, Object?>;
+      if (call.method == 'decodeGlb') {
+        final requestId = arguments['requestId']! as String;
+        decodeStarted.complete(requestId);
+        return lateDecode.future;
+      }
+      expect(call.method, 'cancelDecode');
+      cancelledIds.add(arguments['requestId']! as String);
+      return <String, Object?>{'status': 'cancelled'};
+    });
+    final cancellation = ModelLoadCancellationController();
+    final tracker = GlbDecodeBudgetTracker(const GlbDecodeBudget());
+    final future = const MethodChannelGlbNativeDecoderProbe(
+      channel: channel,
+    ).decodeGlb(
+      bytes: _compressedGlb(mode: 4),
+      requiredExtensions: const <String>{'KHR_draco_mesh_compression'},
+      budget: const GlbDecodeBudget(),
+      budgetTracker: tracker,
+      cancellationToken: cancellation.token,
+      source: 'cancel-active.glb',
+    );
+    final requestId = await decodeStarted.future;
+
+    expect(cancellation.cancel('route-changed'), isTrue);
+    final result = await future;
+    expect(cancelledIds, <String>[requestId]);
+    expect(result.bytes, isNull);
+    expect(result.diagnostics.single.code,
+        ViewerDiagnosticCode.modelLoadCancelled);
+    expect(result.diagnostics.single.details,
+        containsPair('requestId', requestId));
+    expect(result.diagnostics.single.details,
+        containsPair('reason', 'route-changed'));
+    expect(result.diagnostics.single.details,
+        containsPair('nativeDispatch', 'started'));
+    expect(result.diagnostics.single.details,
+        containsPair('lateResult', 'discardedByDart'));
+
+    lateDecode.complete(<String, Object?>{
+      'diagnostics': <Object?>[],
+      'bytes': _compressedGlb(mode: 4),
+    });
+    await Future<void>.delayed(Duration.zero);
+    expect(tracker.totalDecodedBytes, 0);
+    expect(cancelledIds, <String>[requestId]);
+  });
+
+  test('sequential codecs cancel only the active BasisU request', () async {
+    const dracoChannel =
+        MethodChannel('test/flutter_scene_viewer/sequential-cancel-draco');
+    const basisuChannel =
+        MethodChannel('test/flutter_scene_viewer/sequential-cancel-basisu');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    addTearDown(() {
+      messenger
+        ..setMockMethodCallHandler(dracoChannel, null)
+        ..setMockMethodCallHandler(basisuChannel, null);
+    });
+    final requestIds = <String>[];
+    final cancelledIds = <String>[];
+    final basisuStarted = Completer<void>();
+    final pendingBasisu = Completer<Map<String, Object?>?>();
+    messenger
+      ..setMockMethodCallHandler(dracoChannel, (MethodCall call) async {
+        final arguments = call.arguments as Map<Object?, Object?>;
+        if (call.method == 'cancelDecode') {
+          cancelledIds.add(arguments['requestId']! as String);
+          return <String, Object?>{'status': 'cancelled'};
+        }
+        requestIds.add(arguments['requestId']! as String);
+        return <String, Object?>{
+          'diagnostics': <Object?>[],
+          'bytes': _basisuGlb(),
+        };
+      })
+      ..setMockMethodCallHandler(basisuChannel, (MethodCall call) async {
+        final arguments = call.arguments as Map<Object?, Object?>;
+        if (call.method == 'cancelDecode') {
+          cancelledIds.add(arguments['requestId']! as String);
+          return <String, Object?>{'status': 'cancelled'};
+        }
+        requestIds.add(arguments['requestId']! as String);
+        basisuStarted.complete();
+        return pendingBasisu.future;
+      });
+    final cancellation = ModelLoadCancellationController();
+    final future = const MethodChannelGlbNativeDecoderProbe(
+      channel: dracoChannel,
+      basisuChannel: basisuChannel,
+    ).decodeGlb(
+      bytes: _dracoAndBasisuGlb(),
+      requiredExtensions: const <String>{
+        'KHR_draco_mesh_compression',
+        'KHR_texture_basisu',
+      },
+      budget: const GlbDecodeBudget(),
+      budgetTracker: GlbDecodeBudgetTracker(const GlbDecodeBudget()),
+      cancellationToken: cancellation.token,
+    );
+    await basisuStarted.future;
+    cancellation.cancel('sequential-stop');
+    final result = await future;
+
+    expect(requestIds, hasLength(2));
+    expect(requestIds.toSet(), hasLength(2));
+    expect(cancelledIds, <String>[requestIds[1]]);
+    expect(result.diagnostics.single.details,
+        containsPair('requestId', requestIds[1]));
+  });
+
+  test('concurrent native loads use distinct collision-resistant request ids',
+      () async {
+    const channel = MethodChannel('test/flutter_scene_viewer/concurrent-ids');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    final requestIds = <String>[];
+    messenger.setMockMethodCallHandler(channel, (MethodCall call) async {
+      final arguments = call.arguments as Map<Object?, Object?>;
+      requestIds.add(arguments['requestId']! as String);
+      return <String, Object?>{
+        'diagnostics': <Object?>[
+          <String, Object?>{
+            'code': 'unsupportedModelFeature',
+            'message': 'test stop',
+            'details': <String, Object?>{
+              'extension': 'KHR_draco_mesh_compression',
+              'status': 'testStop',
+            },
+          },
+        ],
+      };
+    });
+    final probe = const MethodChannelGlbNativeDecoderProbe(channel: channel);
+
+    await Future.wait(<Future<GlbNativeDecodeResult>>[
+      probe.decodeGlb(
+        bytes: _compressedGlb(mode: 4),
+        requiredExtensions: const <String>{'KHR_draco_mesh_compression'},
+        budget: const GlbDecodeBudget(),
+        budgetTracker: GlbDecodeBudgetTracker(const GlbDecodeBudget()),
+      ),
+      probe.decodeGlb(
+        bytes: _compressedGlb(mode: 4),
+        requiredExtensions: const <String>{'KHR_draco_mesh_compression'},
+        budget: const GlbDecodeBudget(),
+        budgetTracker: GlbDecodeBudgetTracker(const GlbDecodeBudget()),
+      ),
+    ]);
+
+    expect(requestIds, hasLength(2));
+    expect(requestIds.toSet(), hasLength(2));
+    expect(requestIds.every((id) => id.split('-').length >= 3), isTrue);
+  });
+
+  test('successful native stage removes its cancellation listener', () async {
+    const channel = MethodChannel('test/flutter_scene_viewer/listener-removed');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    final methods = <String>[];
+    messenger.setMockMethodCallHandler(channel, (MethodCall call) async {
+      methods.add(call.method);
+      return <String, Object?>{
+        'diagnostics': <Object?>[
+          <String, Object?>{
+            'code': 'unsupportedModelFeature',
+            'message': 'test stop',
+            'details': <String, Object?>{
+              'extension': 'KHR_draco_mesh_compression',
+              'status': 'testStop',
+            },
+          },
+        ],
+      };
+    });
+    final cancellation = ModelLoadCancellationController();
+
+    await const MethodChannelGlbNativeDecoderProbe(channel: channel).decodeGlb(
+      bytes: _compressedGlb(mode: 4),
+      requiredExtensions: const <String>{'KHR_draco_mesh_compression'},
+      budget: const GlbDecodeBudget(),
+      budgetTracker: GlbDecodeBudgetTracker(const GlbDecodeBudget()),
+      cancellationToken: cancellation.token,
+    );
+    cancellation.cancel('after-success');
+    await Future<void>.delayed(Duration.zero);
+
+    expect(methods, <String>['decodeGlb']);
+  });
+
+  test('timeout cancels once and a later caller cancel cannot cancel twice',
+      () async {
+    const channel = MethodChannel('test/flutter_scene_viewer/timeout-cancel');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    final decodeStarted = Completer<void>();
+    final cancelledIds = <String>[];
+    messenger.setMockMethodCallHandler(channel, (MethodCall call) async {
+      final arguments = call.arguments as Map<Object?, Object?>;
+      if (call.method == 'cancelDecode') {
+        cancelledIds.add(arguments['requestId']! as String);
+        return <String, Object?>{'status': 'cancelled'};
+      }
+      decodeStarted.complete();
+      return Completer<Map<String, Object?>?>().future;
+    });
+    final cancellation = ModelLoadCancellationController();
+    const budget = GlbDecodeBudget(
+      decodeTimeout: Duration(milliseconds: 20),
+    );
+    final future = const MethodChannelGlbNativeDecoderProbe(
+      channel: channel,
+    ).decodeGlb(
+      bytes: _compressedGlb(mode: 4),
+      requiredExtensions: const <String>{'KHR_draco_mesh_compression'},
+      budget: budget,
+      budgetTracker: GlbDecodeBudgetTracker(budget),
+      cancellationToken: cancellation.token,
+    );
+    await decodeStarted.future;
+    final result = await future;
+    cancellation.cancel('too-late');
+    await Future<void>.delayed(Duration.zero);
+
+    expect(
+        result.diagnostics.single.code, ViewerDiagnosticCode.modelLoadTimeout);
+    expect(cancelledIds, hasLength(1));
+    expect(result.diagnostics.single.details,
+        containsPair('nativeDispatch', 'started'));
+  });
 
   test('native Draco timeout is typed and blocks every later decode stage',
       () async {
@@ -30,6 +341,11 @@ void main() {
       ..setMockMethodCallHandler(
         dracoChannel,
         (MethodCall call) {
+          if (call.method == 'cancelDecode') {
+            return Future<Map<String, Object?>?>.value(
+              <String, Object?>{'status': 'cancelled'},
+            );
+          }
           dracoCalls += 1;
           return Future<Map<String, Object?>?>.delayed(
             const Duration(milliseconds: 100),
@@ -50,6 +366,9 @@ void main() {
         },
       )
       ..setMockMethodCallHandler(basisuChannel, (MethodCall call) async {
+        if (call.method == 'cancelDecode') {
+          return <String, Object?>{'status': 'unknownRequest'};
+        }
         basisuCalls += 1;
         return <String, Object?>{};
       });
@@ -77,7 +396,11 @@ void main() {
     expect(result.diagnostics, hasLength(1));
     expect(
         result.diagnostics.single.code, ViewerDiagnosticCode.modelLoadTimeout);
-    expect(result.diagnostics.single.details, <String, Object?>{
+    final timeoutDetails = Map<String, Object?>.of(
+      result.diagnostics.single.details,
+    );
+    expect(timeoutDetails.remove('requestId'), isA<String>());
+    expect(timeoutDetails, <String, Object?>{
       'source': 'native-timeout.glb',
       'extension': 'KHR_draco_mesh_compression',
       'decoder': 'draco',
@@ -113,6 +436,11 @@ void main() {
     messenger.setMockMethodCallHandler(
       channel,
       (MethodCall call) {
+        if (call.method == 'cancelDecode') {
+          return Future<Map<String, Object?>?>.value(
+            <String, Object?>{'status': 'cancelled'},
+          );
+        }
         basisuCalls += 1;
         return Future<Map<String, Object?>?>.delayed(
           const Duration(milliseconds: 100),
@@ -240,6 +568,11 @@ void main() {
     var basisuCalls = 0;
     messenger
       ..setMockMethodCallHandler(dracoChannel, (MethodCall call) {
+        if (call.method == 'cancelDecode') {
+          return Future<Map<String, Object?>?>.value(
+            <String, Object?>{'status': 'alreadyFinished'},
+          );
+        }
         dracoCalls += 1;
         return Future<Map<String, Object?>?>.delayed(
           const Duration(milliseconds: 250),
@@ -250,6 +583,11 @@ void main() {
         );
       })
       ..setMockMethodCallHandler(basisuChannel, (MethodCall call) {
+        if (call.method == 'cancelDecode') {
+          return Future<Map<String, Object?>?>.value(
+            <String, Object?>{'status': 'cancelled'},
+          );
+        }
         basisuCalls += 1;
         return Future<Map<String, Object?>?>.delayed(
           const Duration(milliseconds: 250),
@@ -567,6 +905,7 @@ void main() {
         'maxIndices': 60 * 1024 * 1024,
         'maxTexturePixels': 64 * 1024 * 1024,
         'maxNativeOutputBytes': 256 * 1024 * 1024,
+        'maxNativeWorkingBytes': 256 * 1024 * 1024,
       });
       expect(arguments['decodeBudgetState'], <String, Object?>{
         'totalDecodedBytes': 0,
@@ -620,7 +959,18 @@ void main() {
     addTearDown(() {
       messenger.setMockMethodCallHandler(channel, null);
     });
-    final compressed = _basisuGlb(textureCount: 2);
+    final compressed = _basisuGlb(
+      textureCount: 2,
+      samplers: const <Map<String, Object?>>[
+        <String, Object?>{
+          'magFilter': 9728,
+          'minFilter': 9984,
+          'wrapS': 33071,
+          'wrapT': 33648,
+        },
+      ],
+      samplerIndices: const <int?>[0, null],
+    );
     var nativeRequestCount = 0;
     messenger.setMockMethodCallHandler(channel, (MethodCall call) async {
       final arguments = call.arguments as Map<Object?, Object?>;
@@ -632,6 +982,24 @@ void main() {
       expect(image['imageIndex'], 0);
       expect(image['usageRole'], 'structuralOnly');
       expect(image['channelLayout'], 'structuralOnly');
+      expect(image['textureBindings'], <Object?>[
+        <String, Object?>{
+          'textureIndex': 0,
+          'samplerIndex': 0,
+          'magFilter': 9728,
+          'minFilter': 9984,
+          'wrapS': 33071,
+          'wrapT': 33648,
+        },
+        <String, Object?>{
+          'textureIndex': 1,
+          'samplerIndex': null,
+          'magFilter': 9729,
+          'minFilter': 9987,
+          'wrapS': 10497,
+          'wrapT': 10497,
+        },
+      ]);
       return <String, Object?>{
         'diagnostics': <Object?>[],
         'decodedImages': <Object?>[
@@ -925,8 +1293,141 @@ void main() {
     expect(tracker.totalDecodedBytes, 0);
   });
 
-  test('decodeGlb preserves typed BasisU mip diagnostics', () async {
+  test('decodeGlb carries raw multi-level output outside PNG rewrite',
+      () async {
     const channel = MethodChannel('test/flutter_scene_viewer/basisu-mips');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    addTearDown(() {
+      messenger.setMockMethodCallHandler(channel, null);
+    });
+    messenger.setMockMethodCallHandler(channel, (MethodCall call) async {
+      return <String, Object?>{
+        'diagnostics': <Object?>[],
+        'decodedImages': <Object?>[
+          <String, Object?>{
+            'imageIndex': 0,
+            'contentRole': 'structuralOnly',
+            'levels': <Object?>[
+              <String, Object?>{
+                'level': 0,
+                'width': 4,
+                'height': 4,
+                'rgbaBytes': Uint8List(4 * 4 * 4),
+              },
+              <String, Object?>{
+                'level': 1,
+                'width': 2,
+                'height': 2,
+                'rgbaBytes': Uint8List(2 * 2 * 4),
+              },
+            ],
+          },
+        ],
+      };
+    });
+
+    final topology = _basisuGlb();
+    final tracker = GlbDecodeBudgetTracker(const GlbDecodeBudget());
+    final result = await const MethodChannelGlbNativeDecoderProbe(
+      basisuChannel: channel,
+    ).decodeGlb(
+      bytes: topology,
+      requiredExtensions: const <String>{'KHR_texture_basisu'},
+      budget: const GlbDecodeBudget(),
+      budgetTracker: tracker,
+      source: 'basisu-mips.glb',
+    );
+
+    expect(result.bytes, isNull);
+    expect(result.outputAccounting, GlbNativeDecodeOutputAccounting.none);
+    expect(result.topologyBytes, orderedEquals(topology));
+    expect(
+      result.topologyOutputAccounting,
+      GlbNativeDecodeOutputAccounting.none,
+    );
+    expect(result.diagnostics, isEmpty);
+    expect(result.decodedBasisuImages, hasLength(1));
+    final decoded = result.decodedBasisuImages.single;
+    expect(decoded.contentRole, 'structuralOnly');
+    expect(decoded.levels.map((level) => level.level), <int>[0, 1]);
+    expect(
+        () => decoded.levels.add(decoded.levels.first), throwsUnsupportedError);
+    expect(decoded.textureBindings, hasLength(1));
+    expect(decoded.textureBindings.single.textureIndex, 0);
+    expect(decoded.textureBindings.single.sampler.minFilter, 9987);
+    expect(tracker.texturePixels, 20);
+    expect(tracker.nativeOutputBytes, 80);
+    expect(tracker.totalDecodedBytes, 80);
+  });
+
+  test('decodeGlb rejects authored mip aggregate budget atomically', () async {
+    const channel =
+        MethodChannel('test/flutter_scene_viewer/basisu-mip-budget');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    addTearDown(() {
+      messenger.setMockMethodCallHandler(channel, null);
+    });
+    messenger.setMockMethodCallHandler(channel, (MethodCall call) async {
+      return <String, Object?>{
+        'diagnostics': <Object?>[],
+        'decodedImages': <Object?>[
+          <String, Object?>{
+            'imageIndex': 0,
+            'contentRole': 'structuralOnly',
+            'levels': <Object?>[
+              <String, Object?>{
+                'level': 0,
+                'width': 4,
+                'height': 4,
+                'rgbaBytes': Uint8List(4 * 4 * 4),
+              },
+              <String, Object?>{
+                'level': 1,
+                'width': 2,
+                'height': 2,
+                'rgbaBytes': Uint8List(2 * 2 * 4),
+              },
+            ],
+          },
+        ],
+      };
+    });
+    const budget = GlbDecodeBudget(
+      maxTotalDecodedBytes: 79,
+      maxNativeOutputBytes: 79,
+      maxTexturePixels: 20,
+    );
+    final tracker = GlbDecodeBudgetTracker(budget);
+
+    final result = await const MethodChannelGlbNativeDecoderProbe(
+      basisuChannel: channel,
+    ).decodeGlb(
+      bytes: _basisuGlb(),
+      requiredExtensions: const <String>{'KHR_texture_basisu'},
+      budget: budget,
+      budgetTracker: tracker,
+      source: 'basisu-mip-budget.glb',
+    );
+
+    expect(result.bytes, isNull);
+    expect(result.topologyBytes, isNull);
+    expect(result.decodedBasisuImages, isEmpty);
+    expect(result.diagnostics, hasLength(1));
+    expect(
+      result.diagnostics.single.details,
+      containsPair('field', 'nativeOutputBytes'),
+    );
+    expect(tracker.texturePixels, 0);
+    expect(tracker.nativeOutputBytes, 0);
+    expect(tracker.totalDecodedBytes, 0);
+  });
+
+  test('decodeGlb rejects terminal diagnostics mixed with decoded payloads',
+      () async {
+    const channel =
+        MethodChannel('test/flutter_scene_viewer/basisu-terminal-xor');
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     addTearDown(() {
@@ -937,24 +1438,31 @@ void main() {
         'diagnostics': <Object?>[
           <String, Object?>{
             'code': 'unsupportedModelFeature',
-            'message':
-                'BasisU GLB rewrite cannot preserve authored KTX2 mip pyramids.',
+            'message': 'Native decode failed after producing a payload.',
             'details': <String, Object?>{
-              'extension': 'KHR_texture_basisu',
-              'decoder': 'basisu',
-              'required': true,
-              'status': 'unsupportedKtx2Layout',
-              'stage': 'basisuNativePreflight',
-              'field': 'ktx2MipLevels',
-              'limitation': 'decodedPayloadSchema',
-              'limit': 1,
-              'actual': 2,
+              'status': 'decodeFailed',
+              'field': 'ktx2Payload',
             },
           },
         ],
-        'decodedImages': <Object?>[],
+        'decodedImages': <Object?>[
+          <String, Object?>{
+            'imageIndex': 0,
+            'contentRole': 'structuralOnly',
+            'levels': <Object?>[
+              <String, Object?>{
+                'level': 0,
+                'width': 1,
+                'height': 1,
+                'rgbaBytes': Uint8List(4),
+              },
+            ],
+          },
+        ],
       };
     });
+    final tracker = GlbDecodeBudgetTracker(const GlbDecodeBudget())
+      ..reserveNativeOutputBytes(5, stage: 'priorDecoder');
 
     final result = await const MethodChannelGlbNativeDecoderProbe(
       basisuChannel: channel,
@@ -962,28 +1470,332 @@ void main() {
       bytes: _basisuGlb(),
       requiredExtensions: const <String>{'KHR_texture_basisu'},
       budget: const GlbDecodeBudget(),
-      budgetTracker: GlbDecodeBudgetTracker(const GlbDecodeBudget()),
-      source: 'basisu-mips.glb',
+      budgetTracker: tracker,
+      source: 'terminal-xor.glb',
+    );
+
+    expect(result.bytes, isNull);
+    expect(result.topologyBytes, isNull);
+    expect(result.decodedBasisuImages, isEmpty);
+    expect(result.diagnostics, hasLength(1));
+    expect(
+      result.diagnostics.single.details,
+      containsPair('status', 'malformedOutput'),
+    );
+    expect(
+      result.diagnostics.single.details,
+      containsPair('field', 'methodChannelResult'),
+    );
+    expect(tracker.texturePixels, 0);
+    expect(tracker.nativeOutputBytes, 5);
+    expect(tracker.totalDecodedBytes, 5);
+  });
+
+  test('decodeGlb rejects terminal diagnostics mixed with opaque bytes',
+      () async {
+    const channel =
+        MethodChannel('test/flutter_scene_viewer/basisu-terminal-bytes-xor');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    addTearDown(() {
+      messenger.setMockMethodCallHandler(channel, null);
+    });
+    messenger.setMockMethodCallHandler(channel, (MethodCall call) async {
+      return <String, Object?>{
+        'diagnostics': <Object?>[
+          <String, Object?>{
+            'code': 'unsupportedModelFeature',
+            'message': 'Native decode failed after producing bytes.',
+            'details': <String, Object?>{'status': 'decodeFailed'},
+          },
+        ],
+        'bytes': Uint8List.fromList(<int>[1, 2, 3, 4]),
+      };
+    });
+    final tracker = GlbDecodeBudgetTracker(const GlbDecodeBudget());
+
+    final result = await const MethodChannelGlbNativeDecoderProbe(
+      basisuChannel: channel,
+    ).decodeGlb(
+      bytes: _basisuGlb(),
+      requiredExtensions: const <String>{'KHR_texture_basisu'},
+      budget: const GlbDecodeBudget(),
+      budgetTracker: tracker,
+      source: 'terminal-bytes-xor.glb',
+    );
+
+    expect(result.bytes, isNull);
+    expect(result.topologyBytes, isNull);
+    expect(result.decodedBasisuImages, isEmpty);
+    expect(result.diagnostics, hasLength(1));
+    expect(
+      result.diagnostics.single.details,
+      containsPair('status', 'malformedOutput'),
+    );
+    expect(tracker.texturePixels, 0);
+    expect(tracker.nativeOutputBytes, 0);
+    expect(tracker.totalDecodedBytes, 0);
+  });
+
+  test('decodeGlb rejects returned content roles that differ from requests',
+      () async {
+    const cases = <(String, String)>[
+      ('color', 'nonColor'),
+      ('nonColor', 'structuralOnly'),
+      ('structuralOnly', 'color'),
+    ];
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    for (final (expectedRole, returnedRole) in cases) {
+      final channel = MethodChannel(
+        'test/flutter_scene_viewer/basisu-role-$expectedRole',
+      );
+      addTearDown(() {
+        messenger.setMockMethodCallHandler(channel, null);
+      });
+      messenger.setMockMethodCallHandler(channel, (MethodCall call) async {
+        final arguments = call.arguments! as Map<Object?, Object?>;
+        final images = arguments['basisuImages']! as List<Object?>;
+        expect(images.single, containsPair('usageRole', expectedRole));
+        return <String, Object?>{
+          'diagnostics': <Object?>[],
+          'decodedImages': <Object?>[
+            <String, Object?>{
+              'imageIndex': 0,
+              'contentRole': returnedRole,
+              'levels': <Object?>[
+                <String, Object?>{
+                  'level': 0,
+                  'width': 1,
+                  'height': 1,
+                  'rgbaBytes': Uint8List(4),
+                },
+              ],
+            },
+          ],
+        };
+      });
+      final tracker = GlbDecodeBudgetTracker(const GlbDecodeBudget());
+
+      final result = await MethodChannelGlbNativeDecoderProbe(
+        basisuChannel: channel,
+      ).decodeGlb(
+        bytes: _basisuSingleRoleGlb(expectedRole),
+        requiredExtensions: const <String>{'KHR_texture_basisu'},
+        budget: const GlbDecodeBudget(),
+        budgetTracker: tracker,
+        source: '$expectedRole-role.glb',
+      );
+
+      expect(result.bytes, isNull, reason: expectedRole);
+      expect(result.topologyBytes, isNull, reason: expectedRole);
+      expect(result.decodedBasisuImages, isEmpty, reason: expectedRole);
+      expect(result.diagnostics, hasLength(1), reason: expectedRole);
+      expect(
+        result.diagnostics.single.details,
+        containsPair('status', 'malformedOutput'),
+        reason: expectedRole,
+      );
+      expect(
+        result.diagnostics.single.details,
+        containsPair('field', 'decodedImages[0].contentRole'),
+        reason: expectedRole,
+      );
+      expect(
+        result.diagnostics.single.details,
+        containsPair('limit', expectedRole),
+        reason: expectedRole,
+      );
+      expect(
+        result.diagnostics.single.details,
+        containsPair('actual', returnedRole),
+        reason: expectedRole,
+      );
+      expect(tracker.texturePixels, 0, reason: expectedRole);
+      expect(tracker.nativeOutputBytes, 0, reason: expectedRole);
+      expect(tracker.totalDecodedBytes, 0, reason: expectedRole);
+    }
+  });
+
+  test('decodeGlb carries Draco-rewritten topology beside authored BasisU mips',
+      () async {
+    const dracoChannel =
+        MethodChannel('test/flutter_scene_viewer/draco-authored-mips');
+    const basisuChannel =
+        MethodChannel('test/flutter_scene_viewer/basisu-authored-mips');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    addTearDown(() {
+      messenger
+        ..setMockMethodCallHandler(dracoChannel, null)
+        ..setMockMethodCallHandler(basisuChannel, null);
+    });
+    Uint8List? basisuInput;
+    messenger
+      ..setMockMethodCallHandler(dracoChannel, (MethodCall call) async {
+        return <String, Object?>{
+          'diagnostics': <Object?>[],
+          'decodedPrimitives': <Object?>[
+            <String, Object?>{
+              'meshIndex': 0,
+              'primitiveIndex': 0,
+              'attributes': <String, Object?>{
+                'POSITION': _float32Bytes(<double>[1, 2, 3]),
+              },
+              'indices': _uint16Bytes(<int>[0, 0, 0]),
+            },
+          ],
+        };
+      })
+      ..setMockMethodCallHandler(basisuChannel, (MethodCall call) async {
+        basisuInput = Uint8List.fromList(
+          (call.arguments as Map<Object?, Object?>)['bytes']! as List<int>,
+        );
+        return <String, Object?>{
+          'diagnostics': <Object?>[],
+          'decodedImages': <Object?>[
+            <String, Object?>{
+              'imageIndex': 0,
+              'contentRole': 'structuralOnly',
+              'levels': <Object?>[
+                <String, Object?>{
+                  'level': 0,
+                  'width': 4,
+                  'height': 4,
+                  'rgbaBytes': Uint8List(4 * 4 * 4),
+                },
+                <String, Object?>{
+                  'level': 1,
+                  'width': 2,
+                  'height': 2,
+                  'rgbaBytes': Uint8List(2 * 2 * 4),
+                },
+              ],
+            },
+          ],
+        };
+      });
+    const budget = GlbDecodeBudget(
+      maxTotalDecodedBytes: 1024,
+      maxNativeOutputBytes: 1024,
+      maxAccessors: 2,
+      maxVertices: 1,
+      maxIndices: 3,
+    );
+    final tracker = GlbDecodeBudgetTracker(budget);
+    final original = _dracoAndBasisuGlb();
+
+    final result = await const MethodChannelGlbNativeDecoderProbe(
+      channel: dracoChannel,
+      basisuChannel: basisuChannel,
+    ).decodeGlb(
+      bytes: original,
+      requiredExtensions: const <String>{
+        'KHR_draco_mesh_compression',
+        'KHR_texture_basisu',
+      },
+      budget: budget,
+      budgetTracker: tracker,
+      source: 'draco-authored-mips.glb',
+    );
+
+    expect(basisuInput, isNotNull);
+    expect(basisuInput, isNot(orderedEquals(original)));
+    expect(result.bytes, isNull);
+    expect(result.outputAccounting, GlbNativeDecodeOutputAccounting.none);
+    expect(result.topologyBytes, orderedEquals(basisuInput!));
+    expect(
+      result.topologyOutputAccounting,
+      GlbNativeDecodeOutputAccounting.componentPayloadsAccounted,
+    );
+    expect(result.decodedBasisuImages, hasLength(1));
+    expect(result.diagnostics, isEmpty);
+    expect(tracker.totalDecodedBytes, 98);
+    expect(tracker.nativeOutputBytes, 98);
+    expect(tracker.texturePixels, 20);
+    expect(tracker.accessors, 2);
+    expect(tracker.vertices, 1);
+    expect(tracker.indices, 3);
+  });
+
+  test('decodeGlb accounts opaque Draco topology before authored BasisU mips',
+      () async {
+    const dracoChannel =
+        MethodChannel('test/flutter_scene_viewer/opaque-draco-authored-mips');
+    const basisuChannel =
+        MethodChannel('test/flutter_scene_viewer/opaque-basisu-authored-mips');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    addTearDown(() {
+      messenger
+        ..setMockMethodCallHandler(dracoChannel, null)
+        ..setMockMethodCallHandler(basisuChannel, null);
+    });
+    final opaqueTopology = _basisuGlb();
+    messenger
+      ..setMockMethodCallHandler(dracoChannel, (MethodCall call) async {
+        return <String, Object?>{
+          'diagnostics': <Object?>[],
+          'bytes': opaqueTopology,
+        };
+      })
+      ..setMockMethodCallHandler(basisuChannel, (MethodCall call) async {
+        return <String, Object?>{
+          'diagnostics': <Object?>[],
+          'decodedImages': <Object?>[
+            <String, Object?>{
+              'imageIndex': 0,
+              'contentRole': 'structuralOnly',
+              'levels': <Object?>[
+                <String, Object?>{
+                  'level': 0,
+                  'width': 1,
+                  'height': 1,
+                  'rgbaBytes': Uint8List(4),
+                },
+              ],
+            },
+          ],
+        };
+      });
+    const budget = GlbDecodeBudget(
+      maxTotalDecodedBytes: 4096,
+      maxNativeOutputBytes: 4096,
+    );
+    final tracker = GlbDecodeBudgetTracker(budget);
+
+    final result = await const MethodChannelGlbNativeDecoderProbe(
+      channel: dracoChannel,
+      basisuChannel: basisuChannel,
+    ).decodeGlb(
+      bytes: _dracoAndBasisuGlb(),
+      requiredExtensions: const <String>{
+        'KHR_draco_mesh_compression',
+        'KHR_texture_basisu',
+      },
+      budget: budget,
+      budgetTracker: tracker,
+      source: 'opaque-draco-authored-mips.glb',
     );
 
     expect(result.bytes, isNull);
     expect(result.outputAccounting, GlbNativeDecodeOutputAccounting.none);
-    expect(result.diagnostics, hasLength(1));
+    expect(result.topologyBytes, orderedEquals(opaqueTopology));
     expect(
-      result.diagnostics.single.code,
-      ViewerDiagnosticCode.unsupportedModelFeature,
+      result.topologyOutputAccounting,
+      GlbNativeDecodeOutputAccounting.componentPayloadsAccounted,
     );
-    expect(result.diagnostics.single.details, <String, Object?>{
-      'extension': 'KHR_texture_basisu',
-      'decoder': 'basisu',
-      'required': true,
-      'status': 'unsupportedKtx2Layout',
-      'stage': 'basisuNativePreflight',
-      'field': 'ktx2MipLevels',
-      'limitation': 'decodedPayloadSchema',
-      'limit': 1,
-      'actual': 2,
-    });
+    expect(result.decodedBasisuImages, hasLength(1));
+    expect(result.diagnostics, isEmpty);
+    expect(
+      tracker.nativeOutputBytes,
+      opaqueTopology.lengthInBytes + 4,
+    );
+    expect(
+      tracker.totalDecodedBytes,
+      opaqueTopology.lengthInBytes + 4,
+    );
+    expect(tracker.texturePixels, 1);
   });
 
   test('decodeGlb preserves typed BasisU profile diagnostics', () async {
@@ -1225,6 +2037,7 @@ void main() {
         'maxIndices': 505,
         'maxTexturePixels': 606,
         'maxNativeOutputBytes': 707,
+        'maxNativeWorkingBytes': 256 * 1024 * 1024,
       });
       expect(arguments['decodeBudgetState'], <String, Object?>{
         'totalDecodedBytes': 24,
@@ -1799,7 +2612,11 @@ Uint8List _compressedGlbWithMalformedAdditionalAttribute() {
   );
 }
 
-Uint8List _basisuGlb({int textureCount = 1}) {
+Uint8List _basisuGlb({
+  int textureCount = 1,
+  List<Map<String, Object?>> samplers = const <Map<String, Object?>>[],
+  List<int?> samplerIndices = const <int?>[],
+}) {
   return _glbWithBin(
     <String, Object?>{
       'asset': <String, Object?>{'version': '2.0'},
@@ -1814,14 +2631,56 @@ Uint8List _basisuGlb({int textureCount = 1}) {
       'images': <Object?>[
         <String, Object?>{'mimeType': 'image/ktx2', 'bufferView': 0},
       ],
+      if (samplers.isNotEmpty) 'samplers': samplers,
       'textures': List<Object?>.generate(
         textureCount,
-        (_) => <String, Object?>{
+        (index) => <String, Object?>{
+          if (index < samplerIndices.length && samplerIndices[index] != null)
+            'sampler': samplerIndices[index],
           'extensions': <String, Object?>{
             'KHR_texture_basisu': <String, Object?>{'source': 0},
           },
         },
       ),
+    },
+    Uint8List.fromList(<int>[9, 9, 9, 9]),
+  );
+}
+
+Uint8List _basisuSingleRoleGlb(String role) {
+  final textureInfo = <String, Object?>{'index': 0};
+  return _glbWithBin(
+    <String, Object?>{
+      'asset': <String, Object?>{'version': '2.0'},
+      'extensionsUsed': <Object?>['KHR_texture_basisu'],
+      'extensionsRequired': <Object?>['KHR_texture_basisu'],
+      'buffers': <Object?>[
+        <String, Object?>{'byteLength': 4},
+      ],
+      'bufferViews': <Object?>[
+        <String, Object?>{'buffer': 0, 'byteOffset': 0, 'byteLength': 4},
+      ],
+      'images': <Object?>[
+        <String, Object?>{'mimeType': 'image/ktx2', 'bufferView': 0},
+      ],
+      'textures': <Object?>[
+        <String, Object?>{
+          'extensions': <String, Object?>{
+            'KHR_texture_basisu': <String, Object?>{'source': 0},
+          },
+        },
+      ],
+      if (role != 'structuralOnly')
+        'materials': <Object?>[
+          <String, Object?>{
+            if (role == 'color')
+              'pbrMetallicRoughness': <String, Object?>{
+                'baseColorTexture': textureInfo,
+              }
+            else
+              'normalTexture': textureInfo,
+          },
+        ],
     },
     Uint8List.fromList(<int>[9, 9, 9, 9]),
   );

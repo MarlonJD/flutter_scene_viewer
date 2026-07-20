@@ -30,10 +30,13 @@ namespace draco {
 // multiple points stored in a point cloud can share the same attribute value
 // and this class provides the necessary mapping between point ids and attribute
 // value ids.
-class PointAttribute : public GeometryAttribute {
+class PointAttribute : public GeometryAttribute,
+                       public FsvDecodeAllocated {
  public:
   PointAttribute();
+  explicit PointAttribute(FsvDecodeControl *control);
   explicit PointAttribute(const GeometryAttribute &att);
+  PointAttribute(const GeometryAttribute &att, FsvDecodeControl *control);
 
   // Make sure the move constructor is defined (needed for better performance
   // when new attributes are added to PointCloud).
@@ -60,6 +63,7 @@ class PointAttribute : public GeometryAttribute {
     return indices_map_[point_index];
   }
   DataBuffer *buffer() const { return attribute_buffer_.get(); }
+  FsvDecodeControl *fsv_decode_control() const { return fsv_decode_control_; }
   bool is_mapping_identity() const { return identity_mapping_; }
   size_t indices_map_size() const {
     if (is_mapping_identity()) {
@@ -163,6 +167,7 @@ class PointAttribute : public GeometryAttribute {
   // the attribute transform here and use it to transform the attribute back to
   // its original format.
   std::unique_ptr<AttributeTransformData> attribute_transform_data_;
+  FsvDecodeControl *fsv_decode_control_ = nullptr;
 
   friend struct PointAttributeHasher;
 };

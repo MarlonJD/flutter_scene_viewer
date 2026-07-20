@@ -22,6 +22,34 @@ namespace draco {
 MeshAttributeCornerTable::MeshAttributeCornerTable()
     : no_interior_seams_(true), corner_table_(nullptr), valence_cache_(*this) {}
 
+MeshAttributeCornerTable::MeshAttributeCornerTable(FsvDecodeControl *control)
+    : is_edge_on_seam_(FsvDecodeAllocator<bool>(control)),
+      is_vertex_on_seam_(FsvDecodeAllocator<bool>(control)),
+      no_interior_seams_(true),
+      corner_to_vertex_map_(FsvDecodeAllocator<VertexIndex>(control)),
+      vertex_to_left_most_corner_map_(
+          FsvDecodeAllocator<CornerIndex>(control)),
+      vertex_to_attribute_entry_id_map_(
+          FsvDecodeAllocator<AttributeValueIndex>(control)),
+      corner_table_(nullptr),
+      valence_cache_(*this, control) {}
+
+void MeshAttributeCornerTable::SetDecodeControl(FsvDecodeControl *control) {
+  is_edge_on_seam_ = std::vector<bool, FsvDecodeAllocator<bool>>(
+      FsvDecodeAllocator<bool>(control));
+  is_vertex_on_seam_ = std::vector<bool, FsvDecodeAllocator<bool>>(
+      FsvDecodeAllocator<bool>(control));
+  corner_to_vertex_map_ =
+      std::vector<VertexIndex, FsvDecodeAllocator<VertexIndex>>(
+          FsvDecodeAllocator<VertexIndex>(control));
+  vertex_to_left_most_corner_map_ =
+      std::vector<CornerIndex, FsvDecodeAllocator<CornerIndex>>(
+          FsvDecodeAllocator<CornerIndex>(control));
+  vertex_to_attribute_entry_id_map_ =
+      std::vector<AttributeValueIndex, FsvDecodeAllocator<AttributeValueIndex>>(
+          FsvDecodeAllocator<AttributeValueIndex>(control));
+}
+
 bool MeshAttributeCornerTable::InitEmpty(const CornerTable *table) {
   if (table == nullptr) {
     return false;

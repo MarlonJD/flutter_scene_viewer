@@ -30,8 +30,10 @@ class MeshPredictionSchemeDecoder
   typedef MeshDataT MeshData;
   MeshPredictionSchemeDecoder(const PointAttribute *attribute,
                               const TransformT &transform,
-                              const MeshDataT &mesh_data)
-      : PredictionSchemeDecoder<DataTypeT, TransformT>(attribute, transform),
+                              const MeshDataT &mesh_data,
+                              FsvDecodeControl *control = nullptr)
+      : PredictionSchemeDecoder<DataTypeT, TransformT>(attribute, transform,
+                                                       control),
         mesh_data_(mesh_data) {}
 
  protected:

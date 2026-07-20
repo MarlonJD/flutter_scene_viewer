@@ -47,9 +47,21 @@ UASTC, numeric channel 0 is interpreted as the spec's RGB category: the
 official RGB fixture, UASTC color model, requested `rgb` layout, and KHR profile
 supply that context. Numeric aliasing with the pinned API's generic `DATA` name
 does not promote channel-0 RG source-layout bytes to RG; exact `rg` usage still
-requires channel 6. Cancellation, timeout, and codec-internal allocation
-control remain open. This slice does not establish target runtime, release, or
-complete codec-resource-control compliance.
+requires channel 6. Task 5E.2 host tests route the KTX2 Level Index, DFD,
+outer and nested KVD, ETC1S descriptor, and covered Zstd state vectors through
+distinct request allocators, and reject valid `KTXanimData` metadata before
+codec allocation for both uncompressed and Zstd UASTC. Partial-metadata
+cancellation is exercised after the Level Index, DFD, outer KVD, KVD
+relocation, and each complete KVD entry. Required malformed Level Index, DFD,
+KVD truncation/overflow, missing key terminator, invalid padding/order, and
+duplicate-key cases run under the permanent ASan+UBSan host gate. Explicit
+caller state is unbound before its request control expires. A deterministic
+12-entry KVD fixture proves allocator-aware relocation in both normal and full
+`-fno-exceptions` builds, including exact heap/budget/cancellation cleanup and
+a source-different relocation mutant. ETC1S codebook/history state, the Zstd
+context workspace, platform/result lifetimes, and outer-envelope removal
+remain open. This slice does not establish target runtime, release, or complete
+codec-resource-control compliance.
 
 Source: `KhronosGroup/KTX-Software-CTS`, commit
 `8c6bd82215d2ca4e015dca0b3378c602b9d4e688`, under `clitests/golden`,

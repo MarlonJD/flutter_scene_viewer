@@ -79,7 +79,9 @@ bool AttributeQuantizationTransform::InverseTransformAttribute(
       (1u << static_cast<uint32_t>(quantization_bits_)) - 1;
   const int num_components = target_attribute->num_components();
   const int entry_size = sizeof(float) * num_components;
-  const std::unique_ptr<float[]> att_val(new float[num_components]);
+  FsvVector<float> att_val(
+      num_components, 0.f,
+      FsvDecodeAllocator<float>(fsv_decode_control_));
   int quant_val_id = 0;
   int out_byte_pos = 0;
   Dequantizer dequantizer;
@@ -100,7 +102,7 @@ bool AttributeQuantizationTransform::InverseTransformAttribute(
       att_val[c] = value;
     }
     // Store the floating point value into the attribute buffer.
-    target_attribute->buffer()->Write(out_byte_pos, att_val.get(), entry_size);
+    target_attribute->buffer()->Write(out_byte_pos, att_val.data(), entry_size);
     out_byte_pos += entry_size;
   }
   return true;
@@ -137,7 +139,7 @@ bool AttributeQuantizationTransform::ComputeParameters(
 
   const int num_components = attribute.num_components();
   range_ = 0.f;
-  min_values_ = std::vector<float>(num_components, 0.f);
+  min_values_.assign(num_components, 0.f);
   const std::unique_ptr<float[]> max_values(new float[num_components]);
   const std::unique_ptr<float[]> att_val(new float[num_components]);
   // Compute minimum values and max value difference.

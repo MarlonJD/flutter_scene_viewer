@@ -39,9 +39,11 @@ class MeshPredictionSchemeMultiParallelogramDecoder
             attribute) {}
   MeshPredictionSchemeMultiParallelogramDecoder(const PointAttribute *attribute,
                                                 const TransformT &transform,
-                                                const MeshDataT &mesh_data)
+                                                const MeshDataT &mesh_data,
+                                                FsvDecodeControl *control =
+                                                    nullptr)
       : MeshPredictionSchemeDecoder<DataTypeT, TransformT, MeshDataT>(
-            attribute, transform, mesh_data) {}
+            attribute, transform, mesh_data, control) {}
 
   bool ComputeOriginalValues(const CorrType *in_corr, DataTypeT *out_data,
                              int size, int num_components,
@@ -64,14 +66,17 @@ bool MeshPredictionSchemeMultiParallelogramDecoder<DataTypeT, TransformT,
   this->transform().Init(num_components);
 
   // For storage of prediction values (already initialized to zero).
-  std::unique_ptr<DataTypeT[]> pred_vals(new DataTypeT[num_components]());
-  std::unique_ptr<DataTypeT[]> parallelogram_pred_vals(
-      new DataTypeT[num_components]());
+  FsvVector<DataTypeT> pred_vals(
+      num_components, DataTypeT(),
+      FsvDecodeAllocator<DataTypeT>(this->fsv_decode_control()));
+  FsvVector<DataTypeT> parallelogram_pred_vals(
+      num_components, DataTypeT(),
+      FsvDecodeAllocator<DataTypeT>(this->fsv_decode_control()));
 
-  this->transform().ComputeOriginalValue(pred_vals.get(), in_corr, out_data);
+  this->transform().ComputeOriginalValue(pred_vals.data(), in_corr, out_data);
 
   const CornerTable *const table = this->mesh_data().corner_table();
-  const std::vector<int32_t> *const vertex_to_data_map =
+  const auto *const vertex_to_data_map =
       this->mesh_data().vertex_to_data_map();
 
   const int corner_map_size =
@@ -88,7 +93,7 @@ bool MeshPredictionSchemeMultiParallelogramDecoder<DataTypeT, TransformT,
     while (corner_id != kInvalidCornerIndex) {
       if (ComputeParallelogramPrediction(
               p, corner_id, table, *vertex_to_data_map, out_data,
-              num_components, parallelogram_pred_vals.get())) {
+              num_components, parallelogram_pred_vals.data())) {
         for (int c = 0; c < num_components; ++c) {
           pred_vals[c] =
               AddAsUnsigned(pred_vals[c], parallelogram_pred_vals[c]);
@@ -116,7 +121,7 @@ bool MeshPredictionSchemeMultiParallelogramDecoder<DataTypeT, TransformT,
         pred_vals[c] /= num_parallelograms;
       }
       this->transform().ComputeOriginalValue(
-          pred_vals.get(), in_corr + dst_offset, out_data + dst_offset);
+          pred_vals.data(), in_corr + dst_offset, out_data + dst_offset);
     }
   }
   return true;

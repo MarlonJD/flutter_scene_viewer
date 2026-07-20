@@ -23,6 +23,7 @@ namespace draco {
 class MeshSequentialDecoder : public MeshDecoder {
  public:
   MeshSequentialDecoder();
+  explicit MeshSequentialDecoder(FsvDecodeControl *control);
 
  protected:
   bool DecodeConnectivity() override;

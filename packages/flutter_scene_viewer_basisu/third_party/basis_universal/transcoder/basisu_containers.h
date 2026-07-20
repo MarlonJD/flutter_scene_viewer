@@ -5,6 +5,8 @@
 #include <stdint.h>
 #include <assert.h>
 #include <algorithm>
+#include <type_traits>
+#include <utility>
 
 #if defined(__linux__) && !defined(ANDROID)
 // Only for malloc_usable_size() in basisu_containers_impl.h
@@ -255,15 +257,61 @@ namespace basisu
 		friend bool operator>=(const T& x, const T& y) { return (!(x < y)); }
 	};
 
+	// FSV LOCAL MODIFICATION: a request owns this explicit, non-global allocator.
+	// A null pointer preserves the pinned upstream malloc/realloc/free behavior.
+	enum class fsv_allocation_outcome { kSuccess, kStopped, kBudgetExceeded, kHeapFailure };
+	struct fsv_allocation_result
+	{
+		void* m_p = nullptr;
+		size_t m_bytes = 0;
+		size_t m_alignment = 0;
+		fsv_allocation_outcome m_outcome = fsv_allocation_outcome::kHeapFailure;
+		class fsv_vector_allocator* m_allocator = nullptr;
+
+		fsv_allocation_result() = default;
+		fsv_allocation_result(const fsv_allocation_result&) = delete;
+		fsv_allocation_result& operator=(const fsv_allocation_result&) = delete;
+		fsv_allocation_result(fsv_allocation_result&& other) noexcept { move_from(other); }
+		fsv_allocation_result& operator=(fsv_allocation_result&& other) = delete;
+		inline void swap(fsv_allocation_result& other) noexcept
+		{
+			std::swap(m_p, other.m_p); std::swap(m_bytes, other.m_bytes);
+			std::swap(m_alignment, other.m_alignment); std::swap(m_outcome, other.m_outcome);
+			std::swap(m_allocator, other.m_allocator);
+		}
+		inline void reset() noexcept
+		{
+			m_p = nullptr; m_bytes = 0; m_alignment = 0;
+			m_outcome = fsv_allocation_outcome::kHeapFailure; m_allocator = nullptr;
+		}
+	private:
+		inline void move_from(fsv_allocation_result& other) noexcept
+		{
+			m_p = other.m_p; m_bytes = other.m_bytes; m_alignment = other.m_alignment;
+			m_outcome = other.m_outcome; m_allocator = other.m_allocator; other.reset();
+		}
+	};
+	class fsv_vector_allocator
+	{
+	public:
+		virtual ~fsv_vector_allocator() = default;
+		virtual fsv_allocation_result fsv_allocate(size_t bytes, size_t alignment) = 0;
+		virtual bool fsv_release(fsv_allocation_result& allocation, void* p, size_t bytes, size_t alignment) = 0;
+		virtual void fsv_retain_owner() noexcept = 0;
+		virtual void fsv_release_owner() noexcept = 0;
+	};
+
 	struct elemental_vector
 	{
 		void* m_p;
 		size_t m_size;
 		size_t m_capacity;
+		fsv_vector_allocator* m_fsv_allocator;
+		fsv_allocation_result m_fsv_allocation;
 
-		typedef void (*object_mover)(void* pDst, void* pSrc, size_t num);
+		typedef bool (*object_mover)(void* pDst, void* pSrc, size_t num);
 
-		bool increase_capacity(size_t min_new_capacity, bool grow_hint, size_t element_size, object_mover pRelocate, bool nofail);
+		bool increase_capacity(size_t min_new_capacity, bool grow_hint, size_t element_size, size_t element_alignment, object_mover pRelocate, bool nofail);
 	};
 
 	// Returns true if a+b would overflow a size_t.
@@ -1453,6 +1501,10 @@ namespace basisu
 		return dst.copy_into(src, src_ofs, len, dst_ofs);
 	}
 
+	template<typename T> class vector;
+	template<typename T> struct is_fsv_vector { enum { cFlag = false }; };
+	template<typename T> struct is_fsv_vector< vector<T> > { enum { cFlag = true }; };
+
 	template<typename T>
 	class vector : public rel_ops< vector<T> >
 	{
@@ -1465,28 +1517,37 @@ namespace basisu
 		typedef T* pointer;
 		typedef const T* const_pointer;
 
-		inline vector() :
+		inline vector() noexcept :
 			m_p(nullptr),
 			m_size(0),
-			m_capacity(0)
+			m_capacity(0),
+			m_fsv_allocator(nullptr), m_fsv_allocation()
 		{
 		}
+
+		inline explicit vector(fsv_vector_allocator* allocator) noexcept :
+			m_p(nullptr), m_size(0), m_capacity(0), m_fsv_allocator(allocator), m_fsv_allocation() { retain_allocator(); }
 
 		inline vector(size_t n, const T& init) :
 			m_p(nullptr),
 			m_size(0),
-			m_capacity(0)
+			m_capacity(0),
+			m_fsv_allocator(nullptr), m_fsv_allocation()
 		{
 			increase_capacity(n, false);
 			construct_array(m_p, n, init);
 			m_size = n;
 		}
 
-		inline vector(vector&& other) :
+		inline vector(vector&& other) noexcept :
 			m_p(other.m_p),
 			m_size(other.m_size),
-			m_capacity(other.m_capacity)
+			m_capacity(other.m_capacity),
+			m_fsv_allocator(other.m_fsv_allocator), m_fsv_allocation(std::move(other.m_fsv_allocation))
 		{
+			// The source remains a reusable allocator-bound empty vector. The
+			// destination therefore retains its own owner reference.
+			retain_allocator();
 			other.m_p = nullptr;
 			other.m_size = 0;
 			other.m_capacity = 0;
@@ -1495,11 +1556,17 @@ namespace basisu
 		inline vector(const vector& other) :
 			m_p(nullptr),
 			m_size(0),
-			m_capacity(0)
+			m_capacity(0),
+			m_fsv_allocator(other.m_fsv_allocator), m_fsv_allocation()
 		{
+			if (!fsv_can_copy_construct_elements_from(other))
+				container_abort("controlled vector copy construction requires nothrow copy without exceptions\n");
+			retain_allocator();
+#if defined(__cpp_exceptions) || defined(__EXCEPTIONS) || defined(_CPPUNWIND)
+			try
+			{
+#endif
 			increase_capacity(other.m_size, false);
-
-			m_size = other.m_size;
 
 			if (BASISU_IS_BITWISE_COPYABLE(T))
 			{
@@ -1510,25 +1577,37 @@ namespace basisu
 #endif
 				if ((m_p) && (other.m_p))
 				{
-					memcpy(m_p, other.m_p, m_size * sizeof(T));
+					memcpy(m_p, other.m_p, other.m_size * sizeof(T));
 				}
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic pop
 #endif
+				m_size = other.m_size;
 			}
 			else
 			{
-				T* pDst = m_p;
-				const T* pSrc = other.m_p;
-				for (size_t i = m_size; i > 0; i--)
-					construct(pDst++, *pSrc++);
+				for (size_t i = 0; i < other.m_size; ++i)
+				{
+					construct(m_p + m_size, other.m_p[i]);
+					++m_size;
+				}
 			}
+#if defined(__cpp_exceptions) || defined(__EXCEPTIONS) || defined(_CPPUNWIND)
+			}
+			catch (...)
+			{
+				clear();
+				release_allocator();
+				throw;
+			}
+#endif
 		}
 
 		inline explicit vector(size_t size) :
 			m_p(nullptr),
 			m_size(0),
-			m_capacity(0)
+			m_capacity(0),
+			m_fsv_allocator(nullptr), m_fsv_allocation()
 		{
 			resize(size);
 		}
@@ -1536,7 +1615,8 @@ namespace basisu
 		inline explicit vector(std::initializer_list<T> init_list) :
 			m_p(nullptr),
 			m_size(0),
-			m_capacity(0)
+			m_capacity(0),
+			m_fsv_allocator(nullptr), m_fsv_allocation()
 		{
 			resize(init_list.size());
 
@@ -1550,7 +1630,8 @@ namespace basisu
 		inline vector(const readable_span<T>& rs) :
 			m_p(nullptr),
 			m_size(0),
-			m_capacity(0)
+			m_capacity(0),
+			m_fsv_allocator(nullptr), m_fsv_allocation()
 		{
 			set(rs);
 		}
@@ -1558,7 +1639,8 @@ namespace basisu
 		inline vector(const writable_span<T>& ws) :
 			m_p(nullptr),
 			m_size(0),
-			m_capacity(0)
+			m_capacity(0),
+			m_fsv_allocator(nullptr), m_fsv_allocation()
 		{
 			set(ws);
 		}
@@ -1665,68 +1747,45 @@ namespace basisu
 
 		inline ~vector()
 		{
-			if (m_p)
-			{
-				if (BASISU_HAS_DESTRUCTOR(T))
-				{
-					scalar_type<T>::destruct_array(m_p, m_size);
-				}
-
-				free(m_p);
-			}
+			clear();
+			release_allocator();
 		}
 
 		inline vector& operator= (const vector& other)
 		{
-			if (this == &other)
-				return *this;
-
-			if (m_capacity >= other.m_size)
-				resize(0);
-			else
-			{
-				clear();
-				increase_capacity(other.m_size, false);
-			}
-
-			if (BASISU_IS_BITWISE_COPYABLE(T))
-			{
-#if defined(__GNUC__) && !defined(__clang__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wclass-memaccess"            
-#endif
-				if ((m_p) && (other.m_p))
-					memcpy((void *)m_p, other.m_p, other.m_size * sizeof(T));
-#if defined(__GNUC__) && !defined(__clang__)
-#pragma GCC diagnostic pop
-#endif
-			}
-			else
-			{
-				T* pDst = m_p;
-				const T* pSrc = other.m_p;
-				for (size_t i = other.m_size; i > 0; i--)
-					construct(pDst++, *pSrc++);
-			}
-
-			m_size = other.m_size;
-
+			if (!try_copy_assign(other))
+				container_abort("vector::operator= copy allocation failed\n");
 			return *this;
+		}
+
+		inline bool try_copy_assign(const vector& other)
+		{
+			if (this == &other)
+				return true;
+
+			vector tmp(m_fsv_allocator);
+			if (!tmp.try_copy_from(other))
+				return false;
+			clear();
+			swap_same_allocator(tmp);
+			return true;
 		}
 
 		inline vector& operator= (vector&& rhs)
 		{
 			if (this != &rhs)
 			{
-				clear();
-
-				m_p = rhs.m_p;
-				m_size = rhs.m_size;
-				m_capacity = rhs.m_capacity;
-
-				rhs.m_p = nullptr;
-				rhs.m_size = 0;
-				rhs.m_capacity = 0;
+				if (m_fsv_allocator == rhs.m_fsv_allocator)
+				{
+					clear();
+					m_p = rhs.m_p; m_size = rhs.m_size; m_capacity = rhs.m_capacity; m_fsv_allocation.swap(rhs.m_fsv_allocation);
+					rhs.m_p = nullptr; rhs.m_size = 0; rhs.m_capacity = 0;
+				}
+				else
+				{
+					if (!try_move_assign(rhs))
+						container_abort("vector::operator= cross-control transfer failed\n");
+				}
 			}
 			return *this;
 		}
@@ -1746,6 +1805,13 @@ namespace basisu
 		BASISU_FORCE_INLINE uint32_t size_in_bytes_u32() const { assert((m_size * sizeof(T)) <= UINT32_MAX); return static_cast<uint32_t>(m_size * sizeof(T)); }
 
 		BASISU_FORCE_INLINE size_t capacity() const { return m_capacity; }
+		// FSV LOCAL MODIFICATION: exposes the exact logical allocation owned by
+		// this pinned container so a request-scoped codec control can reserve it
+		// before growth and release it when the request state clears.
+		BASISU_FORCE_INLINE size_t fsv_allocation_size_bytes() const
+		{
+			return m_capacity * sizeof(T);
+		}
 
 #if !BASISU_VECTOR_FORCE_CHECKING
 		BASISU_FORCE_INLINE const T& operator[] (size_t i) const { assert(i < m_size); return m_p[i]; }
@@ -1837,7 +1903,7 @@ namespace basisu
 					scalar_type<T>::destruct_array(m_p, m_size);
 				}
 
-				free(m_p);
+				release_storage();
 
 				m_p = nullptr;
 				m_size = 0;
@@ -1849,7 +1915,7 @@ namespace basisu
 		{
 			if (m_p)
 			{
-				free(m_p);
+				release_storage();
 				m_p = nullptr;
 				m_size = 0;
 				m_capacity = 0;
@@ -1873,12 +1939,15 @@ namespace basisu
 			{
 				// Must work around the lack of a "decrease_capacity()" method.
 				// This case is rare enough in practice that it's probably not worth implementing an optimized in-place resize.
-				vector tmp;
+				if (!fsv_can_copy_construct_elements_from(*this))
+					return false;
+				vector tmp(m_fsv_allocator);
 				if (!tmp.increase_capacity(helpers::maximum(m_size, new_capacity), false, true))
 					return false;
 
-				tmp = *this;
-				swap(tmp);
+				if (!tmp.try_copy_elements_from(*this))
+					return false;
+				swap_same_allocator(tmp);
 			}
 
 			return true;
@@ -2409,9 +2478,29 @@ namespace basisu
 
 		inline void swap(vector& other)
 		{
-			std::swap(m_p, other.m_p);
-			std::swap(m_size, other.m_size);
-			std::swap(m_capacity, other.m_capacity);
+			if (!try_swap(other))
+				container_abort("vector::swap cross-control transfer failed\n");
+		}
+
+		inline bool try_swap(vector& other)
+		{
+			if (m_fsv_allocator == other.m_fsv_allocator) { swap_same_allocator(other); return true; }
+			vector this_copy(m_fsv_allocator), other_copy(other.m_fsv_allocator);
+			if (!this_copy.try_copy_from(other) || !other_copy.try_copy_from(*this)) return false;
+			clear(); other.clear();
+			swap_same_allocator(this_copy);
+			other.swap_same_allocator(other_copy);
+			return true;
+		}
+
+		inline bool try_move_assign(vector& rhs)
+		{
+			if (this == &rhs) return true;
+			if (m_fsv_allocator == rhs.m_fsv_allocator) { *this = std::move(rhs); return true; }
+			vector tmp(m_fsv_allocator);
+			if (!tmp.try_move_from(rhs)) return false;
+			clear(); swap_same_allocator(tmp);
+			return true;
 		}
 
 		inline void sort()
@@ -2549,6 +2638,8 @@ namespace basisu
 		// Caller must use free() on the returned pointer.
 		inline void* assume_ownership()
 		{
+			if (m_fsv_allocator)
+				return nullptr;
 			T* p = m_p;
 			m_p = nullptr;
 			m_size = 0;
@@ -2562,6 +2653,8 @@ namespace basisu
 		// Important: This method is used in Basis Universal. If you change how this container allocates memory, you'll need to change any users of this method.
 		inline bool grant_ownership(T* p, size_t size, size_t capacity)
 		{
+			if (m_fsv_allocator)
+				return false;
 			// To prevent the caller from obviously shooting themselves in the foot.
 			if (((p + capacity) > m_p) && (p < (m_p + m_capacity)))
 			{
@@ -2607,35 +2700,218 @@ namespace basisu
 			return writable_span<T>(m_p, m_size);
 		}
 
+		inline fsv_vector_allocator* fsv_allocator() const noexcept { return m_fsv_allocator; }
+
 	private:
+		template<typename> friend class vector;
 		T* m_p;
 		size_t m_size;		   // the number of constructed objects
 		size_t m_capacity;	// the size of the allocation
+		fsv_vector_allocator* m_fsv_allocator;
+		fsv_allocation_result m_fsv_allocation;
 
-		template<typename Q> struct is_vector { enum { cFlag = false }; };
-		template<typename Q> struct is_vector< vector<Q> > { enum { cFlag = true }; };
+		inline void retain_allocator() { if (m_fsv_allocator) m_fsv_allocator->fsv_retain_owner(); }
+		inline void release_allocator() { if (m_fsv_allocator) { m_fsv_allocator->fsv_release_owner(); m_fsv_allocator = nullptr; } }
+		inline void release_storage()
+		{
+			if (m_fsv_allocator)
+			{
+				if (!m_fsv_allocator->fsv_release(m_fsv_allocation, m_p, m_capacity * sizeof(T), alignof(T)))
+					container_abort("vector: controlled allocation release mismatch\n");
+			}
+			else free(m_p);
+			m_fsv_allocation.reset();
+		}
+		inline void swap_same_allocator(vector& other)
+		{
+			std::swap(m_p, other.m_p); std::swap(m_size, other.m_size); std::swap(m_capacity, other.m_capacity); m_fsv_allocation.swap(other.m_fsv_allocation);
+		}
+		inline bool fsv_can_copy_construct_elements_from(
+			const vector& other, bool require_nothrow = false) const noexcept
+		{
+#if !defined(__cpp_exceptions) && !defined(__EXCEPTIONS) && !defined(_CPPUNWIND)
+			if (!require_nothrow && !m_fsv_allocator)
+				return true;
+			if (BASISU_IS_BITWISE_COPYABLE(T) ||
+				std::is_nothrow_copy_constructible<T>::value)
+				return true;
+			if constexpr (is_fsv_vector<T>::cFlag)
+			{
+				for (size_t i = 0; i < other.m_size; ++i)
+				{
+					if (!other.m_p[i].fsv_can_copy_construct_elements_from(
+						other.m_p[i], true))
+						return false;
+				}
+				return true;
+			}
+			return false;
+#else
+			(void)other;
+			(void)require_nothrow;
+			return true;
+#endif
+		}
+		inline bool try_copy_from(const vector& other)
+		{
+			static_assert(BASISU_IS_BITWISE_COPYABLE(T) || is_fsv_vector<T>::cFlag ||
+				std::is_copy_constructible<T>::value,
+				"controlled vector try-copy requires copy-constructible elements");
+			if (!fsv_can_copy_construct_elements_from(other))
+				return false;
+			if (!try_reserve(other.m_size)) return false;
+			return try_copy_elements_from(other);
+		}
+		inline bool try_copy_elements_from(const vector& other)
+		{
+			if (!fsv_can_copy_construct_elements_from(other))
+				return false;
+			assert(m_size == 0);
+			assert(m_capacity >= other.m_size);
+			if constexpr (BASISU_IS_BITWISE_COPYABLE(T))
+			{
+				if (other.m_size) memcpy((void*)m_p, other.m_p, other.m_size * sizeof(T));
+				m_size = other.m_size;
+			}
+			else if constexpr (is_fsv_vector<T>::cFlag)
+			{
+				for (size_t i = 0; i < other.m_size; ++i)
+				{
+					new ((void*)(m_p + m_size)) T(other.m_p[i].fsv_allocator());
+					if (!m_p[m_size].try_copy_assign(other.m_p[i]))
+					{
+						scalar_type<T>::destruct(m_p + m_size);
+						return false;
+					}
+					++m_size;
+				}
+			}
+			else
+			{
+				size_t constructed_count = 0;
+#if defined(__cpp_exceptions) || defined(__EXCEPTIONS) || defined(_CPPUNWIND)
+				try
+				{
+#endif
+				for (size_t i = 0; i < other.m_size; ++i)
+				{
+					new ((void*)(m_p + m_size)) T(other.m_p[i]);
+					++m_size;
+					++constructed_count;
+				}
+#if defined(__cpp_exceptions) || defined(__EXCEPTIONS) || defined(_CPPUNWIND)
+				}
+				catch (...)
+				{
+					scalar_type<T>::destruct_array(m_p, constructed_count);
+					m_size = 0;
+					return false;
+				}
+#endif
+			}
+			return true;
+		}
 
-		static void object_mover(void* pDst_void, void* pSrc_void, size_t num)
+		inline bool try_move_from(vector& other)
+		{
+			static_assert(BASISU_IS_BITWISE_COPYABLE_OR_MOVABLE(T) ||
+				std::is_nothrow_move_constructible<T>::value ||
+				std::is_copy_constructible<T>::value,
+				"controlled vector try-move requires bitwise, nothrow move, or rollback copy construction");
+#if !defined(__cpp_exceptions) && !defined(__EXCEPTIONS) && !defined(_CPPUNWIND)
+			if (m_fsv_allocator && !BASISU_IS_BITWISE_COPYABLE_OR_MOVABLE(T) &&
+				!std::is_nothrow_copy_constructible<T>::value &&
+				!std::is_nothrow_move_constructible<T>::value)
+				return false;
+#endif
+			if (!try_reserve(other.m_size)) return false;
+			if constexpr (BASISU_IS_BITWISE_COPYABLE_OR_MOVABLE(T))
+			{
+				if (other.m_size) memcpy((void*)m_p, other.m_p, other.m_size * sizeof(T));
+				m_size = other.m_size;
+				other.clear_no_destruction();
+			}
+			else
+			{
+				size_t constructed_count = 0;
+#if defined(__cpp_exceptions) || defined(__EXCEPTIONS) || defined(_CPPUNWIND)
+				try
+				{
+#endif
+				for (size_t i = 0; i < other.m_size; ++i)
+				{
+#if !defined(__cpp_exceptions) && !defined(__EXCEPTIONS) && !defined(_CPPUNWIND)
+					if constexpr (std::is_nothrow_copy_constructible<T>::value)
+#else
+					if constexpr (std::is_copy_constructible<T>::value)
+#endif
+						new ((void*)(m_p + m_size)) T(other.m_p[i]);
+					else
+						new ((void*)(m_p + m_size)) T(std::move(other.m_p[i]));
+					++m_size;
+					++constructed_count;
+				}
+#if defined(__cpp_exceptions) || defined(__EXCEPTIONS) || defined(_CPPUNWIND)
+				}
+				catch (...)
+				{
+					scalar_type<T>::destruct_array(m_p, constructed_count);
+					m_size = 0;
+					return false;
+				}
+#endif
+				other.clear();
+			}
+			return true;
+		}
+
+		static bool object_mover(void* pDst_void, void* pSrc_void, size_t num) noexcept
 		{
 			T* pSrc = static_cast<T*>(pSrc_void);
-			T* const pSrc_end = pSrc + num;
 			T* pDst = static_cast<T*>(pDst_void);
-
-			while (pSrc != pSrc_end)
+			size_t constructed_count = 0;
+#if defined(__cpp_exceptions) || defined(__EXCEPTIONS) || defined(_CPPUNWIND)
+			try
 			{
-				new ((void*)(pDst)) T(std::move(*pSrc));
-				scalar_type<T>::destruct(pSrc);
-
-				++pSrc;
-				++pDst;
+#endif
+			for (; constructed_count < num; ++constructed_count)
+			{
+				if constexpr (std::is_nothrow_move_constructible<T>::value)
+					new ((void*)(pDst + constructed_count)) T(std::move(pSrc[constructed_count]));
+				else
+					new ((void*)(pDst + constructed_count)) T(pSrc[constructed_count]);
 			}
+#if defined(__cpp_exceptions) || defined(__EXCEPTIONS) || defined(_CPPUNWIND)
+			}
+			catch (...)
+			{
+				scalar_type<T>::destruct_array(pDst, constructed_count);
+				return false;
+			}
+#endif
+			scalar_type<T>::destruct_array(pSrc, num);
+			return true;
 		}
 
 		inline bool increase_capacity(size_t min_new_capacity, bool grow_hint, bool nofail = false)
 		{
+			static_assert(BASISU_IS_BITWISE_COPYABLE_OR_MOVABLE(T) || is_fsv_vector<T>::cFlag ||
+				std::is_nothrow_move_constructible<T>::value ||
+				std::is_copy_constructible<T>::value,
+				"controlled vector relocation requires bitwise, nothrow move, or rollback copy construction");
+#if !defined(__cpp_exceptions) && !defined(__EXCEPTIONS) && !defined(_CPPUNWIND)
+			if (m_fsv_allocator && !BASISU_IS_BITWISE_COPYABLE_OR_MOVABLE(T) &&
+				!is_fsv_vector<T>::cFlag && !std::is_nothrow_copy_constructible<T>::value &&
+				!std::is_nothrow_move_constructible<T>::value)
+			{
+				if (nofail)
+					return false;
+				container_abort("controlled vector relocation requires nothrow elements without exceptions\n");
+			}
+#endif
 			return reinterpret_cast<elemental_vector*>(this)->increase_capacity(
-				min_new_capacity, grow_hint, sizeof(T),
-				(BASISU_IS_BITWISE_COPYABLE_OR_MOVABLE(T) || (is_vector<T>::cFlag)) ? nullptr : object_mover, nofail);
+				min_new_capacity, grow_hint, sizeof(T), alignof(T),
+				(BASISU_IS_BITWISE_COPYABLE_OR_MOVABLE(T) || (is_fsv_vector<T>::cFlag)) ? nullptr : object_mover, nofail);
 		}
 	};
 

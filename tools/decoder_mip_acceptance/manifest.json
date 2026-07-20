@@ -1,0 +1,165 @@
+{
+  "schemaVersion": 1,
+  "artifactRoot": "tools/out/plan017_decoder_mip_acceptance",
+  "rendererCommit": "5dcf6fce7dc36719e64e536faba9538fe9fa1022",
+  "packageVersions": {
+    "flutter_scene_viewer": "0.1.0-alpha.0",
+    "flutter_scene_viewer_draco": "0.1.0-alpha.0",
+    "flutter_scene_viewer_basisu": "0.1.0-alpha.0"
+  },
+  "discovery": [
+    {
+      "target": "ios_simulator",
+      "status": "verified locally",
+      "device": "iPhone 17 Simulator",
+      "deviceId": "10C2CF77-CBA8-4948-ADD5-24C49D375059",
+      "os": "discovered; runtime version not captured for Task 8",
+      "scope": "discovery only; runtime, cancellation/resource, authored-mip sampling, packaging, and release are not run"
+    },
+    {
+      "target": "ios_physical",
+      "status": "verified locally",
+      "device": "Burak iPhone'u",
+      "deviceId": "00008150-001471191A0A401C",
+      "os": "iOS 27.0",
+      "scope": "wireless discovery only; signing, installation, runtime, cancellation/resource, authored-mip sampling, packaging, and release are not run"
+    },
+    {
+      "target": "android_physical",
+      "status": "blocked",
+      "device": "not discovered",
+      "deviceId": "not run",
+      "os": "not run",
+      "scope": "no Android device; adb and CMake are unavailable and the configured Android SDK directory is empty"
+    },
+    {
+      "target": "web_runtime",
+      "status": "verified locally",
+      "device": "Chrome 150",
+      "deviceId": "chrome",
+      "os": "macOS host",
+      "scope": "discovery only; Web diagnostics/runtime, packaging, and release are not run"
+    },
+    {
+      "target": "host",
+      "status": "verified locally",
+      "device": "macOS",
+      "deviceId": "macos",
+      "os": "macOS host",
+      "scope": "host discovery only; it cannot satisfy a target runtime gate"
+    }
+  ],
+  "claims": [
+    {
+      "feature": "EXT_meshopt_compression",
+      "target": "ios_simulator",
+      "requiredGates": ["package-install", "runtime", "cancellation-resource"],
+      "evidenceStatus": "not run",
+      "maturity": "release pending",
+      "recordIds": [],
+      "blocker": "iOS Simulator package/runtime evidence has not been captured"
+    },
+    {
+      "feature": "KHR_draco_mesh_compression",
+      "target": "ios_simulator",
+      "requiredGates": ["package-install", "runtime", "cancellation-resource"],
+      "evidenceStatus": "not run",
+      "maturity": "release pending",
+      "recordIds": [],
+      "blocker": "iOS Simulator packaged cancellation and resource evidence has not been captured"
+    },
+    {
+      "feature": "KHR_texture_basisu",
+      "target": "ios_simulator",
+      "requiredGates": ["package-install", "runtime", "cancellation-resource", "authored-mip-sampling"],
+      "evidenceStatus": "not run",
+      "maturity": "release pending",
+      "recordIds": [],
+      "blocker": "iOS Simulator packaged cancellation/resource and authored-mip sampling evidence has not been captured"
+    },
+    {
+      "feature": "EXT_meshopt_compression",
+      "target": "ios_physical",
+      "requiredGates": ["package-install", "release-build", "runtime", "cancellation-resource"],
+      "evidenceStatus": "not run",
+      "maturity": "release pending",
+      "recordIds": [],
+      "blocker": "physical iOS signing, installation, and runtime evidence has not been run"
+    },
+    {
+      "feature": "KHR_draco_mesh_compression",
+      "target": "ios_physical",
+      "requiredGates": ["package-install", "release-build", "runtime", "cancellation-resource"],
+      "evidenceStatus": "not run",
+      "maturity": "release pending",
+      "recordIds": [],
+      "blocker": "physical iOS packaged cancellation and resource evidence has not been run"
+    },
+    {
+      "feature": "KHR_texture_basisu",
+      "target": "ios_physical",
+      "requiredGates": ["package-install", "release-build", "runtime", "cancellation-resource", "authored-mip-sampling"],
+      "evidenceStatus": "not run",
+      "maturity": "release pending",
+      "recordIds": [],
+      "blocker": "physical iOS packaged cancellation/resource and authored-mip sampling evidence has not been run"
+    },
+    {
+      "feature": "EXT_meshopt_compression",
+      "target": "android",
+      "requiredGates": ["package-install", "release-build", "runtime", "cancellation-resource"],
+      "evidenceStatus": "blocked",
+      "maturity": "release pending",
+      "recordIds": [],
+      "blocker": "Android SDK build tools, adb, CMake, and a physical Android device are unavailable"
+    },
+    {
+      "feature": "KHR_draco_mesh_compression",
+      "target": "android",
+      "requiredGates": ["package-install", "release-build", "runtime", "cancellation-resource"],
+      "evidenceStatus": "blocked",
+      "maturity": "release pending",
+      "recordIds": [],
+      "blocker": "Android SDK build tools, adb, CMake, and a physical Android device are unavailable"
+    },
+    {
+      "feature": "KHR_texture_basisu",
+      "target": "android",
+      "requiredGates": ["package-install", "release-build", "runtime", "cancellation-resource", "authored-mip-sampling"],
+      "evidenceStatus": "blocked",
+      "maturity": "release pending",
+      "recordIds": [],
+      "blocker": "Android SDK build tools, adb, CMake, and a physical Android device are unavailable"
+    },
+    {
+      "feature": "EXT_meshopt_compression",
+      "target": "web",
+      "requiredGates": ["package-install", "release-build", "runtime", "cancellation-resource"],
+      "evidenceStatus": "not run",
+      "maturity": "release pending",
+      "recordIds": [],
+      "blocker": "selected Web runtime and cancellation evidence has not been run"
+    },
+    {
+      "feature": "KHR_draco_mesh_compression",
+      "target": "web",
+      "requiredGates": ["package-install", "release-build", "runtime-diagnostic"],
+      "evidenceStatus": "not run",
+      "maturity": "candidate-only",
+      "recordIds": [],
+      "blocker": "the native-only plugin diagnostic path has not been captured in a packaged Web runtime"
+    },
+    {
+      "feature": "KHR_texture_basisu",
+      "target": "web",
+      "requiredGates": ["package-install", "release-build", "runtime-diagnostic"],
+      "evidenceStatus": "not run",
+      "maturity": "candidate-only",
+      "recordIds": [],
+      "blocker": "the native-only plugin diagnostic path has not been captured in a packaged Web runtime"
+    }
+  ],
+  "records": [],
+  "aggregateMaturity": "release pending",
+  "productionReady": false
+}

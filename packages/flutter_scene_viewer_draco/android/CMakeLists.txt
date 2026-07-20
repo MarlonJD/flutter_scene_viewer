@@ -18,6 +18,10 @@ file(
 )
 list(FILTER FSV_DRACO_DECODER_SOURCES EXCLUDE REGEX ".*_test\\.cc$")
 list(FILTER FSV_DRACO_DECODER_SOURCES EXCLUDE REGEX ".*/draco_test_utils\\.cc$")
+list(FILTER FSV_DRACO_DECODER_SOURCES EXCLUDE REGEX ".*/[^/]*encoder[^/]*\\.cc$")
+list(FILTER FSV_DRACO_DECODER_SOURCES EXCLUDE REGEX ".*/encode\\.cc$")
+list(FILTER FSV_DRACO_DECODER_SOURCES EXCLUDE REGEX ".*/expert_encode\\.cc$")
+list(FILTER FSV_DRACO_DECODER_SOURCES EXCLUDE REGEX ".*/symbol_encoding\\.cc$")
 
 add_library(fsv_draco_decoder STATIC ${FSV_DRACO_DECODER_SOURCES})
 target_compile_features(fsv_draco_decoder PUBLIC cxx_std_17)
@@ -28,6 +32,7 @@ add_library(
   SHARED
   src/main/cpp/flutter_scene_viewer_draco_jni.cc
   src/main/cpp/fsv_draco_budget.cc
+  src/main/cpp/fsv_draco_control.cc
   src/main/cpp/fsv_draco_bridge.cc
 )
 

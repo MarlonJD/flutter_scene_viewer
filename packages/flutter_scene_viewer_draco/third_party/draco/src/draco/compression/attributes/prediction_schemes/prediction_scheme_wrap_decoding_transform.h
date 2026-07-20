@@ -30,6 +30,8 @@ class PredictionSchemeWrapDecodingTransform
  public:
   typedef CorrTypeT CorrType;
   PredictionSchemeWrapDecodingTransform() {}
+  explicit PredictionSchemeWrapDecodingTransform(FsvDecodeControl *control)
+      : PredictionSchemeWrapTransformBase<DataTypeT>(control) {}
 
   // Computes the original value from the input predicted value and the decoded
   // corrections. Values out of the bounds of the input values are unwrapped.

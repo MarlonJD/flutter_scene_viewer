@@ -30,6 +30,8 @@ namespace draco {
 class MeshAttributeCornerTable {
  public:
   MeshAttributeCornerTable();
+  explicit MeshAttributeCornerTable(FsvDecodeControl *control);
+  void SetDecodeControl(FsvDecodeControl *control);
   bool InitEmpty(const CornerTable *table);
   bool InitFromAttribute(const Mesh *mesh, const CornerTable *table,
                          const PointAttribute *att);
@@ -174,26 +176,29 @@ class MeshAttributeCornerTable {
   template <bool init_vertex_to_attribute_entry_map>
   bool RecomputeVerticesInternal(const Mesh *mesh, const PointAttribute *att);
 
-  std::vector<bool> is_edge_on_seam_;
-  std::vector<bool> is_vertex_on_seam_;
+  std::vector<bool, FsvDecodeAllocator<bool>> is_edge_on_seam_;
+  std::vector<bool, FsvDecodeAllocator<bool>> is_vertex_on_seam_;
 
   // If this is set to true, it means that there are no attribute seams between
   // two faces. This can be used to speed up some algorithms.
   bool no_interior_seams_;
 
-  std::vector<VertexIndex> corner_to_vertex_map_;
+  std::vector<VertexIndex, FsvDecodeAllocator<VertexIndex>>
+      corner_to_vertex_map_;
 
   // Map between vertices and their associated left most corners. A left most
   // corner is a corner that is adjacent to a boundary or an attribute seam from
   // right (i.e., SwingLeft from that corner will return an invalid corner). If
   // no such corner exists for a given vertex, then any corner attached to the
   // vertex can be used.
-  std::vector<CornerIndex> vertex_to_left_most_corner_map_;
+  std::vector<CornerIndex, FsvDecodeAllocator<CornerIndex>>
+      vertex_to_left_most_corner_map_;
 
   // Map between vertex ids and attribute entry ids (i.e. the values stored in
   // the attribute buffer). The attribute entry id can be retrieved using the
   // VertexParent() method.
-  std::vector<AttributeValueIndex> vertex_to_attribute_entry_id_map_;
+  std::vector<AttributeValueIndex, FsvDecodeAllocator<AttributeValueIndex>>
+      vertex_to_attribute_entry_id_map_;
   const CornerTable *corner_table_;
   ValenceCache<MeshAttributeCornerTable> valence_cache_;
 };

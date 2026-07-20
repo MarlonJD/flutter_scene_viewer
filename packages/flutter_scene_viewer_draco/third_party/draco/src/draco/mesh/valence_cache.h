@@ -32,7 +32,11 @@ class ValenceCache {
   const CornerTableT &table_;
 
  public:
-  explicit ValenceCache(const CornerTableT &table) : table_(table) {}
+  explicit ValenceCache(const CornerTableT &table,
+                        FsvDecodeControl *control = nullptr)
+      : table_(table),
+        vertex_valence_cache_8_bit_(control),
+        vertex_valence_cache_32_bit_(control) {}
 
   // Do not call before CacheValences() / CacheValencesInaccurate().
   inline int8_t ValenceFromCacheInaccurate(CornerIndex c) const {
@@ -117,13 +121,9 @@ class ValenceCache {
   // Clear the cache of valences and deallocate the memory.
   void ClearValenceCacheInaccurate() const {
     vertex_valence_cache_8_bit_.clear();
-    // Force erasure.
-    IndexTypeVector<VertexIndex, int8_t>().swap(vertex_valence_cache_8_bit_);
   }
   void ClearValenceCache() const {
     vertex_valence_cache_32_bit_.clear();
-    // Force erasure.
-    IndexTypeVector<VertexIndex, int32_t>().swap(vertex_valence_cache_32_bit_);
   }
 
   bool IsCacheEmpty() const {

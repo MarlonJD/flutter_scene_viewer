@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the Plan 014 selected-extension capability matrix."""
+"""Generate the selected glTF extension capability matrix."""
 
 from __future__ import annotations
 
@@ -9,12 +9,25 @@ import json
 import sys
 from pathlib import Path
 
+sys.dont_write_bytecode = True
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SOURCE_PATH = (
     REPO_ROOT
-    / "tools/capability_matrix/plan014_selected_extension_capabilities.json"
+    / "tools/capability_matrix/selected_gltf_extension_capabilities.json"
 )
+HISTORICAL_PLAN014_SNAPSHOT_PATH = (
+    REPO_ROOT
+    / "tools/capability_matrix/history/plan014_feature_target_snapshot.json"
+)
+HISTORICAL_PLAN014_SOURCE_PATH = (
+    REPO_ROOT
+    / "tools/capability_matrix/history/plan014_selected_extension_capabilities.json"
+)
+EVIDENCE_MANIFEST_PATH = (
+    REPO_ROOT / "tools/decoder_mip_acceptance/manifest.json"
+)
+EVIDENCE_RECORDS_DIR = REPO_ROOT / "tools/decoder_mip_acceptance/records"
 OUTPUT_PATH = REPO_ROOT / "docs/generated/capability_matrix.md"
 TARGET_LABELS = {
     "ios_simulator": "iOS Simulator",
@@ -34,7 +47,7 @@ TARGET_ROW_KEYS = (
 MATURITY_VALUES = {
     "diagnostic-only",
     "candidate-only",
-    "release-pending",
+    "release pending",
     "production-ready",
 }
 EVIDENCE_VALUES = {"not run", "verified locally"}
@@ -47,11 +60,11 @@ RUNTIME_CAPABILITY_VALUES = {
     "unsupported",
     "production-ready",
 }
-CURRENT_PLAN014_IOS_SIMULATOR_EVIDENCE = (
+HISTORICAL_PLAN014_IOS_SIMULATOR_EVIDENCE = (
     "tools/out/material_extension_acceptance/"
     "plan014_extended_pbr_ios_simulator/evidence.json"
 )
-CURRENT_PLAN014_VERIFIED_TARGET_ROWS = {
+HISTORICAL_PLAN014_VERIFIED_TARGET_ROWS = {
     ("KHR_texture_transform", "ios_simulator"): {
         "applied": "verified locally",
         "visuallyVerified": "verified locally",
@@ -60,7 +73,7 @@ CURRENT_PLAN014_VERIFIED_TARGET_ROWS = {
         "targetEvidence": "verified locally",
         "blocker": (
             "candidate-only iPhone 17 Simulator transform evidence recorded at "
-            f"{CURRENT_PLAN014_IOS_SIMULATOR_EVIDENCE}; physical and release "
+            f"{HISTORICAL_PLAN014_IOS_SIMULATOR_EVIDENCE}; physical and release "
             "evidence remain not run"
         ),
     },
@@ -72,7 +85,7 @@ CURRENT_PLAN014_VERIFIED_TARGET_ROWS = {
         "targetEvidence": "verified locally",
         "blocker": (
             "candidate-only iPhone 17 Simulator specular evidence recorded at "
-            f"{CURRENT_PLAN014_IOS_SIMULATOR_EVIDENCE}; physical and release "
+            f"{HISTORICAL_PLAN014_IOS_SIMULATOR_EVIDENCE}; physical and release "
             "evidence remain not run"
         ),
     },
@@ -84,7 +97,7 @@ CURRENT_PLAN014_VERIFIED_TARGET_ROWS = {
         "targetEvidence": "verified locally",
         "blocker": (
             "candidate-only iPhone 17 Simulator opaque-IOR evidence recorded at "
-            f"{CURRENT_PLAN014_IOS_SIMULATOR_EVIDENCE}; physical and release "
+            f"{HISTORICAL_PLAN014_IOS_SIMULATOR_EVIDENCE}; physical and release "
             "evidence remain not run"
         ),
     },
@@ -96,13 +109,69 @@ CURRENT_PLAN014_VERIFIED_TARGET_ROWS = {
         "targetEvidence": "verified locally",
         "blocker": (
             "candidate-only A1B32 Draco decode/render evidence recorded at "
-            f"{CURRENT_PLAN014_IOS_SIMULATOR_EVIDENCE}; native in-flight "
+            f"{HISTORICAL_PLAN014_IOS_SIMULATOR_EVIDENCE}; native in-flight "
             "cancellation, allocation control, and release packaging remain "
             "unverified"
         ),
     },
 }
-CURRENT_PLAN014_UNVERIFIED_TARGET_BLOCKERS = {
+PLAN014_LIVE_TARGET_ROW_DIFFERENCES = [
+    {
+        "feature": "KHR_materials_clearcoat",
+        "target": "ios_simulator",
+        "field": "blocker",
+        "historicalValue": (
+            "current Plan 014 target run is absent; renderer-native "
+            "integration is deferred to Plan 015"
+        ),
+        "liveValue": (
+            "durable current target run is absent; renderer-native integration "
+            "was completed separately by Plan 015"
+        ),
+    },
+    {
+        "feature": "KHR_materials_transmission",
+        "target": "ios_simulator",
+        "field": "blocker",
+        "historicalValue": (
+            "current Plan 014 target run is absent; renderer-native glass is "
+            "deferred to Plan 016"
+        ),
+        "liveValue": (
+            "durable current target run is absent; renderer-native glass was "
+            "completed separately by Plan 016"
+        ),
+    },
+    {
+        "feature": "KHR_materials_volume",
+        "target": "ios_simulator",
+        "field": "blocker",
+        "historicalValue": (
+            "current Plan 014 target run is absent; full volume transport is "
+            "deferred to Plan 016"
+        ),
+        "liveValue": (
+            "durable current target run is absent; full volume transport was "
+            "completed separately by Plan 016"
+        ),
+    },
+    {
+        "feature": "KHR_texture_basisu",
+        "target": "ios_simulator",
+        "field": "blocker",
+        "historicalValue": (
+            "no current Plan 014 iOS Simulator transcode/import/render or "
+            "packaging run"
+        ),
+        "liveValue": (
+            "no durable iOS Simulator transcode/import/render or packaging run"
+        ),
+    },
+]
+PLAN014_LIVE_TARGET_ROW_DIFFERENCES_SHA256 = (
+    "7ac7b800fd80c6f6fc9e6e462014f7a3746d652af47567a263ffca86c84ef636"
+)
+UNVERIFIED_TARGET_BLOCKERS = {
     (
         "KHR_texture_transform",
         "ios_physical",
@@ -140,11 +209,11 @@ CURRENT_PLAN014_UNVERIFIED_TARGET_BLOCKERS = {
         "web",
     ): "package-local FSViewerExtendedPbr opaque-IOR path has no Web runtime/render run",
 }
-CURRENT_PLAN014_NATIVE_ONLY_WEB_ROWS = {
+NATIVE_ONLY_WEB_ROWS = {
     "KHR_draco_mesh_compression": "the optional Draco decoder is native-only; no Web decoder is provided",
     "KHR_texture_basisu": "the optional BasisU transcoder is native-only; no Web transcoder is provided",
 }
-CURRENT_PLAN014_HISTORICAL_CONTEXT = [
+HISTORICAL_PLAN014_CONTEXT = [
     {
         "feature": "KHR_draco_mesh_compression",
         "target": "ios_simulator",
@@ -168,19 +237,19 @@ CURRENT_PLAN014_HISTORICAL_CONTEXT = [
         "releaseMaturity": "candidate-only",
     },
 ]
-CURRENT_PLAN014_NATIVE_CODEC_TARGETS = {
+NATIVE_CODEC_TARGETS = {
     "KHR_draco_mesh_compression",
     "KHR_texture_basisu",
 }
-CURRENT_PLAN014_DECODER_CONTROL_BOUNDARIES = [
+DECODER_CONTROL_BOUNDARIES = [
     {
         "feature": "EXT_meshopt_compression",
-        "implementation": "synchronous pure-Dart EXT-v0 decode and GLB rewrite",
+        "implementation": "yieldable pure-Dart EXT-v0 decode and GLB rewrite",
         "allocationControl": "declared-output and aggregate rewrite budgets use atomic commit outside the decoder loop",
         "timeoutControl": "cooperative Dart deadline checkpoints are enforced across claimed modes and filters",
-        "cancellationControl": "not enforced",
+        "cancellationControl": "cooperative caller cancellation checkpoints are enforced across claimed modes and filters",
         "resourceRelease": "timed-out decode buffers become garbage-collectible after stack unwind; deterministic collection is not guaranteed",
-        "blockingApi": "synchronous decode accepts an internal deadline control but no external cancellation signal",
+        "blockingApi": "asynchronous decoder accepts an internal deadline control and a load cancellation token",
         "bridgeContract": "not applicable; Meshopt has no native MethodChannel bridge",
         "evidenceSources": [
             "lib/src/internal/meshopt_decoder.dart",
@@ -188,81 +257,155 @@ CURRENT_PLAN014_DECODER_CONTROL_BOUNDARIES = [
             "lib/src/internal/glb_decode_budget.dart",
         ],
         "evidenceSha256": {
-            "lib/src/internal/meshopt_decoder.dart": "86e0ff6038636ca0cbd17cebfa36a65b6ac4c8691f30c6733037650aca4a4f72",
-            "lib/src/internal/glb_meshopt_rewriter.dart": "5c87b90b33103f37dac736fe145b78908b88c42c4a958357aa467f8dab056f1c",
-            "lib/src/internal/glb_decode_budget.dart": "a14c1a1aaf6aa33884812e63440c14469fb40cc23b2411d1d904b5afbee0f2f3",
+            "lib/src/internal/meshopt_decoder.dart": "f7efcea019d4b7505bf7eede8d9ae2310a57308956f66dd3d2dc794774577e7c",
+            "lib/src/internal/glb_meshopt_rewriter.dart": "26d3462406d1f2f9c1dcec4ec9c09b0bcd876082064731878bafd70839114a86",
+            "lib/src/internal/glb_decode_budget.dart": "8661beb697dcaa363cf858dfe67f99bd34329086fe6f217615556ad947cf2e2c",
         },
     },
     {
         "feature": "KHR_draco_mesh_compression",
         "implementation": "synchronous pinned Google Draco 1.5.7 native decode",
-        "allocationControl": "bridge preflight and output budgets do not bound allocations inside Decoder::DecodeMeshFromBuffer",
-        "timeoutControl": "Dart deadline enforced; native work is not stopped",
-        "cancellationControl": "not enforced",
-        "resourceRelease": "bridge-owned RAII scopes unwind after synchronous decode returns; deadline or cancellation release is not established",
-        "blockingApi": "draco::Decoder::DecodeMeshFromBuffer(DecoderBuffer*) exposes no deadline, cancellation callback, or allocator budget",
-        "bridgeContract": "decodeGlb is one MethodChannel request and response; Dart discards a late response, but no deadline or cancellation signal enters native code",
+        "allocationControl": "every reachable native request, codec, preflight, decoded output, and retained-result allocation is request-owned; managed platform message copies are size-guarded but outside maxNativeWorkingBytes",
+        "timeoutControl": "one shared Dart deadline cancels the active request; native stop latency is bounded by pinned codec-loop checkpoints",
+        "cancellationControl": "requestId and cancelDecode reach a request-owned atomic control checked inside pinned topology, attribute, and output loops",
+        "resourceRelease": "request-owned native allocations release by normal unwind after success, cancellation, deadline, budget, heap failure, and corruption; exact live-byte gates cover bridge and platform-copy lifetimes",
+        "blockingApi": "the repo-local pinned DecodeMeshFromBuffer overload and platform serializers accept explicit request control; no global/TLS current-request state is used",
+        "bridgeContract": "decodeGlb carries a unique requestId; missing native controls fail atomically before registry or native work; signed-size guards and pre/post-copy stop checks keep native results alive until atomic managed serialization completes; every non-detached request delivers exactly one response or typed terminal error and no partial response escapes",
         "evidenceSources": [
             "packages/flutter_scene_viewer_draco/third_party/draco/src/draco/compression/decode.h",
+            "packages/flutter_scene_viewer_draco/third_party/draco/src/draco/core/fsv_decode_allocator.h",
+            "packages/flutter_scene_viewer_draco/third_party/draco/FSV_LOCAL_MODIFICATIONS.md",
+            "packages/flutter_scene_viewer_draco/android/src/main/cpp/fsv_draco_control.h",
+            "packages/flutter_scene_viewer_draco/android/src/main/cpp/fsv_draco_control.cc",
+            "packages/flutter_scene_viewer_draco/android/src/main/cpp/fsv_draco_owned.h",
             "packages/flutter_scene_viewer_draco/android/src/main/cpp/fsv_draco_bridge.cc",
+            "packages/flutter_scene_viewer_draco/android/src/main/cpp/fsv_draco_platform_serialization.h",
             "packages/flutter_scene_viewer_draco/android/src/main/cpp/flutter_scene_viewer_draco_jni.cc",
             "packages/flutter_scene_viewer_draco/android/src/main/java/com/marlonjd/flutter_scene_viewer_draco/FlutterSceneViewerDracoPlugin.java",
+            "packages/flutter_scene_viewer_draco/android/src/main/java/com/marlonjd/flutter_scene_viewer_draco/FsvDecodeRequestRegistry.java",
+            "packages/flutter_scene_viewer_draco/ios/Classes/fsv_draco_control.h",
+            "packages/flutter_scene_viewer_draco/ios/Classes/fsv_draco_control.cc",
+            "packages/flutter_scene_viewer_draco/ios/Classes/fsv_draco_owned.h",
             "packages/flutter_scene_viewer_draco/ios/Classes/fsv_draco_bridge.cc",
+            "packages/flutter_scene_viewer_draco/ios/Classes/fsv_draco_platform_serialization.h",
             "packages/flutter_scene_viewer_draco/ios/Classes/FlutterSceneViewerDracoPlugin.mm",
+            "packages/flutter_scene_viewer_draco/ios/Classes/fsv_draco_request_registry.h",
+            "packages/flutter_scene_viewer_draco/ios/Classes/fsv_draco_request_registry.cc",
             "lib/src/internal/glb_native_decoder_probe.dart",
         ],
         "evidenceSha256": {
-            "packages/flutter_scene_viewer_draco/third_party/draco/src/draco/compression/decode.h": "ea23e1dfabf34d11260f51f4f4e160f89480b2ac53d919e354a12266a05c00c1",
-            "packages/flutter_scene_viewer_draco/android/src/main/cpp/fsv_draco_bridge.cc": "fc962ca317150853ef19829d9c8b602d6972f8069508c336f123705885b9a6a6",
-            "packages/flutter_scene_viewer_draco/android/src/main/cpp/flutter_scene_viewer_draco_jni.cc": "5a74f2990ab35fbe465b026985a8db552e6262540c4435bce3b45bfb82c1c606",
-            "packages/flutter_scene_viewer_draco/android/src/main/java/com/marlonjd/flutter_scene_viewer_draco/FlutterSceneViewerDracoPlugin.java": "776159773789c82024c8e93a77c45169e5216d0b6a72808a17b94efba53d47cc",
-            "packages/flutter_scene_viewer_draco/ios/Classes/fsv_draco_bridge.cc": "fc962ca317150853ef19829d9c8b602d6972f8069508c336f123705885b9a6a6",
-            "packages/flutter_scene_viewer_draco/ios/Classes/FlutterSceneViewerDracoPlugin.mm": "3b202a7bb9839f24e29c2793d2690d97f5eee9d9fa9aff3d962b9a08dce88cb5",
-            "lib/src/internal/glb_native_decoder_probe.dart": "d785e2ad34d7eff2bfdd0590b6b567794e5afd38ec351ab5d634e06afbd9e301",
+            "packages/flutter_scene_viewer_draco/third_party/draco/src/draco/compression/decode.h": "84845292bd3f94068e7ac79f28d74207637fae449d5f75c0913dc0bdf004d5d3",
+            "packages/flutter_scene_viewer_draco/third_party/draco/src/draco/core/fsv_decode_allocator.h": "cdfe7df8ec909d58b0a87635551f4e67d08f39bec099f8b077e63094c034bb36",
+            "packages/flutter_scene_viewer_draco/third_party/draco/FSV_LOCAL_MODIFICATIONS.md": "dfc98cfc0a5c39dbd101cd7f7dfba4a0f88f1e228196a49180661d0d754c7a5f",
+            "packages/flutter_scene_viewer_draco/android/src/main/cpp/fsv_draco_control.h": "c504953bedd79711b67f2921509e0e1551768f1d706430132148e0b8b3bbe5f7",
+            "packages/flutter_scene_viewer_draco/android/src/main/cpp/fsv_draco_control.cc": "3d24f41d8c38a1731448e6cd9bdb9bb96baa8a0c0aabf438ea81bb82119569cc",
+            "packages/flutter_scene_viewer_draco/android/src/main/cpp/fsv_draco_owned.h": "ced809b240b08d7ae168f046427b3bfba7a9351e4fa6bc4e25fa5c9336170f89",
+            "packages/flutter_scene_viewer_draco/android/src/main/cpp/fsv_draco_bridge.cc": "71c51e292687c7fe0b597b43204517aadb108b0f6ed7a2a903bce605ed1e4e54",
+            "packages/flutter_scene_viewer_draco/android/src/main/cpp/fsv_draco_platform_serialization.h": "3a1fb97462c5abccf1b4f2badde948e3391b05d24920327a78213e9d4f0d9999",
+            "packages/flutter_scene_viewer_draco/android/src/main/cpp/flutter_scene_viewer_draco_jni.cc": "f031ce9319c980d0b3e17b4fbdb2015448383c0c8c2a2c654a636841893d9d70",
+            "packages/flutter_scene_viewer_draco/android/src/main/java/com/marlonjd/flutter_scene_viewer_draco/FlutterSceneViewerDracoPlugin.java": "d898e973fdc447eba5c770dcb5f8894f86e3b7067f9441550beb91e18e446b87",
+            "packages/flutter_scene_viewer_draco/android/src/main/java/com/marlonjd/flutter_scene_viewer_draco/FsvDecodeRequestRegistry.java": "98db643056e14809f1393620777b274145a3af45c3d573e470013722705490cc",
+            "packages/flutter_scene_viewer_draco/ios/Classes/fsv_draco_control.h": "c504953bedd79711b67f2921509e0e1551768f1d706430132148e0b8b3bbe5f7",
+            "packages/flutter_scene_viewer_draco/ios/Classes/fsv_draco_control.cc": "3d24f41d8c38a1731448e6cd9bdb9bb96baa8a0c0aabf438ea81bb82119569cc",
+            "packages/flutter_scene_viewer_draco/ios/Classes/fsv_draco_owned.h": "ced809b240b08d7ae168f046427b3bfba7a9351e4fa6bc4e25fa5c9336170f89",
+            "packages/flutter_scene_viewer_draco/ios/Classes/fsv_draco_bridge.cc": "71c51e292687c7fe0b597b43204517aadb108b0f6ed7a2a903bce605ed1e4e54",
+            "packages/flutter_scene_viewer_draco/ios/Classes/fsv_draco_platform_serialization.h": "3a1fb97462c5abccf1b4f2badde948e3391b05d24920327a78213e9d4f0d9999",
+            "packages/flutter_scene_viewer_draco/ios/Classes/FlutterSceneViewerDracoPlugin.mm": "d5541a5509b5e6396706e6038b16f1183316c3672529be2130aecaf57ad3e202",
+            "packages/flutter_scene_viewer_draco/ios/Classes/fsv_draco_request_registry.h": "8513d6d1568bc53b2866e24e8a8ad2720ca5b5882d939be34771b98fed14d686",
+            "packages/flutter_scene_viewer_draco/ios/Classes/fsv_draco_request_registry.cc": "30dfc6dfe37e8f177c74864610119160998191c7025a08c4ee375c8dd055ef11",
+            "lib/src/internal/glb_native_decoder_probe.dart": "691b5ec51b2e02259de62e05d9016aa2cb5eed98b8263a478561c241a45ad7ed",
         },
     },
     {
         "feature": "KHR_texture_basisu",
         "implementation": "synchronous pinned Basis Universal KTX2 native transcode",
-        "allocationControl": "bridge preflight and output budgets do not bound allocations inside init, start_transcoding, or transcode_image_level",
-        "timeoutControl": "Dart deadline enforced; native work is not stopped",
-        "cancellationControl": "not enforced",
-        "resourceRelease": "bridge-owned RAII scopes unwind after synchronous transcode returns; deadline or cancellation release is not established",
-        "blockingApi": "ktx2_transcoder init, start_transcoding, and transcode_image_level expose no deadline, cancellation callback, or allocator budget",
-        "bridgeContract": "decodeGlb is one MethodChannel request and response; Dart discards a late response, but no deadline or cancellation signal enters native code",
+        "allocationControl": "every reached native request input, preflight, metadata, ETC1S codec state, Zstd workspace, decoded output, retained-result, and bridge-staging allocation is request-owned; managed platform message copies are size-guarded but outside maxNativeWorkingBytes",
+        "timeoutControl": "one shared Dart deadline cancels the active request; native stop latency is bounded by metadata-owner, image, ETC1S/UASTC block-row, and Zstd block-output checkpoints",
+        "cancellationControl": "requestId and cancelDecode reach a request-owned atomic control checked inside pinned BasisU and Zstd codec loops",
+        "resourceRelease": "request-owned native allocations release by normal unwind after success, cancellation, deadline, budget, heap failure, corruption, and platform serialization failure; exact live-byte gates cover codec, bridge, and platform-copy lifetimes",
+        "blockingApi": "the repo-local pinned KTX2, ETC1S, and static-Zstd paths plus platform serializers accept explicit request control; no global/TLS current-request state is used",
+        "bridgeContract": "decodeGlb carries a unique requestId; signed-size guards and pre/post-copy stop checks keep native results alive until atomic managed serialization completes; every non-detached request delivers exactly one response or typed terminal error and no partial response escapes",
         "evidenceSources": [
+            "packages/flutter_scene_viewer_basisu/third_party/basis_universal/transcoder/basisu_containers.h",
+            "packages/flutter_scene_viewer_basisu/third_party/basis_universal/transcoder/basisu_transcoder_internal.h",
             "packages/flutter_scene_viewer_basisu/third_party/basis_universal/transcoder/basisu_transcoder.h",
+            "packages/flutter_scene_viewer_basisu/third_party/basis_universal/transcoder/basisu_transcoder.cpp",
+            "packages/flutter_scene_viewer_basisu/third_party/basis_universal/zstd/zstd.h",
+            "packages/flutter_scene_viewer_basisu/third_party/basis_universal/zstd/zstddeclib.c",
+            "packages/flutter_scene_viewer_basisu/third_party/basis_universal/FSV_LOCAL_MODIFICATIONS.md",
+            "packages/flutter_scene_viewer_basisu/android/src/main/cpp/fsv_basisu_control.h",
+            "packages/flutter_scene_viewer_basisu/android/src/main/cpp/fsv_basisu_control.cc",
+            "packages/flutter_scene_viewer_basisu/android/src/main/cpp/fsv_basisu_budget.h",
+            "packages/flutter_scene_viewer_basisu/android/src/main/cpp/fsv_basisu_budget.cc",
+            "packages/flutter_scene_viewer_basisu/android/src/main/cpp/fsv_basisu_owned.h",
+            "packages/flutter_scene_viewer_basisu/android/src/main/cpp/fsv_basisu_bridge.h",
             "packages/flutter_scene_viewer_basisu/android/src/main/cpp/fsv_basisu_bridge.cc",
+            "packages/flutter_scene_viewer_basisu/android/src/main/cpp/fsv_basisu_platform_serialization.h",
             "packages/flutter_scene_viewer_basisu/android/src/main/cpp/flutter_scene_viewer_basisu_jni.cc",
             "packages/flutter_scene_viewer_basisu/android/src/main/java/com/marlonjd/flutter_scene_viewer_basisu/FlutterSceneViewerBasisuPlugin.java",
+            "packages/flutter_scene_viewer_basisu/android/src/main/java/com/marlonjd/flutter_scene_viewer_basisu/FsvDecodeRequestRegistry.java",
+            "packages/flutter_scene_viewer_basisu/ios/Classes/fsv_basisu_control.h",
+            "packages/flutter_scene_viewer_basisu/ios/Classes/fsv_basisu_control.cc",
+            "packages/flutter_scene_viewer_basisu/ios/Classes/fsv_basisu_budget.h",
+            "packages/flutter_scene_viewer_basisu/ios/Classes/fsv_basisu_budget.cc",
+            "packages/flutter_scene_viewer_basisu/ios/Classes/fsv_basisu_owned.h",
+            "packages/flutter_scene_viewer_basisu/ios/Classes/fsv_basisu_bridge.h",
             "packages/flutter_scene_viewer_basisu/ios/Classes/fsv_basisu_bridge.cc",
+            "packages/flutter_scene_viewer_basisu/ios/Classes/fsv_basisu_platform_serialization.h",
             "packages/flutter_scene_viewer_basisu/ios/Classes/FlutterSceneViewerBasisuPlugin.mm",
+            "packages/flutter_scene_viewer_basisu/ios/Classes/fsv_basisu_request_registry.h",
+            "packages/flutter_scene_viewer_basisu/ios/Classes/fsv_basisu_request_registry.cc",
             "lib/src/internal/glb_native_decoder_probe.dart",
         ],
         "evidenceSha256": {
-            "packages/flutter_scene_viewer_basisu/third_party/basis_universal/transcoder/basisu_transcoder.h": "7e8d9949364cb72dc8532004357f1585e5e9abea3bc76ae9964abe9fd2e4af09",
-            "packages/flutter_scene_viewer_basisu/android/src/main/cpp/fsv_basisu_bridge.cc": "f61da352239f699fb44f02e93127102d37881f2d90d75a74c79aca35182b8703",
-            "packages/flutter_scene_viewer_basisu/android/src/main/cpp/flutter_scene_viewer_basisu_jni.cc": "8cde1d37d7104f4d3ed7447f14d30612f13e593efa49dc7eb4dc498561731780",
-            "packages/flutter_scene_viewer_basisu/android/src/main/java/com/marlonjd/flutter_scene_viewer_basisu/FlutterSceneViewerBasisuPlugin.java": "1187dd42cb8df81d4ad3a792fd8cec45ab750754d8c06fc476fc88c5d7ae3cae",
-            "packages/flutter_scene_viewer_basisu/ios/Classes/fsv_basisu_bridge.cc": "f61da352239f699fb44f02e93127102d37881f2d90d75a74c79aca35182b8703",
-            "packages/flutter_scene_viewer_basisu/ios/Classes/FlutterSceneViewerBasisuPlugin.mm": "f8a0a714e4ea13649da50ddb74a460b6bb4481390195d99beec0ac821587fbb1",
-            "lib/src/internal/glb_native_decoder_probe.dart": "d785e2ad34d7eff2bfdd0590b6b567794e5afd38ec351ab5d634e06afbd9e301",
+            "packages/flutter_scene_viewer_basisu/third_party/basis_universal/transcoder/basisu_containers.h": "312c491ed8d15323dc3a9d617da2d05569e9ed0d02b99c29ae43911a5a156c8a",
+            "packages/flutter_scene_viewer_basisu/third_party/basis_universal/transcoder/basisu_transcoder_internal.h": "da36bb4e18483bda1804bb45de25a9ea65f36d82f1d16b92d3c3fbe3c7d831c5",
+            "packages/flutter_scene_viewer_basisu/third_party/basis_universal/transcoder/basisu_transcoder.h": "5a0b32d64e3335a9926a8bf17ba3cb7120cbaf48042859c14be6ff96d4aeb551",
+            "packages/flutter_scene_viewer_basisu/third_party/basis_universal/transcoder/basisu_transcoder.cpp": "316c54c224889e7b887c66663b6668e51ec90b89a7d836db8deec167b1b239d2",
+            "packages/flutter_scene_viewer_basisu/third_party/basis_universal/zstd/zstd.h": "704a4c95feec9487ade1db223b7b4bcd745711c96421f4b57f7f71ea9438fc1c",
+            "packages/flutter_scene_viewer_basisu/third_party/basis_universal/zstd/zstddeclib.c": "2107e6c0d421f5c0bb838d978f6b20bbd14b5b8c493e5be55247f645020284b4",
+            "packages/flutter_scene_viewer_basisu/third_party/basis_universal/FSV_LOCAL_MODIFICATIONS.md": "6d9e1984399050c50392c5638431ff6c07b8dcbdd2a879b4c0fb3f17775d6794",
+            "packages/flutter_scene_viewer_basisu/android/src/main/cpp/fsv_basisu_control.h": "89d0b464615a1a3e6c788040623a7ba8fba9839705d3bf864bff234753dddfbf",
+            "packages/flutter_scene_viewer_basisu/android/src/main/cpp/fsv_basisu_control.cc": "c6d27fa6d1ac170e39cd4c787c2117d71ed28657969730e6c42baffc55c9019a",
+            "packages/flutter_scene_viewer_basisu/android/src/main/cpp/fsv_basisu_budget.h": "1f9c859ccea3a856d6c73e86504a46e62c4aeb509059c9cdf69f538d42073d08",
+            "packages/flutter_scene_viewer_basisu/android/src/main/cpp/fsv_basisu_budget.cc": "e952eb4747b4413a54fa410db2936de1d20310de98823947b806f21475b0c2f6",
+            "packages/flutter_scene_viewer_basisu/android/src/main/cpp/fsv_basisu_owned.h": "945572f28948be01272207b1ff0c5cb509f2434a8307681a498e8cc5b387db06",
+            "packages/flutter_scene_viewer_basisu/android/src/main/cpp/fsv_basisu_bridge.h": "cc05b9db420e8e2798017742c3d2ecc1de14ac7854276110b7a865be9dca99d4",
+            "packages/flutter_scene_viewer_basisu/android/src/main/cpp/fsv_basisu_bridge.cc": "1d3ce97e80fa6fa353eac1cb6cdde0a4d107664a1d8da3bde124c3ab057e6f58",
+            "packages/flutter_scene_viewer_basisu/android/src/main/cpp/fsv_basisu_platform_serialization.h": "03b98ad1809d1eb486209a135a483d3dda838ebafc402e1d3a1e30b215bbeb6b",
+            "packages/flutter_scene_viewer_basisu/android/src/main/cpp/flutter_scene_viewer_basisu_jni.cc": "dba89a12488c0fc2a4a1dd214d8677df1db1d43c5a6b1e136233600cfc21237e",
+            "packages/flutter_scene_viewer_basisu/android/src/main/java/com/marlonjd/flutter_scene_viewer_basisu/FlutterSceneViewerBasisuPlugin.java": "e10fdb82ab233be44317d043c3db5f1a22a59cc2f0f07b858035fe55545cd22a",
+            "packages/flutter_scene_viewer_basisu/android/src/main/java/com/marlonjd/flutter_scene_viewer_basisu/FsvDecodeRequestRegistry.java": "ffe931d33314e32c9f05448192aa828f4098f6cc1c04432cbdc44fa3e65a6744",
+            "packages/flutter_scene_viewer_basisu/ios/Classes/fsv_basisu_control.h": "89d0b464615a1a3e6c788040623a7ba8fba9839705d3bf864bff234753dddfbf",
+            "packages/flutter_scene_viewer_basisu/ios/Classes/fsv_basisu_control.cc": "c6d27fa6d1ac170e39cd4c787c2117d71ed28657969730e6c42baffc55c9019a",
+            "packages/flutter_scene_viewer_basisu/ios/Classes/fsv_basisu_budget.h": "1f9c859ccea3a856d6c73e86504a46e62c4aeb509059c9cdf69f538d42073d08",
+            "packages/flutter_scene_viewer_basisu/ios/Classes/fsv_basisu_budget.cc": "e952eb4747b4413a54fa410db2936de1d20310de98823947b806f21475b0c2f6",
+            "packages/flutter_scene_viewer_basisu/ios/Classes/fsv_basisu_owned.h": "945572f28948be01272207b1ff0c5cb509f2434a8307681a498e8cc5b387db06",
+            "packages/flutter_scene_viewer_basisu/ios/Classes/fsv_basisu_bridge.h": "cc05b9db420e8e2798017742c3d2ecc1de14ac7854276110b7a865be9dca99d4",
+            "packages/flutter_scene_viewer_basisu/ios/Classes/fsv_basisu_bridge.cc": "1d3ce97e80fa6fa353eac1cb6cdde0a4d107664a1d8da3bde124c3ab057e6f58",
+            "packages/flutter_scene_viewer_basisu/ios/Classes/fsv_basisu_platform_serialization.h": "03b98ad1809d1eb486209a135a483d3dda838ebafc402e1d3a1e30b215bbeb6b",
+            "packages/flutter_scene_viewer_basisu/ios/Classes/FlutterSceneViewerBasisuPlugin.mm": "ef77d609455bf57f519f96c04c042c887bd6ac5d4cb597b41911e47ff7d0890b",
+            "packages/flutter_scene_viewer_basisu/ios/Classes/fsv_basisu_request_registry.h": "fc8667dafa97fb370af14073ea722585a24875c6872ba72b9f59a6caf87093eb",
+            "packages/flutter_scene_viewer_basisu/ios/Classes/fsv_basisu_request_registry.cc": "118bfab5a4d3f0f590dee47a8fc3b716edfb2bc36da4376a71dc3003ab1fdf1a",
+            "lib/src/internal/glb_native_decoder_probe.dart": "691b5ec51b2e02259de62e05d9016aa2cb5eed98b8263a478561c241a45ad7ed",
         },
     },
 ]
 DECODER_CONTROL_SOURCE_MARKERS = {
     "lib/src/internal/meshopt_decoder.dart": (
         "final class MeshoptDecodeControl {",
-        "Uint8List decodeMeshoptGltfBuffer(",
+        "Future<Uint8List> decodeMeshoptGltfBuffer(",
         "required MeshoptCompressionFilter filter,",
         "MeshoptDecodeControl? control,",
-        "control?.checkpoint(stage: 'meshoptDecodeStart', force: true);",
+        "stage: 'meshoptDecodeStart',",
+        "ModelLoadCancellationToken? cancellationToken,",
     ),
     "lib/src/internal/glb_meshopt_rewriter.dart": (
         "MeshoptDecodeControl.running(",
         "timeout: tracker.budget.decodeTimeout,",
         "final rewriteTracker = GlbDecodeBudgetTracker(tracker.budget);",
-        "on MeshoptDecodeDeadlineExceeded catch (error)",
+        "on MeshoptDecodeStopped catch (error)",
+        "cancellationToken: cancellationToken,",
     ),
     "packages/flutter_scene_viewer_draco/third_party/draco/src/draco/compression/decode.h": (
         "StatusOr<std::unique_ptr<Mesh>> DecodeMeshFromBuffer(",
@@ -277,7 +420,8 @@ DECODER_CONTROL_SOURCE_MARKERS = {
         "Map<String, Object?> _nativeDecodeBudgetMap(GlbDecodeBudget budget)",
         "'maxNativeOutputBytes': budget.maxNativeOutputBytes,",
         "final remaining = deadline.remainingOrThrow();",
-        ".timeout(remaining)",
+        "timer = Timer(remaining, () {",
+        "'cancelDecode',",
         "'nativeDispatch': dispatched ? 'started' : 'notStarted'",
         "'nativeResourceRelease': dispatched ? 'notGuaranteed' : 'notApplicable'",
     ),
@@ -299,7 +443,7 @@ DECODER_CONTROL_FORBIDDEN_MARKERS = {
 }
 DECODER_CONTROL_SOURCE_SHA256 = {
     source_path: sha256
-    for record in CURRENT_PLAN014_DECODER_CONTROL_BOUNDARIES
+    for record in DECODER_CONTROL_BOUNDARIES
     for source_path, sha256 in record["evidenceSha256"].items()
 }
 
@@ -308,11 +452,54 @@ class MatrixError(RuntimeError):
     pass
 
 
+def _load_evidence_manifest() -> dict[str, object]:
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    from tools.validate_decoder_mip_evidence import (  # pylint: disable=import-outside-toplevel
+        EvidenceError,
+        load_manifest,
+    )
+
+    try:
+        return load_manifest(
+            EVIDENCE_MANIFEST_PATH,
+            EVIDENCE_RECORDS_DIR,
+            verify_local_artifacts=True,
+        )
+    except EvidenceError as error:
+        raise MatrixError(f"decoder/mip evidence is invalid: {error}") from error
+
+
+def _claim_has_durable_evidence(
+    manifest: dict[str, object],
+    feature: str,
+    target: str,
+    *,
+    production_ready: bool,
+) -> bool:
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    from tools.validate_decoder_mip_evidence import (  # pylint: disable=import-outside-toplevel
+        claim_has_durable_evidence,
+    )
+
+    return claim_has_durable_evidence(
+        manifest,
+        feature,
+        target,
+        production_ready=production_ready,
+    )
+
+
 def load_source() -> dict[str, object]:
     value = json.loads(SOURCE_PATH.read_text(encoding="utf-8"))
     if not isinstance(value, dict):
         raise MatrixError("capability source must be a JSON object")
-    validate_source(value)
+    validate_source(
+        value,
+        evidence_manifest=_load_evidence_manifest(),
+        evidence_artifacts_verified=True,
+    )
     return value
 
 
@@ -337,9 +524,48 @@ def validate_decoder_control_sources(source_texts: dict[str, str]) -> None:
             )
 
 
-def validate_source(source: dict[str, object]) -> None:
-    if source.get("schemaVersion") != 1:
-        raise MatrixError("schemaVersion must equal 1")
+def validate_source(
+    source: dict[str, object],
+    *,
+    evidence_manifest: dict[str, object] | None = None,
+    evidence_artifacts_verified: bool = False,
+) -> None:
+    if source.get("schemaVersion") != 2:
+        raise MatrixError("schemaVersion must equal 2")
+    if source.get("scope") != (
+        "Selected glTF extension capability and evidence truth; historical, "
+        "host, simulator, build-only, and target evidence remain independent."
+    ):
+        raise MatrixError("capability source scope changed")
+    expected_historical = {
+        "path": "tools/capability_matrix/history/plan014_feature_target_snapshot.json",
+        "sourcePath": (
+            "tools/capability_matrix/history/"
+            "plan014_selected_extension_capabilities.json"
+        ),
+        "sourceSha256": (
+            "0ebe4e6c17919e3dca21dedf0e7d21ef1eef24431c1ab8c62d408ebfd52ac74d"
+        ),
+        "featureTargetRowsSha256": (
+            "9d9dd71db8768cf42d54319fa7996190bdc034d4270fdbe9fcc372864c19ba06"
+        ),
+        "historicalContextSha256": (
+            "12f4205de76da66db7d89e391fc869500b5e0380f5fd88d55b1a003b2419adab"
+        ),
+    }
+    if source.get("historicalPlan014") != expected_historical:
+        raise MatrixError("historical Plan 014 fingerprint changed")
+    historical_snapshot = _json_object(
+        HISTORICAL_PLAN014_SNAPSHOT_PATH,
+        "historical Plan 014 snapshot",
+    )
+    historical_payload = _json_object(
+        HISTORICAL_PLAN014_SOURCE_PATH,
+        "historical Plan 014 source",
+    )
+    if evidence_manifest is None:
+        evidence_manifest = _load_evidence_manifest()
+        evidence_artifacts_verified = True
     feature_set = _string_list(source.get("featureSet"), "featureSet")
     target_set = _string_list(source.get("targetSet"), "targetSet")
     if len(feature_set) != len(set(feature_set)):
@@ -348,19 +574,19 @@ def validate_source(source: dict[str, object]) -> None:
         raise MatrixError("targetSet must be unique")
     if any(target not in TARGET_LABELS for target in target_set):
         raise MatrixError("targetSet contains an unknown target")
-    if source.get("historicalContext") != CURRENT_PLAN014_HISTORICAL_CONTEXT:
+    if source.get("historicalContext") != HISTORICAL_PLAN014_CONTEXT:
         raise MatrixError("historical candidate context changed")
-    for record in CURRENT_PLAN014_HISTORICAL_CONTEXT:
+    for record in HISTORICAL_PLAN014_CONTEXT:
         if record["feature"] not in feature_set or record["target"] not in target_set:
             raise MatrixError("historical candidate context is outside matrix scope")
         if not (REPO_ROOT / record["source"]).is_file():
             raise MatrixError("historical candidate evidence source is missing")
     if (
         source.get("decoderControlBoundaries")
-        != CURRENT_PLAN014_DECODER_CONTROL_BOUNDARIES
+        != DECODER_CONTROL_BOUNDARIES
     ):
         raise MatrixError("decoder control boundary evidence changed")
-    for record in CURRENT_PLAN014_DECODER_CONTROL_BOUNDARIES:
+    for record in DECODER_CONTROL_BOUNDARIES:
         if record["feature"] not in feature_set:
             raise MatrixError("decoder control boundary is outside matrix scope")
         for evidence_source in record["evidenceSources"]:
@@ -388,6 +614,7 @@ def validate_source(source: dict[str, object]) -> None:
     if not isinstance(features, list):
         raise MatrixError("features must be an array")
     ids: list[str] = []
+    durably_verified_target_rows: set[tuple[str, str]] = set()
     for raw_feature in features:
         feature = _object(raw_feature, "feature")
         feature_id = _string(feature.get("id"), "feature.id")
@@ -421,7 +648,10 @@ def validate_source(source: dict[str, object]) -> None:
                     f"{feature_id}.{target} runtime capability is invalid"
                 )
             if row["releaseMaturity"] not in MATURITY_VALUES:
-                raise MatrixError(f"{feature_id}.{target} maturity is invalid")
+                raise MatrixError(
+                    f"{feature_id}.{target} maturity is invalid; use literal "
+                    "release pending when release evidence is incomplete"
+                )
             if row["targetEvidence"] not in EVIDENCE_VALUES:
                 raise MatrixError(f"{feature_id}.{target} evidence is invalid")
             if row["visuallyVerified"] not in EVIDENCE_VALUES:
@@ -463,7 +693,32 @@ def validate_source(source: dict[str, object]) -> None:
                 raise MatrixError(
                     f"{feature_id}.{target} production-ready gates are incomplete"
                 )
-            expected_verified_row = CURRENT_PLAN014_VERIFIED_TARGET_ROWS.get(
+            production_claim = (
+                row["runtimeCapability"] == "production-ready"
+                or row["releaseMaturity"] == "production-ready"
+            )
+            needs_durable_evidence = production_claim or (
+                row["targetEvidence"] == "verified locally"
+                and (feature_id, target)
+                not in HISTORICAL_PLAN014_VERIFIED_TARGET_ROWS
+            )
+            if needs_durable_evidence and not evidence_artifacts_verified:
+                raise MatrixError(
+                    f"{feature_id}.{target} requires verified local artifact proof"
+                )
+            if needs_durable_evidence and not _claim_has_durable_evidence(
+                evidence_manifest,
+                feature_id,
+                target,
+                production_ready=production_claim,
+            ):
+                raise MatrixError(
+                    f"{feature_id}.{target} has no matching durable evidence "
+                    "for its target and required gates"
+                )
+            if needs_durable_evidence:
+                durably_verified_target_rows.add((feature_id, target))
+            expected_verified_row = HISTORICAL_PLAN014_VERIFIED_TARGET_ROWS.get(
                 (feature_id, target)
             )
             if expected_verified_row is not None:
@@ -472,29 +727,38 @@ def validate_source(source: dict[str, object]) -> None:
                         f"{feature_id}.{target} verified target evidence row changed"
                     )
             else:
-                if row["targetEvidence"] != "not run":
+                if (
+                    row["targetEvidence"] != "verified locally"
+                    and row["targetEvidence"] != "not run"
+                ):
+                    raise MatrixError(f"{feature_id}.{target} evidence is invalid")
+                if row["targetEvidence"] == "not run" and (
+                    row["visuallyVerified"] != "not run"
+                ):
                     raise MatrixError(
-                        f"{feature_id}.{target} current Plan 014 target evidence "
+                        f"{feature_id}.{target} current visual evidence "
                         "must remain not run until a target artifact is recorded"
                     )
-                if row["visuallyVerified"] != "not run":
-                    raise MatrixError(
-                        f"{feature_id}.{target} current Plan 014 visual evidence "
-                        "must remain not run until a target artifact is recorded"
-                    )
-                if row["applied"] == "verified locally":
+                if (
+                    row["targetEvidence"] == "not run"
+                    and row["applied"] == "verified locally"
+                ):
                     raise MatrixError(
                         f"{feature_id}.{target} host evidence cannot establish "
-                        "current Plan 014 target application"
+                        "target application"
                     )
-            expected_blocker = CURRENT_PLAN014_UNVERIFIED_TARGET_BLOCKERS.get(
+            expected_blocker = UNVERIFIED_TARGET_BLOCKERS.get(
                 (feature_id, target)
             )
-            if expected_blocker is not None and row["blocker"] != expected_blocker:
+            if (
+                expected_blocker is not None
+                and row["targetEvidence"] == "not run"
+                and row["blocker"] != expected_blocker
+            ):
                 raise MatrixError(
                     f"{feature_id}.{target} exact upstream blocker changed"
                 )
-            native_only_blocker = CURRENT_PLAN014_NATIVE_ONLY_WEB_ROWS.get(feature_id)
+            native_only_blocker = NATIVE_ONLY_WEB_ROWS.get(feature_id)
             if target == "web" and native_only_blocker is not None and row != {
                 "applied": "unsupported",
                 "visuallyVerified": "not run",
@@ -507,9 +771,10 @@ def validate_source(source: dict[str, object]) -> None:
                     f"{feature_id}.web must remain native-only and unsupported"
                 )
             if (
-                feature_id in CURRENT_PLAN014_NATIVE_CODEC_TARGETS
+                feature_id in NATIVE_CODEC_TARGETS
                 and target != "web"
                 and expected_verified_row is None
+                and row["targetEvidence"] == "not run"
                 and (
                     row["applied"] != "not run"
                     or row["visuallyVerified"] != "not run"
@@ -523,6 +788,125 @@ def validate_source(source: dict[str, object]) -> None:
                 )
     if ids != feature_set:
         raise MatrixError("features must exactly match featureSet order")
+    validate_historical_plan014_payload(
+        historical_payload,
+        live_source=source,
+        snapshot=historical_snapshot,
+        allowed_live_row_changes=durably_verified_target_rows,
+    )
+
+
+def validate_historical_plan014_payload(
+    historical: dict[str, object],
+    *,
+    live_source: dict[str, object] | None = None,
+    snapshot: dict[str, object] | None = None,
+    allowed_live_row_changes: set[tuple[str, str]] | None = None,
+) -> None:
+    if snapshot is None:
+        snapshot = _json_object(
+            HISTORICAL_PLAN014_SNAPSHOT_PATH,
+            "historical Plan 014 snapshot",
+        )
+    if live_source is None:
+        live_source = _json_object(SOURCE_PATH, "live capability source")
+    if allowed_live_row_changes is None:
+        allowed_live_row_changes = set()
+    if historical.get("schemaVersion") != 1 or historical.get("scope") != (
+        "Plan 014 current evidence only; historical candidate runs are context, "
+        "not current target evidence."
+    ):
+        raise MatrixError("historical Plan 014 source identity changed")
+    historical_features = _object_list(historical.get("features"), "historical features")
+    rows = [
+        {"feature": feature["id"], "target": target, "row": row}
+        for feature in historical_features
+        for target, row in _object(feature.get("targets"), "historical targets").items()
+    ]
+    if len(historical_features) != 9 or len(rows) != 36:
+        raise MatrixError("historical Plan 014 must retain all 36 target rows")
+    if _canonical_sha256(rows) != snapshot.get("featureTargetRowsSha256"):
+        raise MatrixError("historical Plan 014 row payload changed")
+    if _canonical_sha256(historical.get("historicalContext")) != snapshot.get(
+        "historicalContextSha256"
+    ):
+        raise MatrixError("historical Plan 014 context payload changed")
+    if _canonical_sha256(historical.get("decoderControlBoundaries")) != snapshot.get(
+        "decoderControlBoundariesSha256"
+    ):
+        raise MatrixError("historical Plan 014 decoder boundary payload changed")
+    if HISTORICAL_PLAN014_SOURCE_PATH.is_file() and hashlib.sha256(
+        HISTORICAL_PLAN014_SOURCE_PATH.read_bytes()
+    ).hexdigest() != snapshot.get("sourceSha256"):
+        raise MatrixError("historical Plan 014 complete source payload changed")
+    if (
+        _canonical_sha256(PLAN014_LIVE_TARGET_ROW_DIFFERENCES)
+        != PLAN014_LIVE_TARGET_ROW_DIFFERENCES_SHA256
+    ):
+        raise MatrixError("pinned Plan 014 live-difference digest changed")
+    if snapshot.get("liveTargetRowDifferences") != (
+        PLAN014_LIVE_TARGET_ROW_DIFFERENCES
+    ) or snapshot.get("liveTargetRowDifferencesSha256") != (
+        PLAN014_LIVE_TARGET_ROW_DIFFERENCES_SHA256
+    ):
+        raise MatrixError("historical Plan 014 live-difference ledger changed")
+
+    historical_rows = {
+        (feature["id"], target): _object(row, "historical target row")
+        for feature in historical_features
+        for target, row in _object(feature.get("targets"), "historical targets").items()
+    }
+    live_rows = {
+        (feature["id"], target): _object(row, "live target row")
+        for feature in _object_list(live_source.get("features"), "live features")
+        for target, row in _object(feature.get("targets"), "live targets").items()
+    }
+    differences: list[dict[str, object]] = []
+    for key, historical_row in historical_rows.items():
+        live_row = live_rows.get(key)
+        if live_row is None:
+            raise MatrixError("live source dropped a historical Plan 014 row")
+        for field, historical_value in historical_row.items():
+            live_value = live_row.get(field)
+            if live_value != historical_value:
+                differences.append(
+                    {
+                        "feature": key[0],
+                        "target": key[1],
+                        "field": field,
+                        "historicalValue": historical_value,
+                        "liveValue": live_value,
+                    }
+                )
+    durable_filtered_differences = [
+        difference
+        for difference in differences
+        if (difference["feature"], difference["target"])
+        not in allowed_live_row_changes
+    ]
+    if durable_filtered_differences != PLAN014_LIVE_TARGET_ROW_DIFFERENCES:
+        raise MatrixError("live target rows differ from Plan 014 outside the ledger")
+
+
+def _canonical_sha256(value: object) -> str:
+    payload = json.dumps(
+        value,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _json_object(path: Path, label: str) -> dict[str, object]:
+    value = json.loads(path.read_text(encoding="utf-8"))
+    return _object(value, label)
+
+
+def _object_list(value: object, label: str) -> list[dict[str, object]]:
+    if not isinstance(value, list) or not all(isinstance(item, dict) for item in value):
+        raise MatrixError(f"{label} must be an object array")
+    return value
 
 
 def select(
@@ -588,13 +972,13 @@ def render_markdown(source: dict[str, object]) -> str:
         "# Capability matrix",
         "",
         "Generated by `python3 tools/generate_capability_matrix.py --write` from",
-        "`tools/capability_matrix/plan014_selected_extension_capabilities.json`.",
+        "`tools/capability_matrix/selected_gltf_extension_capabilities.json`.",
         "Do not edit this file by hand.",
         "",
         f"Scope: {source['scope']}",
         "",
         "Host decode/validator evidence is not target render evidence.",
-        "Historical candidate runs are not promoted into current Plan 014 target rows.",
+        "Historical candidate runs are not promoted into live target rows.",
         "",
         "The aggregate below is evaluated only for the explicit feature and target sets",
         "listed here; no backend-wide boolean is copied into individual rows.",
@@ -608,10 +992,10 @@ def render_markdown(source: dict[str, object]) -> str:
         "",
         "## Historical candidate context",
         "",
-        "This retained historical evidence does not alter any current Plan 014 target row.",
+        "This retained historical evidence does not alter any live target row.",
         "The original artifacts were temporary and are not durable release evidence.",
         "",
-        "| Feature | Target | Historical evidence | Date | Scope | Source | Artifact durability | Current Plan 014 target evidence | Release maturity |",
+        "| Feature | Target | Historical evidence | Date | Scope | Source | Artifact durability | Live target evidence | Release maturity |",
         "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for record in source["historicalContext"]:

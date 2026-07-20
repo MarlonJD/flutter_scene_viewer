@@ -53,6 +53,7 @@ class Mesh : public PointCloud {
   typedef std::array<PointIndex, 3> Face;
 
   Mesh();
+  explicit Mesh(FsvDecodeControl *control);
 
 #ifdef DRACO_TRANSCODER_SUPPORTED
   // Copies all data from the |src| mesh.
@@ -309,7 +310,8 @@ class Mesh : public PointCloud {
   void UpdateMeshFeaturesAfterDeletedAttribute(int att_id);
 #endif
   // Mesh specific per-attribute data.
-  std::vector<AttributeData> attribute_data_;
+  std::vector<AttributeData, FsvDecodeAllocator<AttributeData>>
+      attribute_data_;
 
   // Vertex indices valid for all attributes. Each attribute has its own map
   // that converts vertex indices into attribute indices.

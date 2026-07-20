@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import 'diagnostics.dart';
@@ -7,6 +9,7 @@ import 'material_extension_policy.dart';
 import 'material_override_store.dart';
 import 'material_patch.dart';
 import 'material_shading_mode.dart';
+import 'model_load_cancellation.dart';
 import 'model_loader.dart';
 import 'model_source.dart';
 import 'part_address.dart';
@@ -53,6 +56,10 @@ class FlutterSceneViewerController extends ChangeNotifier {
   final MaterialOverrideStore _materialOverrides = MaterialOverrideStore();
   final List<ViewerDiagnostic> _diagnostics = <ViewerDiagnostic>[];
   ViewerLoadState _loadState = const ViewerLoadState.idle();
+  ViewerLoadState _lastSettledLoadState = const ViewerLoadState.idle();
+  Completer<void>? _acceptedPublicationFinalization;
+  var _nextLoadAttempt = 0;
+  var _activeLoadAttempt = 0;
   PartTree _partTree = const PartTree.empty();
 
   List<ViewerDiagnostic> get diagnostics =>
@@ -80,41 +87,249 @@ class FlutterSceneViewerController extends ChangeNotifier {
     ModelSource source, {
     MaterialOverrideSnapshot initialMaterialOverrides =
         MaterialOverrideSnapshot.empty,
+    ModelLoadCancellationToken? cancellationToken,
   }) async {
+    if (cancellationToken?.isCancelled == true) {
+      recordDiagnostic(
+        modelLoadCancellationDiagnostic(
+          source,
+          cancellationToken!,
+          stage: 'controller',
+        ),
+      );
+      return;
+    }
+    final activeFinalization = _acceptedPublicationFinalization;
+    if (activeFinalization != null) {
+      await activeFinalization.future;
+    }
     final sink = _requireSink();
-    _partTree = const PartTree.empty();
-    _materialOverrides.resetAll();
+    final attempt = ++_nextLoadAttempt;
+    _activeLoadAttempt = attempt;
     _setLoadState(ViewerLoadState.loading(source));
+    Completer<void>? acceptedFinalization;
+    var publicationClosed = false;
     try {
-      final result = await sink.load(source);
-      for (final diagnostic in result.diagnostics) {
-        recordDiagnostic(diagnostic);
+      final result = await _loadFromSink(
+        sink,
+        source,
+        cancellationToken: cancellationToken,
+        tryAcceptPublication: () {
+          if (publicationClosed || !_isCurrentLoadAttempt(attempt)) {
+            return false;
+          }
+          acceptedFinalization ??= _beginAcceptedPublicationFinalization();
+          return true;
+        },
+        onPublicationRejected: () {
+          final finalization = acceptedFinalization;
+          if (finalization != null) {
+            _endAcceptedPublicationFinalization(finalization);
+            acceptedFinalization = null;
+          }
+        },
+      );
+      if (!_isCurrentLoadAttempt(attempt)) {
+        if (result.superseded) {
+          return;
+        }
+        _recordStaleCancellation(result);
+        return;
       }
       final diagnostic = result.diagnostic;
       if (diagnostic == null) {
+        if (_finishCancellationIfRequested(
+          source,
+          cancellationToken,
+          attempt: attempt,
+          stage: 'authoredPatchPublication',
+        )) {
+          return;
+        }
+        acceptedFinalization ??= _beginAcceptedPublicationFinalization();
+        for (final resultDiagnostic in result.diagnostics) {
+          recordDiagnostic(resultDiagnostic);
+        }
         _partTree = result.partTree;
+        _materialOverrides.resetAll();
         await _applyAuthoredMaterialPatches(
           result.authoredCoreMaterialPatches,
           result.authoredExtensionMaterialPatches,
           sink,
         );
-        await applyMaterialOverrides(initialMaterialOverrides);
-        _setLoadState(ViewerLoadState.success(source));
+        if (_finishCancellationIfRequested(
+          source,
+          cancellationToken,
+          attempt: attempt,
+          stage: 'initialOverridePublication',
+        )) {
+          return;
+        }
+        await _applyLoadInitialMaterialOverrides(
+          initialMaterialOverrides,
+          sink,
+        );
+        if (_finishCancellationIfRequested(
+          source,
+          cancellationToken,
+          attempt: attempt,
+          stage: 'successPublication',
+        )) {
+          return;
+        }
+        _setSettledLoadState(ViewerLoadState.success(source));
+        return;
       } else {
+        final isCancelled =
+            diagnostic.code == ViewerDiagnosticCode.modelLoadCancelled;
+        if (isCancelled) {
+          for (final resultDiagnostic in result.diagnostics) {
+            if (resultDiagnostic.code !=
+                ViewerDiagnosticCode.modelLoadCancelled) {
+              recordDiagnostic(resultDiagnostic);
+            }
+          }
+          _finishLoadCancellation(
+            source,
+            cancellationToken,
+            attempt: attempt,
+            diagnostic: diagnostic,
+            stage: 'controller',
+          );
+          return;
+        }
         _partTree = const PartTree.empty();
+        _materialOverrides.resetAll();
+        _setSettledLoadState(ViewerLoadState.error(source, diagnostic));
+        for (final resultDiagnostic in result.diagnostics) {
+          recordDiagnostic(resultDiagnostic);
+        }
         recordDiagnostic(diagnostic);
-        _setLoadState(ViewerLoadState.error(source, diagnostic));
       }
     } on Object catch (error) {
-      _partTree = const PartTree.empty();
-      final diagnostic = ViewerDiagnostic(
-        code: ViewerDiagnosticCode.adapterFailure,
-        message: 'Model loading failed.',
-        details: <String, Object?>{'error': error.toString()},
-      );
-      recordDiagnostic(diagnostic);
-      _setLoadState(ViewerLoadState.error(source, diagnostic));
+      if (!_isCurrentLoadAttempt(attempt)) {
+        return;
+      }
+      _settleUnexpectedLoadFailure(source, error);
+    } finally {
+      publicationClosed = true;
+      final finalization = acceptedFinalization;
+      if (finalization != null) {
+        _endAcceptedPublicationFinalization(finalization);
+      }
     }
+  }
+
+  Completer<void> _beginAcceptedPublicationFinalization() {
+    final activeFinalization = _acceptedPublicationFinalization;
+    if (activeFinalization != null) {
+      return activeFinalization;
+    }
+    final finalization = Completer<void>();
+    _acceptedPublicationFinalization = finalization;
+    return finalization;
+  }
+
+  void _endAcceptedPublicationFinalization(Completer<void> finalization) {
+    if (identical(_acceptedPublicationFinalization, finalization)) {
+      _acceptedPublicationFinalization = null;
+    }
+    if (!finalization.isCompleted) {
+      finalization.complete();
+    }
+  }
+
+  void _settleUnexpectedLoadFailure(ModelSource source, Object error) {
+    _partTree = const PartTree.empty();
+    _materialOverrides.resetAll();
+    final diagnostic = ViewerDiagnostic(
+      code: ViewerDiagnosticCode.adapterFailure,
+      message: 'Model loading failed.',
+      details: <String, Object?>{'error': error.toString()},
+    );
+    _setSettledLoadState(ViewerLoadState.error(source, diagnostic));
+    recordDiagnostic(diagnostic);
+  }
+
+  bool _isCurrentLoadAttempt(int attempt) => attempt == _activeLoadAttempt;
+
+  void _recordStaleCancellation(ModelLoadResult result) {
+    final diagnostic = result.diagnostic;
+    if (diagnostic?.code == ViewerDiagnosticCode.modelLoadCancelled) {
+      recordDiagnostic(diagnostic!);
+    }
+  }
+
+  Future<ModelLoadResult> _loadFromSink(
+    ViewerCommandSink sink,
+    ModelSource source, {
+    ModelLoadCancellationToken? cancellationToken,
+    bool Function()? tryAcceptPublication,
+    void Function()? onPublicationRejected,
+  }) {
+    final load = sink.load(
+      source,
+      cancellationToken: cancellationToken,
+      tryAcceptPublication: tryAcceptPublication,
+      onPublicationRejected: onPublicationRejected,
+    );
+    if (cancellationToken == null) {
+      return load;
+    }
+    return Future.any<ModelLoadResult>(<Future<ModelLoadResult>>[
+      load,
+      cancellationToken.whenCancelled.then<ModelLoadResult>(
+        (_) => ModelLoadResult.failure(
+          modelLoadCancellationDiagnostic(
+            source,
+            cancellationToken,
+            stage: 'controller',
+          ),
+        ),
+      ),
+    ]);
+  }
+
+  void _finishLoadCancellation(
+    ModelSource source,
+    ModelLoadCancellationToken? cancellationToken, {
+    required int attempt,
+    ViewerDiagnostic? diagnostic,
+    required String stage,
+  }) {
+    final cancellationDiagnostic = diagnostic ??
+        modelLoadCancellationDiagnostic(
+          source,
+          cancellationToken!,
+          stage: stage,
+        );
+    recordDiagnostic(cancellationDiagnostic);
+    if (_isCurrentLoadAttempt(attempt)) {
+      _setLoadState(_lastSettledLoadState);
+    }
+  }
+
+  bool _finishCancellationIfRequested(
+    ModelSource source,
+    ModelLoadCancellationToken? cancellationToken, {
+    required int attempt,
+    required String stage,
+  }) {
+    if (cancellationToken?.isCancelled != true) {
+      return false;
+    }
+    _finishLoadCancellation(
+      source,
+      cancellationToken,
+      attempt: attempt,
+      stage: stage,
+    );
+    return true;
+  }
+
+  void _setSettledLoadState(ViewerLoadState state) {
+    _lastSettledLoadState = state;
+    _setLoadState(state);
   }
 
   Future<void> setPartMaterial(PartAddress address, MaterialPatch patch) async {
@@ -269,6 +484,35 @@ class FlutterSceneViewerController extends ChangeNotifier {
       return false;
     }
     return true;
+  }
+
+  Future<void> _applyLoadInitialMaterialOverrides(
+    MaterialOverrideSnapshot snapshot,
+    ViewerCommandSink sink,
+  ) async {
+    for (final entry in snapshot.entries) {
+      final diagnostics = _validateMaterialPatch(
+        entry.key,
+        entry.value,
+        support: sink.materialExtensionSupport,
+      );
+      if (diagnostics.isNotEmpty) {
+        for (final diagnostic in diagnostics) {
+          recordDiagnostic(diagnostic);
+        }
+        continue;
+      }
+      final sinkDiagnostics =
+          await sink.setPartMaterial(entry.key, entry.value);
+      if (sinkDiagnostics.isNotEmpty) {
+        for (final diagnostic in sinkDiagnostics) {
+          recordDiagnostic(diagnostic);
+        }
+        continue;
+      }
+      _materialOverrides.applyPatch(entry.key, entry.value);
+      sink.requestRenderFrame();
+    }
   }
 
   Future<void> setPartVisibility(PartAddress address, bool visible) =>
@@ -442,7 +686,12 @@ List<String> _textureSlotsForPatch(MaterialPatch patch) {
 abstract interface class ViewerCommandSink {
   MaterialExtensionSupport get materialExtensionSupport;
 
-  Future<ModelLoadResult> load(ModelSource source);
+  Future<ModelLoadResult> load(
+    ModelSource source, {
+    ModelLoadCancellationToken? cancellationToken,
+    bool Function()? tryAcceptPublication,
+    void Function()? onPublicationRejected,
+  });
   Future<List<ViewerDiagnostic>> setPartMaterial(
     PartAddress address,
     MaterialPatch patch,

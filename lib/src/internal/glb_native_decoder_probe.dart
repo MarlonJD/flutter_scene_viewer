@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:flutter/services.dart';
 
 import '../diagnostics.dart';
+import '../model_load_cancellation.dart';
 import 'glb_basisu_rewriter.dart';
 import 'glb_capability_reader.dart';
 import 'glb_decode_budget.dart';
@@ -21,6 +23,8 @@ const String kDracoPluginPackageName = 'flutter_scene_viewer_draco';
 const int _glbMagic = 0x46546C67;
 const int _jsonChunkType = 0x4E4F534A;
 const int _binChunkType = 0x004E4942;
+final Expando<_ProbeRequestState> _probeRequestStates =
+    Expando<_ProbeRequestState>('native decoder request state');
 
 /// Optional native decoder availability reported by sibling decoder plugins.
 final class GlbNativeDecoderAvailability {
@@ -46,6 +50,7 @@ abstract interface class GlbNativeDecoderProbe {
     required Set<String> requiredExtensions,
     required GlbDecodeBudget budget,
     required GlbDecodeBudgetTracker budgetTracker,
+    ModelLoadCancellationToken? cancellationToken,
     String? source,
   });
 }
@@ -61,10 +66,21 @@ final class GlbNativeDecodeResult {
   const GlbNativeDecodeResult({
     required this.outputAccounting,
     this.bytes,
+    this.topologyBytes,
+    this.topologyOutputAccounting = GlbNativeDecodeOutputAccounting.none,
+    this.decodedBasisuImages = const <GlbDecodedBasisuImage>[],
     this.diagnostics = const <ViewerDiagnostic>[],
   });
 
+  /// Import topology retained when decoded texture payloads travel out-of-band.
+  ///
+  /// Unlike [bytes], this is not a complete importer-ready result by itself.
+  /// [topologyOutputAccounting] describes only whether these topology bytes
+  /// came from an already-accounted earlier native stage.
+  final Uint8List? topologyBytes;
+  final GlbNativeDecodeOutputAccounting topologyOutputAccounting;
   final Uint8List? bytes;
+  final List<GlbDecodedBasisuImage> decodedBasisuImages;
   final List<ViewerDiagnostic> diagnostics;
   final GlbNativeDecodeOutputAccounting outputAccounting;
 }
@@ -81,6 +97,11 @@ final class MethodChannelGlbNativeDecoderProbe
 
   final MethodChannel _dracoChannel;
   final MethodChannel _basisuChannel;
+
+  String _nextRequestId() {
+    final state = _probeRequestStates[this] ??= _ProbeRequestState();
+    return state.nextRequestId();
+  }
 
   @override
   Future<GlbNativeDecoderAvailability> checkAvailability({
@@ -234,15 +255,33 @@ final class MethodChannelGlbNativeDecoderProbe
     required Set<String> requiredExtensions,
     required GlbDecodeBudget budget,
     required GlbDecodeBudgetTracker budgetTracker,
+    ModelLoadCancellationToken? cancellationToken,
     String? source,
   }) async {
     var currentBytes = bytes;
+    var decodedBasisuImages = const <GlbDecodedBasisuImage>[];
     var outputAccounting = GlbNativeDecodeOutputAccounting.none;
     final diagnostics = <ViewerDiagnostic>[];
     final deadline = _NativeDecodeDeadline(budget.decodeTimeout);
     final needsDraco =
         requiredExtensions.contains(kDracoMeshCompressionExtension);
     final needsBasisu = requiredExtensions.contains(kBasisuTextureExtension);
+    if (cancellationToken?.isCancelled == true) {
+      return GlbNativeDecodeResult(
+        outputAccounting: GlbNativeDecodeOutputAccounting.none,
+        diagnostics: <ViewerDiagnostic>[
+          _nativeDecodeCancellationDiagnostic(
+            extension: needsDraco
+                ? kDracoMeshCompressionExtension
+                : kBasisuTextureExtension,
+            decoder: needsDraco ? 'draco' : 'basisu',
+            source: source,
+            cancellationToken: cancellationToken!,
+            dispatched: false,
+          ),
+        ],
+      );
+    }
     if (needsDraco) {
       final result = await _decodeDracoGlb(
         bytes: currentBytes,
@@ -250,6 +289,7 @@ final class MethodChannelGlbNativeDecoderProbe
         budget: budget,
         budgetTracker: budgetTracker,
         deadline: deadline,
+        cancellationToken: cancellationToken,
         source: source,
       );
       diagnostics.addAll(result.diagnostics);
@@ -269,6 +309,7 @@ final class MethodChannelGlbNativeDecoderProbe
       if (decodedBytes == null) {
         return GlbNativeDecodeResult(
           outputAccounting: GlbNativeDecodeOutputAccounting.none,
+          decodedBasisuImages: decodedBasisuImages,
           diagnostics: List<ViewerDiagnostic>.unmodifiable(diagnostics),
         );
       }
@@ -292,15 +333,32 @@ final class MethodChannelGlbNativeDecoderProbe
       }
     }
     if (needsBasisu) {
+      if (cancellationToken?.isCancelled == true) {
+        return GlbNativeDecodeResult(
+          outputAccounting: GlbNativeDecodeOutputAccounting.none,
+          diagnostics: <ViewerDiagnostic>[
+            ...diagnostics,
+            _nativeDecodeCancellationDiagnostic(
+              extension: kBasisuTextureExtension,
+              decoder: 'basisu',
+              source: source,
+              cancellationToken: cancellationToken!,
+              dispatched: false,
+            ),
+          ],
+        );
+      }
       final result = await _decodeBasisuGlb(
         bytes: currentBytes,
         requiredExtensions: requiredExtensions,
         budget: budget,
         budgetTracker: budgetTracker,
         deadline: deadline,
+        cancellationToken: cancellationToken,
         source: source,
       );
       diagnostics.addAll(result.diagnostics);
+      decodedBasisuImages = result.decodedBasisuImages;
       final accountingDiagnostic = _nativeStageOutputAccountingDiagnostic(
         result,
         extension: kBasisuTextureExtension,
@@ -315,8 +373,22 @@ final class MethodChannelGlbNativeDecoderProbe
       }
       final decodedBytes = result.bytes;
       if (decodedBytes == null) {
+        final topologyBytes = result.topologyBytes;
+        if (topologyBytes != null && decodedBasisuImages.isNotEmpty) {
+          return GlbNativeDecodeResult(
+            topologyBytes: topologyBytes,
+            topologyOutputAccounting: outputAccounting ==
+                    GlbNativeDecodeOutputAccounting.none
+                ? GlbNativeDecodeOutputAccounting.none
+                : GlbNativeDecodeOutputAccounting.componentPayloadsAccounted,
+            outputAccounting: GlbNativeDecodeOutputAccounting.none,
+            decodedBasisuImages: decodedBasisuImages,
+            diagnostics: List<ViewerDiagnostic>.unmodifiable(diagnostics),
+          );
+        }
         return GlbNativeDecodeResult(
           outputAccounting: GlbNativeDecodeOutputAccounting.none,
+          decodedBasisuImages: decodedBasisuImages,
           diagnostics: List<ViewerDiagnostic>.unmodifiable(diagnostics),
         );
       }
@@ -325,6 +397,7 @@ final class MethodChannelGlbNativeDecoderProbe
     }
     return GlbNativeDecodeResult(
       bytes: currentBytes,
+      decodedBasisuImages: decodedBasisuImages,
       outputAccounting: outputAccounting == GlbNativeDecodeOutputAccounting.none
           ? GlbNativeDecodeOutputAccounting.opaqueFinalBytes
           : outputAccounting,
@@ -338,6 +411,7 @@ final class MethodChannelGlbNativeDecoderProbe
     required GlbDecodeBudget budget,
     required GlbDecodeBudgetTracker budgetTracker,
     required _NativeDecodeDeadline deadline,
+    ModelLoadCancellationToken? cancellationToken,
     String? source,
   }) async {
     try {
@@ -353,9 +427,10 @@ final class MethodChannelGlbNativeDecoderProbe
         );
       }
       final remaining = deadline.remainingOrThrow();
-      final result = await _dracoChannel.invokeMapMethod<String, Object?>(
-        'decodeGlb',
-        <String, Object?>{
+      final call = await _invokeNativeStage(
+        channel: _dracoChannel,
+        requestId: _nextRequestId(),
+        arguments: <String, Object?>{
           'bytes': bytes,
           'requiredExtensions': requiredExtensions.toList(growable: false),
           'source': source,
@@ -363,7 +438,10 @@ final class MethodChannelGlbNativeDecoderProbe
           'decodeBudget': _nativeDecodeBudgetMap(budget),
           'decodeBudgetState': _nativeDecodeBudgetStateMap(budgetTracker),
         },
-      ).timeout(remaining);
+        remaining: remaining,
+        cancellationToken: cancellationToken,
+      );
+      final result = call.result;
       return _decodeResultFromMethodResult(
         result,
         sourceBytes: bytes,
@@ -384,7 +462,21 @@ final class MethodChannelGlbNativeDecoderProbe
           ),
         ],
       );
-    } on TimeoutException {
+    } on _NativeStageCancelled catch (cancelled) {
+      return GlbNativeDecodeResult(
+        outputAccounting: GlbNativeDecodeOutputAccounting.none,
+        diagnostics: <ViewerDiagnostic>[
+          _nativeDecodeCancellationDiagnostic(
+            extension: kDracoMeshCompressionExtension,
+            decoder: 'draco',
+            source: source,
+            cancellationToken: cancelled.cancellationToken,
+            dispatched: cancelled.dispatched,
+            requestId: cancelled.dispatched ? cancelled.requestId : null,
+          ),
+        ],
+      );
+    } on _NativeStageTimedOut catch (timedOut) {
       return GlbNativeDecodeResult(
         outputAccounting: GlbNativeDecodeOutputAccounting.none,
         diagnostics: <ViewerDiagnostic>[
@@ -394,6 +486,7 @@ final class MethodChannelGlbNativeDecoderProbe
             source: source,
             timeout: budget.decodeTimeout,
             dispatched: true,
+            requestId: timedOut.requestId,
           ),
         ],
       );
@@ -447,24 +540,31 @@ final class MethodChannelGlbNativeDecoderProbe
     required GlbDecodeBudget budget,
     required GlbDecodeBudgetTracker budgetTracker,
     required _NativeDecodeDeadline deadline,
+    ModelLoadCancellationToken? cancellationToken,
     String? source,
   }) async {
     try {
+      final basisuImages = _basisuImageRequestsFromGlb(bytes);
       final remaining = deadline.remainingOrThrow();
-      final result = await _basisuChannel.invokeMapMethod<String, Object?>(
-        'decodeGlb',
-        <String, Object?>{
+      final call = await _invokeNativeStage(
+        channel: _basisuChannel,
+        requestId: _nextRequestId(),
+        arguments: <String, Object?>{
           'bytes': bytes,
           'requiredExtensions': requiredExtensions.toList(growable: false),
           'source': source,
-          'basisuImages': _basisuImageRequestsFromGlb(bytes),
+          'basisuImages': basisuImages,
           'decodeBudget': _nativeDecodeBudgetMap(budget),
           'decodeBudgetState': _nativeDecodeBudgetStateMap(budgetTracker),
         },
-      ).timeout(remaining);
+        remaining: remaining,
+        cancellationToken: cancellationToken,
+      );
+      final result = call.result;
       return _basisuDecodeResultFromMethodResult(
         result,
         sourceBytes: bytes,
+        basisuRequests: basisuImages,
         source: source,
         budget: budget,
         budgetTracker: budgetTracker,
@@ -482,7 +582,21 @@ final class MethodChannelGlbNativeDecoderProbe
           ),
         ],
       );
-    } on TimeoutException {
+    } on _NativeStageCancelled catch (cancelled) {
+      return GlbNativeDecodeResult(
+        outputAccounting: GlbNativeDecodeOutputAccounting.none,
+        diagnostics: <ViewerDiagnostic>[
+          _nativeDecodeCancellationDiagnostic(
+            extension: kBasisuTextureExtension,
+            decoder: 'basisu',
+            source: source,
+            cancellationToken: cancelled.cancellationToken,
+            dispatched: cancelled.dispatched,
+            requestId: cancelled.dispatched ? cancelled.requestId : null,
+          ),
+        ],
+      );
+    } on _NativeStageTimedOut catch (timedOut) {
       return GlbNativeDecodeResult(
         outputAccounting: GlbNativeDecodeOutputAccounting.none,
         diagnostics: <ViewerDiagnostic>[
@@ -492,6 +606,7 @@ final class MethodChannelGlbNativeDecoderProbe
             source: source,
             timeout: budget.decodeTimeout,
             dispatched: true,
+            requestId: timedOut.requestId,
           ),
         ],
       );
@@ -540,6 +655,188 @@ final class MethodChannelGlbNativeDecoderProbe
   }
 }
 
+final class _ProbeRequestState {
+  _ProbeRequestState() : _sessionPrefix = _newSessionPrefix();
+
+  final String _sessionPrefix;
+  int _counter = 0;
+
+  String nextRequestId() {
+    final sequence = _counter;
+    _counter += 1;
+    return '$_sessionPrefix-$sequence';
+  }
+
+  static String _newSessionPrefix() {
+    Random random;
+    try {
+      random = Random.secure();
+    } on UnsupportedError {
+      random = Random();
+    }
+    final now = DateTime.now().microsecondsSinceEpoch.toRadixString(36);
+    final high = random.nextInt(1 << 30).toRadixString(36);
+    final low = random.nextInt(1 << 30).toRadixString(36);
+    return 'fsv-$now$high$low';
+  }
+}
+
+final class _NativeStageCall {
+  const _NativeStageCall(this.result);
+
+  final Map<String, Object?>? result;
+}
+
+sealed class _NativeStageTerminal {
+  const _NativeStageTerminal();
+}
+
+final class _NativeStageSucceeded extends _NativeStageTerminal {
+  const _NativeStageSucceeded(this.result);
+
+  final Map<String, Object?>? result;
+}
+
+final class _NativeStageFailed extends _NativeStageTerminal {
+  const _NativeStageFailed(this.error, this.stackTrace);
+
+  final Object error;
+  final StackTrace stackTrace;
+}
+
+final class _NativeStageCancelledTerminal extends _NativeStageTerminal {
+  const _NativeStageCancelledTerminal();
+}
+
+final class _NativeStageTimedOutTerminal extends _NativeStageTerminal {
+  const _NativeStageTimedOutTerminal();
+}
+
+final class _NativeStageCancelled implements Exception {
+  const _NativeStageCancelled({
+    required this.requestId,
+    required this.cancellationToken,
+    required this.dispatched,
+  });
+
+  final String requestId;
+  final ModelLoadCancellationToken cancellationToken;
+  final bool dispatched;
+}
+
+final class _NativeStageTimedOut implements Exception {
+  const _NativeStageTimedOut(this.requestId);
+
+  final String requestId;
+}
+
+Future<_NativeStageCall> _invokeNativeStage({
+  required MethodChannel channel,
+  required String requestId,
+  required Map<String, Object?> arguments,
+  required Duration remaining,
+  ModelLoadCancellationToken? cancellationToken,
+}) async {
+  if (cancellationToken?.isCancelled == true) {
+    throw _NativeStageCancelled(
+      requestId: requestId,
+      cancellationToken: cancellationToken!,
+      dispatched: false,
+    );
+  }
+
+  final terminal = Completer<_NativeStageTerminal>();
+  Timer? timer;
+  var active = true;
+  var dispatched = false;
+  var cancelSent = false;
+
+  void sendCancel() {
+    if (!dispatched || cancelSent) {
+      return;
+    }
+    cancelSent = true;
+    try {
+      unawaited(
+        channel.invokeMapMethod<String, Object?>(
+          'cancelDecode',
+          <String, Object?>{'requestId': requestId},
+        ).then<void>((_) {}, onError: (_, __) {}),
+      );
+    } on Object {
+      // Cancellation remains terminal even if a detached channel rejects the
+      // best-effort native cancellation message synchronously.
+    }
+  }
+
+  void onCancellation() {
+    if (!active || terminal.isCompleted) {
+      return;
+    }
+    sendCancel();
+    terminal.complete(const _NativeStageCancelledTerminal());
+  }
+
+  final removeCancellationListener = cancellationToken == null
+      ? () {}
+      : cancellationToken.registerCancellationListener(onCancellation);
+  if (cancellationToken?.isCancelled == true) {
+    active = false;
+    removeCancellationListener();
+    throw _NativeStageCancelled(
+      requestId: requestId,
+      cancellationToken: cancellationToken!,
+      dispatched: false,
+    );
+  }
+
+  dispatched = true;
+  try {
+    unawaited(
+      channel.invokeMapMethod<String, Object?>(
+        'decodeGlb',
+        <String, Object?>{...arguments, 'requestId': requestId},
+      ).then<void>(
+        (result) {
+          if (active && !terminal.isCompleted) {
+            terminal.complete(_NativeStageSucceeded(result));
+          }
+        },
+        onError: (Object error, StackTrace stackTrace) {
+          if (active && !terminal.isCompleted) {
+            terminal.complete(_NativeStageFailed(error, stackTrace));
+          }
+        },
+      ),
+    );
+  } on Object catch (error, stackTrace) {
+    terminal.complete(_NativeStageFailed(error, stackTrace));
+  }
+  timer = Timer(remaining, () {
+    if (!active || terminal.isCompleted) {
+      return;
+    }
+    sendCancel();
+    terminal.complete(const _NativeStageTimedOutTerminal());
+  });
+
+  final outcome = await terminal.future;
+  active = false;
+  timer.cancel();
+  removeCancellationListener();
+  return switch (outcome) {
+    _NativeStageSucceeded(:final result) => _NativeStageCall(result),
+    _NativeStageFailed(:final error, :final stackTrace) =>
+      Error.throwWithStackTrace(error, stackTrace),
+    _NativeStageCancelledTerminal() => throw _NativeStageCancelled(
+        requestId: requestId,
+        cancellationToken: cancellationToken!,
+        dispatched: true,
+      ),
+    _NativeStageTimedOutTerminal() => throw _NativeStageTimedOut(requestId),
+  };
+}
+
 final class _NativeDecodeDeadline {
   _NativeDecodeDeadline(this.timeout) : _stopwatch = Stopwatch()..start();
 
@@ -566,6 +863,7 @@ ViewerDiagnostic _nativeDecodeTimeoutDiagnostic({
   required String? source,
   required Duration timeout,
   required bool dispatched,
+  String? requestId,
 }) {
   return ViewerDiagnostic(
     code: ViewerDiagnosticCode.modelLoadTimeout,
@@ -579,6 +877,35 @@ ViewerDiagnostic _nativeDecodeTimeoutDiagnostic({
       'limitation': 'nativeDecodeDeadline',
       'status': 'timedOut',
       'timeoutMilliseconds': timeout.inMilliseconds,
+      if (requestId != null) 'requestId': requestId,
+      'nativeDispatch': dispatched ? 'started' : 'notStarted',
+      'nativeResourceRelease': dispatched ? 'notGuaranteed' : 'notApplicable',
+      'lateResult': dispatched ? 'discardedByDart' : 'notApplicable',
+      'fallback': 'diagnosticOnly',
+    },
+  );
+}
+
+ViewerDiagnostic _nativeDecodeCancellationDiagnostic({
+  required String extension,
+  required String decoder,
+  required String? source,
+  required ModelLoadCancellationToken cancellationToken,
+  required bool dispatched,
+  String? requestId,
+}) {
+  return ViewerDiagnostic(
+    code: ViewerDiagnosticCode.modelLoadCancelled,
+    message: 'Native $decoder decoding was cancelled by the caller.',
+    details: <String, Object?>{
+      'source': source,
+      'extension': extension,
+      'decoder': decoder,
+      'required': true,
+      'stage': 'nativeDecodeMethodChannel',
+      'reason': cancellationToken.reason ?? 'caller',
+      'status': 'cancelled',
+      if (requestId != null) 'requestId': requestId,
       'nativeDispatch': dispatched ? 'started' : 'notStarted',
       'nativeResourceRelease': dispatched ? 'notGuaranteed' : 'notApplicable',
       'lateResult': dispatched ? 'discardedByDart' : 'notApplicable',
@@ -854,6 +1181,7 @@ GlbNativeDecodeResult _decodeResultFromMethodResult(
 GlbNativeDecodeResult _basisuDecodeResultFromMethodResult(
   Map<String, Object?>? result, {
   required Uint8List sourceBytes,
+  required List<Object?> basisuRequests,
   required String? source,
   required GlbDecodeBudget budget,
   required GlbDecodeBudgetTracker budgetTracker,
@@ -869,6 +1197,39 @@ GlbNativeDecodeResult _basisuDecodeResultFromMethodResult(
     }
   }
   final bytes = _bytesFromValue(result?['bytes']);
+  final rawDecodedImages = result?['decodedImages'];
+  final hasDecodedPayload =
+      rawDecodedImages is List && rawDecodedImages.isNotEmpty;
+  if (diagnostics.isNotEmpty) {
+    if (bytes != null || hasDecodedPayload) {
+      return GlbNativeDecodeResult(
+        outputAccounting: GlbNativeDecodeOutputAccounting.none,
+        diagnostics: <ViewerDiagnostic>[
+          _basisuMalformedMethodResultDiagnostic(
+            source: source,
+            message:
+                'Native BasisU decoder returned a terminal diagnostic together with a success payload.',
+          ),
+        ],
+      );
+    }
+    return GlbNativeDecodeResult(
+      outputAccounting: GlbNativeDecodeOutputAccounting.none,
+      diagnostics: List<ViewerDiagnostic>.unmodifiable(diagnostics),
+    );
+  }
+  if (bytes != null && hasDecodedPayload) {
+    return GlbNativeDecodeResult(
+      outputAccounting: GlbNativeDecodeOutputAccounting.none,
+      diagnostics: <ViewerDiagnostic>[
+        _basisuMalformedMethodResultDiagnostic(
+          source: source,
+          message:
+              'Native BasisU decoder returned both opaque bytes and decoded image payloads.',
+        ),
+      ],
+    );
+  }
   if (bytes != null) {
     return GlbNativeDecodeResult(
       bytes: bytes,
@@ -877,9 +1238,21 @@ GlbNativeDecodeResult _basisuDecodeResultFromMethodResult(
     );
   }
   final decodedImages = _decodedBasisuImagesFromValue(
-    result?['decodedImages'],
+    rawDecodedImages,
+    basisuRequests: basisuRequests,
   );
   if (decodedImages.isNotEmpty) {
+    final contentRoleDiagnostic = _basisuContentRoleDiagnostic(
+      decodedImages,
+      basisuRequests: basisuRequests,
+      source: source,
+    );
+    if (contentRoleDiagnostic != null) {
+      return GlbNativeDecodeResult(
+        outputAccounting: GlbNativeDecodeOutputAccounting.none,
+        diagnostics: <ViewerDiagnostic>[contentRoleDiagnostic],
+      );
+    }
     final rewrite = rewriteBasisuTexturesInGlb(
       sourceBytes,
       decodedImages: decodedImages,
@@ -887,8 +1260,45 @@ GlbNativeDecodeResult _basisuDecodeResultFromMethodResult(
       budget: budget,
       budgetTracker: budgetTracker,
     );
+    final authoredMipDiagnostics = rewrite.diagnostics.where(
+      (diagnostic) =>
+          diagnostic.details['status'] == 'mipAwareImporterRequired',
+    );
+    final authoredMipImages = decodedImages.where(
+      (image) => image.levels.isNotEmpty,
+    );
+    final isValidatedAuthoredMipResult =
+        authoredMipImages.length == decodedImages.length &&
+            authoredMipDiagnostics.length == decodedImages.length &&
+            rewrite.diagnostics.length == decodedImages.length;
+    if (isValidatedAuthoredMipResult) {
+      final budgetDiagnostic = _reserveDecodedBasisuMipPayloads(
+        decodedImages,
+        budgetTracker: budgetTracker,
+        source: source,
+      );
+      if (budgetDiagnostic != null) {
+        return GlbNativeDecodeResult(
+          outputAccounting: GlbNativeDecodeOutputAccounting.none,
+          diagnostics: List<ViewerDiagnostic>.unmodifiable(
+            <ViewerDiagnostic>[...diagnostics, budgetDiagnostic],
+          ),
+        );
+      }
+      return GlbNativeDecodeResult(
+        topologyBytes: sourceBytes,
+        outputAccounting: GlbNativeDecodeOutputAccounting.none,
+        decodedBasisuImages: List<GlbDecodedBasisuImage>.unmodifiable(
+          decodedImages,
+        ),
+        diagnostics: List<ViewerDiagnostic>.unmodifiable(diagnostics),
+      );
+    }
     return GlbNativeDecodeResult(
       bytes: rewrite.bytes,
+      decodedBasisuImages: List<GlbDecodedBasisuImage>.unmodifiable(
+        decodedImages.where((image) => image.levels.isNotEmpty),
+      ),
       outputAccounting: rewrite.bytes == null
           ? GlbNativeDecodeOutputAccounting.none
           : GlbNativeDecodeOutputAccounting.componentPayloadsAccounted,
@@ -912,6 +1322,162 @@ GlbNativeDecodeResult _basisuDecodeResultFromMethodResult(
     outputAccounting: GlbNativeDecodeOutputAccounting.none,
     diagnostics: List<ViewerDiagnostic>.unmodifiable(diagnostics),
   );
+}
+
+ViewerDiagnostic _basisuMalformedMethodResultDiagnostic({
+  required String? source,
+  required String message,
+}) {
+  return ViewerDiagnostic(
+    code: ViewerDiagnosticCode.unsupportedModelFeature,
+    message: message,
+    details: <String, Object?>{
+      'source': source,
+      'extension': kBasisuTextureExtension,
+      'decoder': 'basisu',
+      'required': true,
+      'limitation': 'decodedPayloadSchema',
+      'status': 'malformedOutput',
+      'stage': 'basisuDecodedSchema',
+      'field': 'methodChannelResult',
+      'limit': 'exactly one terminal diagnostic or success payload',
+    },
+  );
+}
+
+ViewerDiagnostic? _basisuContentRoleDiagnostic(
+  List<GlbDecodedBasisuImage> decodedImages, {
+  required List<Object?> basisuRequests,
+  required String? source,
+}) {
+  final expectedRoles = <int, String>{};
+  for (final rawRequest in basisuRequests) {
+    final request = _map(rawRequest);
+    final imageIndex = _intValue(request?['imageIndex']);
+    final usageRole = request?['usageRole'];
+    if (imageIndex != null && usageRole is String) {
+      expectedRoles[imageIndex] = usageRole;
+    }
+  }
+  for (var index = 0; index < decodedImages.length; index += 1) {
+    final image = decodedImages[index];
+    if (image.levels.isEmpty) {
+      continue;
+    }
+    final expectedRole = expectedRoles[image.imageIndex];
+    if (expectedRole == image.contentRole) {
+      continue;
+    }
+    return ViewerDiagnostic(
+      code: ViewerDiagnosticCode.unsupportedModelFeature,
+      message:
+          'Native BasisU decoded content role does not match the requested image usage role.',
+      details: <String, Object?>{
+        'source': source,
+        'extension': kBasisuTextureExtension,
+        'decoder': 'basisu',
+        'required': true,
+        'limitation': 'decodedPayloadSchema',
+        'status': 'malformedOutput',
+        'stage': 'basisuDecodedSchema',
+        'field': 'decodedImages[$index].contentRole',
+        'limit': expectedRole ?? 'request-derived usageRole',
+        'actual': image.contentRole,
+        'imageIndex': image.imageIndex,
+      },
+    );
+  }
+  return null;
+}
+
+ViewerDiagnostic? _reserveDecodedBasisuMipPayloads(
+  List<GlbDecodedBasisuImage> decodedImages, {
+  required GlbDecodeBudgetTracker budgetTracker,
+  required String? source,
+}) {
+  final shadow = GlbDecodeBudgetTracker(budgetTracker.budget);
+  try {
+    final nonNativeDecodedBytes =
+        budgetTracker.totalDecodedBytes - budgetTracker.nativeOutputBytes;
+    if (nonNativeDecodedBytes < 0) {
+      throw StateError(
+        'Native output accounting exceeds total decoded-byte accounting.',
+      );
+    }
+    if (nonNativeDecodedBytes != 0) {
+      shadow.reserveDecodedBytes(
+        nonNativeDecodedBytes,
+        stage: 'basisuAuthoredMipBudgetSnapshot',
+      );
+    }
+    if (budgetTracker.nativeOutputBytes != 0) {
+      shadow.reserveNativeOutputBytes(
+        budgetTracker.nativeOutputBytes,
+        stage: 'basisuAuthoredMipBudgetSnapshot',
+      );
+    }
+    if (budgetTracker.accessors != 0) {
+      shadow.reserveAccessors(
+        budgetTracker.accessors,
+        stage: 'basisuAuthoredMipBudgetSnapshot',
+      );
+    }
+    if (budgetTracker.vertices != 0) {
+      shadow.reserveVertices(
+        budgetTracker.vertices,
+        stage: 'basisuAuthoredMipBudgetSnapshot',
+      );
+    }
+    if (budgetTracker.indices != 0) {
+      shadow.reserveIndices(
+        budgetTracker.indices,
+        stage: 'basisuAuthoredMipBudgetSnapshot',
+      );
+    }
+    if (budgetTracker.texturePixels != 0) {
+      shadow.reserveTexturePixels(
+        width: budgetTracker.texturePixels,
+        height: 1,
+        stage: 'basisuAuthoredMipBudgetSnapshot',
+      );
+    }
+    for (final image in decodedImages) {
+      for (final level in image.levels) {
+        shadow
+          ..reserveTexturePixels(
+            width: level.width,
+            height: level.height,
+            stage: 'basisuAuthoredMipImage',
+          )
+          ..reserveNativeOutputBytes(
+            level.rgbaBytes.lengthInBytes,
+            stage: 'basisuAuthoredMipOutput',
+          );
+      }
+    }
+  } on GlbDecodeBudgetExceeded catch (error) {
+    return _nativeOutputBudgetDiagnostic(
+      error,
+      extension: kBasisuTextureExtension,
+      source: source,
+    );
+  }
+  final addedPixels = shadow.texturePixels - budgetTracker.texturePixels;
+  final addedBytes = shadow.nativeOutputBytes - budgetTracker.nativeOutputBytes;
+  if (addedPixels != 0) {
+    budgetTracker.reserveTexturePixels(
+      width: addedPixels,
+      height: 1,
+      stage: 'basisuAuthoredMipImage',
+    );
+  }
+  if (addedBytes != 0) {
+    budgetTracker.reserveNativeOutputBytes(
+      addedBytes,
+      stage: 'basisuAuthoredMipOutput',
+    );
+  }
+  return null;
 }
 
 GlbDecoderCapabilities _capabilitiesFromValue(Object? value) {
@@ -998,7 +1564,10 @@ List<GlbDecodedDracoPrimitive> _decodedPrimitivesFromValue(Object? value) {
   return List<GlbDecodedDracoPrimitive>.unmodifiable(decoded);
 }
 
-List<GlbDecodedBasisuImage> _decodedBasisuImagesFromValue(Object? value) {
+List<GlbDecodedBasisuImage> _decodedBasisuImagesFromValue(
+  Object? value, {
+  required List<Object?> basisuRequests,
+}) {
   if (value is! List) {
     return const <GlbDecodedBasisuImage>[];
   }
@@ -1008,6 +1577,47 @@ List<GlbDecodedBasisuImage> _decodedBasisuImagesFromValue(Object? value) {
       continue;
     }
     final imageIndex = rawImage['imageIndex'];
+    final contentRole = rawImage['contentRole'];
+    final rawLevels = rawImage['levels'];
+    if (rawLevels is List) {
+      final levels = <GlbDecodedBasisuMipLevel>[];
+      for (final rawLevel in rawLevels) {
+        if (rawLevel is! Map) {
+          levels.add(
+            GlbDecodedBasisuMipLevel(
+              level: -1,
+              width: -1,
+              height: -1,
+              rgbaBytes: Uint8List(0),
+            ),
+          );
+          continue;
+        }
+        final rgbaBytes = _bytesFromValue(rawLevel['rgbaBytes']);
+        levels.add(
+          GlbDecodedBasisuMipLevel(
+            level: rawLevel['level'] is int ? rawLevel['level']! as int : -1,
+            width: rawLevel['width'] is int ? rawLevel['width']! as int : -1,
+            height: rawLevel['height'] is int ? rawLevel['height']! as int : -1,
+            rgbaBytes: rgbaBytes == null
+                ? Uint8List(0)
+                : Uint8List.fromList(rgbaBytes),
+          ),
+        );
+      }
+      decoded.add(
+        GlbDecodedBasisuImage(
+          imageIndex: imageIndex is int ? imageIndex : -1,
+          contentRole: contentRole is String ? contentRole : '',
+          levels: List<GlbDecodedBasisuMipLevel>.unmodifiable(levels),
+          textureBindings: _basisuBindingsForImage(
+            basisuRequests,
+            imageIndex is int ? imageIndex : -1,
+          ),
+        ),
+      );
+      continue;
+    }
     final mimeType = rawImage['mimeType'];
     final width = rawImage['width'];
     final height = rawImage['height'];
@@ -1025,6 +1635,41 @@ List<GlbDecodedBasisuImage> _decodedBasisuImagesFromValue(Object? value) {
     }
   }
   return List<GlbDecodedBasisuImage>.unmodifiable(decoded);
+}
+
+List<GlbDecodedBasisuTextureBinding> _basisuBindingsForImage(
+  List<Object?> requests,
+  int imageIndex,
+) {
+  for (final rawRequest in requests) {
+    final request = _map(rawRequest);
+    if (_intValue(request?['imageIndex']) != imageIndex) {
+      continue;
+    }
+    final bindings = <GlbDecodedBasisuTextureBinding>[];
+    for (final rawBinding
+        in _list(request?['textureBindings']) ?? const <Object?>[]) {
+      final binding = _map(rawBinding);
+      final textureIndex = _intValue(binding?['textureIndex']);
+      if (textureIndex == null || textureIndex < 0) {
+        continue;
+      }
+      bindings.add(
+        GlbDecodedBasisuTextureBinding(
+          textureIndex: textureIndex,
+          samplerIndex: _intValue(binding?['samplerIndex']),
+          sampler: GlbBasisuSamplerIntent(
+            magFilter: _intValue(binding?['magFilter']) ?? 9729,
+            minFilter: _intValue(binding?['minFilter']) ?? 9987,
+            wrapS: _intValue(binding?['wrapS']) ?? 10497,
+            wrapT: _intValue(binding?['wrapT']) ?? 10497,
+          ),
+        ),
+      );
+    }
+    return List<GlbDecodedBasisuTextureBinding>.unmodifiable(bindings);
+  }
+  return const <GlbDecodedBasisuTextureBinding>[];
 }
 
 Map<String, Object?> _objectMap(Object? value) {
@@ -1241,6 +1886,7 @@ Map<String, Object?> _nativeDecodeBudgetMap(GlbDecodeBudget budget) {
     'maxIndices': budget.maxIndices,
     'maxTexturePixels': budget.maxTexturePixels,
     'maxNativeOutputBytes': budget.maxNativeOutputBytes,
+    'maxNativeWorkingBytes': budget.maxNativeWorkingBytes,
   };
 }
 
@@ -1267,6 +1913,7 @@ List<Object?> _basisuImageRequestsFromGlb(Uint8List bytes) {
   final textures = _list(json['textures']);
   final images = _list(json['images']);
   final bufferViews = _list(json['bufferViews']);
+  final samplers = _list(json['samplers']) ?? const <Object?>[];
   if (textures == null || images == null || bufferViews == null) {
     return const <Object?>[];
   }
@@ -1403,6 +2050,31 @@ List<Object?> _basisuImageRequestsFromGlb(Uint8List bytes) {
     final colorChannels = imageColorChannels[imageIndex] ?? 0;
     final nonColorChannels = imageNonColorChannels[imageIndex] ?? 0;
     final sampledChannels = colorChannels | nonColorChannels;
+    final textureBindings = <Object?>[];
+    for (var consumerIndex = 0;
+        consumerIndex < textures.length;
+        consumerIndex += 1) {
+      final consumer = _map(textures[consumerIndex]);
+      final consumerBasisu =
+          _map(_map(consumer?['extensions'])?[kBasisuTextureExtension]);
+      if (_intValue(consumerBasisu?['source']) != imageIndex) {
+        continue;
+      }
+      final samplerIndex = _intValue(consumer?['sampler']);
+      final sampler = samplerIndex != null &&
+              samplerIndex >= 0 &&
+              samplerIndex < samplers.length
+          ? _map(samplers[samplerIndex])
+          : null;
+      textureBindings.add(<String, Object?>{
+        'textureIndex': consumerIndex,
+        'samplerIndex': samplerIndex,
+        'magFilter': _intValue(sampler?['magFilter']) ?? 9729,
+        'minFilter': _intValue(sampler?['minFilter']) ?? 9987,
+        'wrapS': _intValue(sampler?['wrapS']) ?? 10497,
+        'wrapT': _intValue(sampler?['wrapT']) ?? 10497,
+      });
+    }
     requests.add(<String, Object?>{
       'textureIndex': textureIndex,
       'imageIndex': imageIndex,
@@ -1426,6 +2098,7 @@ List<Object?> _basisuImageRequestsFromGlb(Uint8List bytes) {
       'mimeType': image?['mimeType'],
       'uri': image?['uri'],
       'bytes': imageBytes,
+      'textureBindings': List<Object?>.unmodifiable(textureBindings),
     });
   }
   return List<Object?>.unmodifiable(requests);

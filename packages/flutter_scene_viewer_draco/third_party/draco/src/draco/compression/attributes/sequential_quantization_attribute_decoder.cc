@@ -21,6 +21,10 @@ namespace draco {
 SequentialQuantizationAttributeDecoder::
     SequentialQuantizationAttributeDecoder() {}
 
+SequentialQuantizationAttributeDecoder::SequentialQuantizationAttributeDecoder(
+    FsvDecodeControl *control)
+    : quantization_transform_(control) {}
+
 bool SequentialQuantizationAttributeDecoder::Init(PointCloudDecoder *decoder,
                                                   int attribute_id) {
   if (!SequentialIntegerAttributeDecoder::Init(decoder, attribute_id)) {
@@ -36,7 +40,7 @@ bool SequentialQuantizationAttributeDecoder::Init(PointCloudDecoder *decoder,
 }
 
 bool SequentialQuantizationAttributeDecoder::DecodeIntegerValues(
-    const std::vector<PointIndex> &point_ids, DecoderBuffer *in_buffer) {
+    const FsvVector<PointIndex> &point_ids, DecoderBuffer *in_buffer) {
 #ifdef DRACO_BACKWARDS_COMPATIBILITY_SUPPORTED
   if (decoder()->bitstream_version() < DRACO_BITSTREAM_VERSION(2, 0) &&
       !DecodeQuantizedDataInfo()) {
@@ -49,7 +53,7 @@ bool SequentialQuantizationAttributeDecoder::DecodeIntegerValues(
 
 bool SequentialQuantizationAttributeDecoder::
     DecodeDataNeededByPortableTransform(
-        const std::vector<PointIndex> &point_ids, DecoderBuffer *in_buffer) {
+        const FsvVector<PointIndex> &point_ids, DecoderBuffer *in_buffer) {
   if (decoder()->bitstream_version() >= DRACO_BITSTREAM_VERSION(2, 0)) {
     // Decode quantization data here only for files with bitstream version 2.0+
     if (!DecodeQuantizedDataInfo()) {

@@ -627,7 +627,10 @@ final class FlutterSceneMaterialExtensionBackend {
     }
   }
 
-  void clear({List<flutter_scene.RenderView>? sceneViews}) {
+  void clear({
+    List<flutter_scene.RenderView>? sceneViews,
+    bool preserveProductionPreflight = false,
+  }) {
     final backgroundView = _backgroundView;
     if (sceneViews != null && backgroundView != null) {
       sceneViews.remove(backgroundView);
@@ -640,7 +643,15 @@ final class FlutterSceneMaterialExtensionBackend {
     _transmissionPrimitives.clear();
     _backgroundView = null;
     _backgroundTexture = null;
-    _productionPreflightResult = null;
+    final cachedPreflight = _productionPreflightResult;
+    final preserveAvailablePreflight = preserveProductionPreflight &&
+        cachedPreflight != null &&
+        cachedPreflight.diagnostics.isEmpty &&
+        cachedPreflight.support.backendKind ==
+            MaterialExtensionBackendKind.flutterSceneCustomShader;
+    if (!preserveAvailablePreflight) {
+      _productionPreflightResult = null;
+    }
   }
 
   static void _refreshMountedMesh(flutter_scene.Node node) {

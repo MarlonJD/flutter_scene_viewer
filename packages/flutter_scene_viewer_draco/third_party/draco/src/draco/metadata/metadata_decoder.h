@@ -21,10 +21,13 @@
 
 namespace draco {
 
+// FSV LOCAL MODIFICATION (Apache-2.0 section 4(b)): metadata decoder scratch,
+// decoded names/blobs, and stop checkpoints use the explicit decode control.
 // Class for decoding the metadata.
-class MetadataDecoder {
+class MetadataDecoder : public FsvDecodeAllocated {
  public:
   MetadataDecoder();
+  explicit MetadataDecoder(FsvDecodeControl *control);
   bool DecodeMetadata(DecoderBuffer *in_buffer, Metadata *metadata);
   bool DecodeGeometryMetadata(DecoderBuffer *in_buffer,
                               GeometryMetadata *metadata);
@@ -33,9 +36,11 @@ class MetadataDecoder {
   bool DecodeMetadata(Metadata *metadata);
   bool DecodeEntries(Metadata *metadata);
   bool DecodeEntry(Metadata *metadata);
-  bool DecodeName(std::string *name);
+  bool DecodeName(FsvString *name);
+  bool ShouldStopDecoding() const;
 
   DecoderBuffer *buffer_;
+  FsvDecodeControl *control_;
 };
 }  // namespace draco
 

@@ -25,6 +25,15 @@ SequentialAttributeDecodersController::SequentialAttributeDecodersController(
     std::unique_ptr<PointsSequencer> sequencer)
     : sequencer_(std::move(sequencer)) {}
 
+SequentialAttributeDecodersController::SequentialAttributeDecodersController(
+    std::unique_ptr<PointsSequencer> sequencer, FsvDecodeControl *control)
+    : AttributesDecoder(control),
+      sequential_decoders_(
+          FsvDecodeAllocator<std::unique_ptr<SequentialAttributeDecoder>>(
+              control)),
+      point_ids_(FsvDecodeAllocator<PointIndex>(control)),
+      sequencer_(std::move(sequencer)) {}
+
 bool SequentialAttributeDecodersController::DecodeAttributesDecoderData(
     DecoderBuffer *buffer) {
   if (!AttributesDecoder::DecodeAttributesDecoderData(buffer)) {
@@ -124,20 +133,22 @@ bool SequentialAttributeDecodersController::
 std::unique_ptr<SequentialAttributeDecoder>
 SequentialAttributeDecodersController::CreateSequentialDecoder(
     uint8_t decoder_type) {
+  FsvDecodeControl *const control =
+      GetDecoder() == nullptr ? nullptr : GetDecoder()->fsv_decode_control();
   switch (decoder_type) {
     case SEQUENTIAL_ATTRIBUTE_ENCODER_GENERIC:
       return std::unique_ptr<SequentialAttributeDecoder>(
-          new SequentialAttributeDecoder());
+          new (control) SequentialAttributeDecoder());
     case SEQUENTIAL_ATTRIBUTE_ENCODER_INTEGER:
       return std::unique_ptr<SequentialAttributeDecoder>(
-          new SequentialIntegerAttributeDecoder());
+          new (control) SequentialIntegerAttributeDecoder());
     case SEQUENTIAL_ATTRIBUTE_ENCODER_QUANTIZATION:
       return std::unique_ptr<SequentialAttributeDecoder>(
-          new SequentialQuantizationAttributeDecoder());
+          new (control) SequentialQuantizationAttributeDecoder(control));
 #ifdef DRACO_NORMAL_ENCODING_SUPPORTED
     case SEQUENTIAL_ATTRIBUTE_ENCODER_NORMALS:
       return std::unique_ptr<SequentialNormalAttributeDecoder>(
-          new SequentialNormalAttributeDecoder());
+          new (control) SequentialNormalAttributeDecoder());
 #endif
     default:
       break;

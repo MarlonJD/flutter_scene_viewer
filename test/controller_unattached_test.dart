@@ -90,7 +90,12 @@ final class FitCameraSink implements ViewerCommandSink {
       MaterialExtensionSupport.unsupported;
 
   @override
-  Future<ModelLoadResult> load(ModelSource source) {
+  Future<ModelLoadResult> load(
+    ModelSource source, {
+    ModelLoadCancellationToken? cancellationToken,
+    bool Function()? tryAcceptPublication,
+    void Function()? onPublicationRejected,
+  }) {
     throw UnimplementedError();
   }
 

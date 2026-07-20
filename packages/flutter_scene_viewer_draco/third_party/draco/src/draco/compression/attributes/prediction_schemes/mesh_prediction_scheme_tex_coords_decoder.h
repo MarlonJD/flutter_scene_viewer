@@ -40,12 +40,15 @@ class MeshPredictionSchemeTexCoordsDecoder
                                                         MeshDataT>::CorrType;
   MeshPredictionSchemeTexCoordsDecoder(const PointAttribute *attribute,
                                        const TransformT &transform,
-                                       const MeshDataT &mesh_data, int version)
+                                       const MeshDataT &mesh_data, int version,
+                                       FsvDecodeControl *control = nullptr)
       : MeshPredictionSchemeDecoder<DataTypeT, TransformT, MeshDataT>(
-            attribute, transform, mesh_data),
+            attribute, transform, mesh_data, control),
         pos_attribute_(nullptr),
         entry_to_point_id_map_(nullptr),
+        predicted_value_(FsvDecodeAllocator<DataTypeT>(control)),
         num_components_(0),
+        orientations_(FsvDecodeAllocator<bool>(control)),
         version_(version) {}
 
   bool ComputeOriginalValues(const CorrType *in_corr, DataTypeT *out_data,
@@ -111,10 +114,10 @@ class MeshPredictionSchemeTexCoordsDecoder
  private:
   const PointAttribute *pos_attribute_;
   const PointIndex *entry_to_point_id_map_;
-  std::unique_ptr<DataTypeT[]> predicted_value_;
+  FsvVector<DataTypeT> predicted_value_;
   int num_components_;
   // Encoded / decoded array of UV flips.
-  std::vector<bool> orientations_;
+  FsvVector<bool> orientations_;
   int version_;
 };
 
@@ -129,8 +132,7 @@ bool MeshPredictionSchemeTexCoordsDecoder<DataTypeT, TransformT, MeshDataT>::
   }
   num_components_ = num_components;
   entry_to_point_id_map_ = entry_to_point_id_map;
-  predicted_value_ =
-      std::unique_ptr<DataTypeT[]>(new DataTypeT[num_components]);
+  predicted_value_.resize(num_components);
   this->transform().Init(num_components);
 
   const int corner_map_size =
@@ -143,7 +145,7 @@ bool MeshPredictionSchemeTexCoordsDecoder<DataTypeT, TransformT, MeshDataT>::
 
     const int dst_offset = p * num_components;
     this->transform().ComputeOriginalValue(
-        predicted_value_.get(), in_corr + dst_offset, out_data + dst_offset);
+        predicted_value_.data(), in_corr + dst_offset, out_data + dst_offset);
   }
   return true;
 }

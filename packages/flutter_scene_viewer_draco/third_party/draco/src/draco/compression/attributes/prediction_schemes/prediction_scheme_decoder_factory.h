@@ -34,6 +34,23 @@
 
 namespace draco {
 
+template <class TransformT>
+TransformT FsvPredictionTransformImpl(FsvDecodeControl *control,
+                                      std::true_type) {
+  return TransformT(control);
+}
+
+template <class TransformT>
+TransformT FsvPredictionTransformImpl(FsvDecodeControl *, std::false_type) {
+  return TransformT();
+}
+
+template <class TransformT>
+TransformT FsvPredictionTransform(FsvDecodeControl *control) {
+  return FsvPredictionTransformImpl<TransformT>(
+      control, std::is_constructible<TransformT, FsvDecodeControl *>());
+}
+
 // Factory class for creating mesh prediction schemes. The factory implements
 // operator() that is used to create an appropriate mesh prediction scheme in
 // CreateMeshPredictionScheme() function in prediction_scheme_factory.h
@@ -50,46 +67,48 @@ struct MeshPredictionSchemeDecoderFactory {
         PredictionSchemeMethod method, const PointAttribute *attribute,
         const TransformT &transform, const MeshDataT &mesh_data,
         uint16_t bitstream_version) {
+      FsvDecodeControl *const control = mesh_data.fsv_decode_control();
       if (method == MESH_PREDICTION_PARALLELOGRAM) {
         return std::unique_ptr<PredictionSchemeDecoder<DataTypeT, TransformT>>(
-            new MeshPredictionSchemeParallelogramDecoder<DataTypeT, TransformT,
-                                                         MeshDataT>(
-                attribute, transform, mesh_data));
+            new (control) MeshPredictionSchemeParallelogramDecoder<
+                DataTypeT, TransformT, MeshDataT>(attribute, transform,
+                                                  mesh_data, control));
       }
 #ifdef DRACO_BACKWARDS_COMPATIBILITY_SUPPORTED
       else if (method == MESH_PREDICTION_MULTI_PARALLELOGRAM) {
         return std::unique_ptr<PredictionSchemeDecoder<DataTypeT, TransformT>>(
-            new MeshPredictionSchemeMultiParallelogramDecoder<
+            new (control) MeshPredictionSchemeMultiParallelogramDecoder<
                 DataTypeT, TransformT, MeshDataT>(attribute, transform,
-                                                  mesh_data));
+                                                  mesh_data, control));
       }
 #endif
       else if (method == MESH_PREDICTION_CONSTRAINED_MULTI_PARALLELOGRAM) {
         return std::unique_ptr<PredictionSchemeDecoder<DataTypeT, TransformT>>(
-            new MeshPredictionSchemeConstrainedMultiParallelogramDecoder<
+            new (control)
+                MeshPredictionSchemeConstrainedMultiParallelogramDecoder<
                 DataTypeT, TransformT, MeshDataT>(attribute, transform,
-                                                  mesh_data));
+                                                  mesh_data, control));
       }
 #ifdef DRACO_BACKWARDS_COMPATIBILITY_SUPPORTED
       else if (method == MESH_PREDICTION_TEX_COORDS_DEPRECATED) {
         return std::unique_ptr<PredictionSchemeDecoder<DataTypeT, TransformT>>(
-            new MeshPredictionSchemeTexCoordsDecoder<DataTypeT, TransformT,
-                                                     MeshDataT>(
-                attribute, transform, mesh_data, bitstream_version));
+            new (control) MeshPredictionSchemeTexCoordsDecoder<
+                DataTypeT, TransformT, MeshDataT>(
+                attribute, transform, mesh_data, bitstream_version, control));
       }
 #endif
       else if (method == MESH_PREDICTION_TEX_COORDS_PORTABLE) {
         return std::unique_ptr<PredictionSchemeDecoder<DataTypeT, TransformT>>(
-            new MeshPredictionSchemeTexCoordsPortableDecoder<
+            new (control) MeshPredictionSchemeTexCoordsPortableDecoder<
                 DataTypeT, TransformT, MeshDataT>(attribute, transform,
-                                                  mesh_data));
+                                                  mesh_data, control));
       }
 #ifdef DRACO_NORMAL_ENCODING_SUPPORTED
       else if (method == MESH_PREDICTION_GEOMETRIC_NORMAL) {
         return std::unique_ptr<PredictionSchemeDecoder<DataTypeT, TransformT>>(
-            new MeshPredictionSchemeGeometricNormalDecoder<
+            new (control) MeshPredictionSchemeGeometricNormalDecoder<
                 DataTypeT, TransformT, MeshDataT>(attribute, transform,
-                                                  mesh_data));
+                                                  mesh_data, control));
       }
 #endif
       return nullptr;
@@ -108,11 +127,12 @@ struct MeshPredictionSchemeDecoderFactory {
         PredictionSchemeMethod method, const PointAttribute *attribute,
         const TransformT &transform, const MeshDataT &mesh_data,
         uint16_t bitstream_version) {
+      FsvDecodeControl *const control = mesh_data.fsv_decode_control();
       if (method == MESH_PREDICTION_GEOMETRIC_NORMAL) {
         return std::unique_ptr<PredictionSchemeDecoder<DataTypeT, TransformT>>(
-            new MeshPredictionSchemeGeometricNormalDecoder<
+            new (control) MeshPredictionSchemeGeometricNormalDecoder<
                 DataTypeT, TransformT, MeshDataT>(attribute, transform,
-                                                  mesh_data));
+                                                  mesh_data, control));
       }
       return nullptr;
     }
@@ -124,11 +144,12 @@ struct MeshPredictionSchemeDecoderFactory {
         PredictionSchemeMethod method, const PointAttribute *attribute,
         const TransformT &transform, const MeshDataT &mesh_data,
         uint16_t bitstream_version) {
+      FsvDecodeControl *const control = mesh_data.fsv_decode_control();
       if (method == MESH_PREDICTION_GEOMETRIC_NORMAL) {
         return std::unique_ptr<PredictionSchemeDecoder<DataTypeT, TransformT>>(
-            new MeshPredictionSchemeGeometricNormalDecoder<
+            new (control) MeshPredictionSchemeGeometricNormalDecoder<
                 DataTypeT, TransformT, MeshDataT>(attribute, transform,
-                                                  mesh_data));
+                                                  mesh_data, control));
       }
       return nullptr;
     }
@@ -169,7 +190,8 @@ CreatePredictionSchemeForDecoder(PredictionSchemeMethod method, int att_id,
     auto ret = CreateMeshPredictionScheme<
         MeshDecoder, PredictionSchemeDecoder<DataTypeT, TransformT>,
         MeshPredictionSchemeDecoderFactory<DataTypeT>>(
-        mesh_decoder, method, att_id, transform, decoder->bitstream_version());
+        mesh_decoder, method, att_id, transform, decoder->bitstream_version(),
+        decoder->fsv_decode_control());
     if (ret) {
       return ret;
     }
@@ -177,7 +199,9 @@ CreatePredictionSchemeForDecoder(PredictionSchemeMethod method, int att_id,
   }
   // Create delta decoder.
   return std::unique_ptr<PredictionSchemeDecoder<DataTypeT, TransformT>>(
-      new PredictionSchemeDeltaDecoder<DataTypeT, TransformT>(att, transform));
+      new (decoder->fsv_decode_control())
+          PredictionSchemeDeltaDecoder<DataTypeT, TransformT>(
+              att, transform, decoder->fsv_decode_control()));
 }
 
 // Create a prediction scheme using a default transform constructor.
@@ -186,7 +210,8 @@ std::unique_ptr<PredictionSchemeDecoder<DataTypeT, TransformT>>
 CreatePredictionSchemeForDecoder(PredictionSchemeMethod method, int att_id,
                                  const PointCloudDecoder *decoder) {
   return CreatePredictionSchemeForDecoder<DataTypeT, TransformT>(
-      method, att_id, decoder, TransformT());
+      method, att_id, decoder,
+      FsvPredictionTransform<TransformT>(decoder->fsv_decode_control()));
 }
 
 }  // namespace draco

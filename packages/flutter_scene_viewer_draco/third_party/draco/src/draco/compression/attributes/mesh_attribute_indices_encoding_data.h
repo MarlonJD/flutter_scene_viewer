@@ -20,12 +20,28 @@
 #include <vector>
 
 #include "draco/attributes/geometry_indices.h"
+#include "draco/core/fsv_decode_allocator.h"
 
 namespace draco {
 
 // Data used for encoding and decoding of mesh attributes.
 struct MeshAttributeIndicesEncodingData {
   MeshAttributeIndicesEncodingData() : num_values(0) {}
+  explicit MeshAttributeIndicesEncodingData(FsvDecodeControl *control)
+      : encoded_attribute_value_index_to_corner_map(
+            FsvDecodeAllocator<CornerIndex>(control)),
+        vertex_to_encoded_attribute_value_index_map(
+            FsvDecodeAllocator<int32_t>(control)),
+        num_values(0) {}
+
+  void SetDecodeControl(FsvDecodeControl *control) {
+    encoded_attribute_value_index_to_corner_map =
+        std::vector<CornerIndex, FsvDecodeAllocator<CornerIndex>>(
+            FsvDecodeAllocator<CornerIndex>(control));
+    vertex_to_encoded_attribute_value_index_map =
+        std::vector<int32_t, FsvDecodeAllocator<int32_t>>(
+            FsvDecodeAllocator<int32_t>(control));
+  }
 
   void Init(int num_vertices) {
     vertex_to_encoded_attribute_value_index_map.resize(num_vertices);
@@ -41,13 +57,15 @@ struct MeshAttributeIndicesEncodingData {
   // prediction schemes. Note that not all corners are included in this map,
   // e.g., if multiple corners share the same attribute value, only one of these
   // corners will be usually included.
-  std::vector<CornerIndex> encoded_attribute_value_index_to_corner_map;
+  std::vector<CornerIndex, FsvDecodeAllocator<CornerIndex>>
+      encoded_attribute_value_index_to_corner_map;
 
   // Map for storing encoding order of attribute entries for each vertex.
   // i.e. Mapping between vertices and their corresponding attribute entry ids
   // that are going to be used by the decoder.
   // -1 if an attribute entry hasn't been encoded/decoded yet.
-  std::vector<int32_t> vertex_to_encoded_attribute_value_index_map;
+  std::vector<int32_t, FsvDecodeAllocator<int32_t>>
+      vertex_to_encoded_attribute_value_index_map;
 
   // Total number of encoded/decoded attribute entries.
   int num_values;

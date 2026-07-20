@@ -35,6 +35,29 @@
 
 namespace basist
 {
+	// FSV LOCAL MODIFICATION (Apache-2.0 section 4(b)): request-scoped
+	// cooperative checkpoints. The transcoder never owns this pointer.
+	class fsv_transcode_control
+	{
+	public:
+		virtual ~fsv_transcode_control() = default;
+		virtual bool fsv_checkpoint(const char* stage) = 0;
+		virtual bool fsv_try_reserve(size_t bytes) = 0;
+		virtual void fsv_release(size_t bytes) = 0;
+		virtual void fsv_note_allocation_failure() = 0;
+		virtual basisu::fsv_vector_allocator* fsv_get_vector_allocator() = 0;
+	};
+
+	// FSV LOCAL MODIFICATION: change the allocator of an owned empty vector
+	// without introducing a global or thread-local request hook.
+	template<typename T>
+	inline void fsv_rebind_vector(basisu::vector<T>& value, basisu::fsv_vector_allocator* allocator) noexcept
+	{
+		if (value.fsv_allocator() == allocator)
+			return;
+		value.~vector<T>();
+		new ((void*)&value) basisu::vector<T>(allocator);
+	}
 	const uint32_t BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION = 16384;
 
 	// High-level composite texture formats supported by the transcoder.
@@ -232,6 +255,17 @@ namespace basist
 		enum { cMaxPrevFrameLevels = 16 };
 		basisu::vector<uint32_t> m_prev_frame_indices[2][cMaxPrevFrameLevels]; // [alpha_flag][level_index] 
 
+		void set_fsv_vector_allocator(basisu::fsv_vector_allocator* allocator) noexcept
+		{
+			clear();
+			for (uint32_t i = 0; i < 2; i++)
+			{
+				fsv_rebind_vector(m_block_endpoint_preds[i], allocator);
+				for (uint32_t j = 0; j < cMaxPrevFrameLevels; j++)
+					fsv_rebind_vector(m_prev_frame_indices[i][j], allocator);
+			}
+		}
+
 		void clear()
 		{
 			for (uint32_t i = 0; i < 2; i++)
@@ -292,6 +326,7 @@ namespace basist
 
 	public:
 		basisu_lowlevel_etc1s_transcoder();
+		void set_fsv_transcode_control(fsv_transcode_control* control);
 
 		void set_global_codebooks(const basisu_lowlevel_etc1s_transcoder* pGlobal_codebook) { m_pGlobal_codebook = pGlobal_codebook; }
 		const basisu_lowlevel_etc1s_transcoder* get_global_codebooks() const { return m_pGlobal_codebook; }
@@ -351,6 +386,7 @@ namespace basist
 		const selector_vec& get_selectors() const { return m_local_selectors; }
 				
 	private:
+		fsv_transcode_control* m_fsv_control = nullptr;
 		const basisu_lowlevel_etc1s_transcoder* m_pGlobal_codebook;
 
 		endpoint_vec m_local_endpoints;
@@ -361,6 +397,17 @@ namespace basist
 		uint32_t m_selector_history_buf_size;
 
 		basisu_transcoder_state m_def_state;
+
+		void fsv_bind_allocator(basisu::fsv_vector_allocator* allocator) noexcept
+		{
+			fsv_rebind_vector(m_local_endpoints, allocator);
+			fsv_rebind_vector(m_local_selectors, allocator);
+			m_endpoint_pred_model.set_fsv_vector_allocator(allocator);
+			m_delta_endpoint_model.set_fsv_vector_allocator(allocator);
+			m_selector_model.set_fsv_vector_allocator(allocator);
+			m_selector_history_buf_rle_model.set_fsv_vector_allocator(allocator);
+			m_def_state.set_fsv_vector_allocator(allocator);
+		}
 	};
 		
 	// UASTC LDR 4x4
@@ -370,6 +417,7 @@ namespace basist
 
 	public:
 		basisu_lowlevel_uastc_ldr_4x4_transcoder();
+		void set_fsv_transcode_control(fsv_transcode_control* control) { m_fsv_control = control; }
 
 		bool transcode_slice(void* pDst_blocks, uint32_t num_blocks_x, uint32_t num_blocks_y, const uint8_t* pImage_data, uint32_t image_data_size, block_format fmt,
 			uint32_t output_block_or_pixel_stride_in_bytes, bool bc1_allow_threecolor_blocks, bool has_alpha, const uint32_t orig_width, const uint32_t orig_height, uint32_t output_row_pitch_in_blocks_or_pixels = 0,
@@ -398,6 +446,9 @@ namespace basist
 			basisu_transcoder_state* pState = nullptr,
 			uint32_t output_rows_in_pixels = 0,
 			int channel0 = -1, int channel1 = -1);
+
+	private:
+		fsv_transcode_control* m_fsv_control = nullptr;
 	};
 
 #if BASISD_SUPPORT_XUASTC
@@ -1086,6 +1137,15 @@ namespace basist
 		basisu::uint8_vec m_level_uncomp_data;
 		int m_uncomp_data_level_index;
 
+		void set_fsv_vector_allocator(basisu::fsv_vector_allocator* allocator) noexcept
+		{
+			if (m_level_uncomp_data.fsv_allocator() == allocator)
+				return;
+			clear();
+			m_transcoder_state.set_fsv_vector_allocator(allocator);
+			fsv_rebind_vector(m_level_uncomp_data, allocator);
+		}
+
 		void clear()
 		{
 			m_transcoder_state.clear();
@@ -1104,6 +1164,18 @@ namespace basist
 	{
 	public:
 		ktx2_transcoder();
+
+		void set_fsv_transcode_control(fsv_transcode_control* control)
+		{
+			if (m_fsv_control != control)
+			{
+				clear();
+				fsv_bind_metadata_allocator(control ? control->fsv_get_vector_allocator() : nullptr);
+			}
+			m_fsv_control = control;
+			m_etc1s_transcoder.set_fsv_transcode_control(control);
+			m_uastc_ldr_transcoder.set_fsv_transcode_control(control);
+		}
 
 		// Frees all allocations, resets object.
 		void clear();
@@ -1212,6 +1284,10 @@ namespace basist
 		// Key value field data.
 		struct key_value
 		{
+			key_value() = default;
+			explicit key_value(basisu::fsv_vector_allocator* allocator) noexcept :
+				m_key(allocator), m_value(allocator) { }
+
 			// The key field is UTF8 and always zero terminated. 
 			// In memory we always append a zero terminator to the key.
 			basisu::uint8_vec m_key;
@@ -1272,6 +1348,12 @@ namespace basist
 			ktx2_transcoder_state *pState = nullptr);
 				
 	private:
+		static int fsv_zstd_checkpoint(void* opaque, size_t produced_bytes);
+		bool fsv_checkpoint(const char* stage) const
+		{
+			return (m_fsv_control == nullptr) || m_fsv_control->fsv_checkpoint(stage);
+		}
+		fsv_transcode_control* m_fsv_control;
 		const uint8_t* m_pData;
 		uint32_t m_data_size;
 
@@ -1309,10 +1391,17 @@ namespace basist
 		bool m_is_video;
 		float m_ldr_hdr_upconversion_nit_multiplier;
 
-		bool decompress_level_data(uint32_t level_index, basisu::uint8_vec& uncomp_data);
+		bool decompress_level_data(uint32_t level_index, ktx2_transcoder_state& state);
 		bool read_slice_offset_len_global_data(bool read_std_structs);
 		bool decompress_etc1s_global_data();
 		bool read_key_values();
+		void fsv_bind_metadata_allocator(basisu::fsv_vector_allocator* allocator) noexcept
+		{
+			fsv_rebind_vector(m_levels, allocator);
+			fsv_rebind_vector(m_dfd, allocator);
+			fsv_rebind_vector(m_key_values, allocator);
+			fsv_rebind_vector(m_etc1s_image_descs, allocator);
+		}
 	};
 
 	// Replaces if the key already exists
@@ -1356,3 +1445,12 @@ namespace basist
 
 } // namespace basisu
 
+#if BASISD_SUPPORT_KTX2
+namespace basisu
+{
+	// FSV LOCAL MODIFICATION: KTX2 Level Index entries are packed wire records
+	// populated by memcpy and can be relocated byte-for-byte without invoking
+	// the packed integer wrappers' potentially-throwing copy surface.
+	BASISU_DEFINE_BITWISE_COPYABLE(basist::ktx2_level_index)
+}
+#endif

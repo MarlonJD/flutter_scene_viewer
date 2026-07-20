@@ -25,7 +25,7 @@ class MeshEdgebreakerDecoder;
 
 // Abstract interface used by MeshEdgebreakerDecoder to interact with the actual
 // implementation of the edgebreaker decoding method.
-class MeshEdgebreakerDecoderImplInterface {
+class MeshEdgebreakerDecoderImplInterface : public FsvDecodeAllocated {
  public:
   virtual ~MeshEdgebreakerDecoderImplInterface() = default;
   virtual bool Init(MeshEdgebreakerDecoder *decoder) = 0;

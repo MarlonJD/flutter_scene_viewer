@@ -31,9 +31,11 @@ class MeshPredictionSchemeGeometricNormalDecoder
                                                         MeshDataT>::CorrType;
   MeshPredictionSchemeGeometricNormalDecoder(const PointAttribute *attribute,
                                              const TransformT &transform,
-                                             const MeshDataT &mesh_data)
+                                             const MeshDataT &mesh_data,
+                                             FsvDecodeControl *control =
+                                                 nullptr)
       : MeshPredictionSchemeDecoder<DataTypeT, TransformT, MeshDataT>(
-            attribute, transform, mesh_data),
+            attribute, transform, mesh_data, control),
         predictor_(mesh_data) {}
 
  private:

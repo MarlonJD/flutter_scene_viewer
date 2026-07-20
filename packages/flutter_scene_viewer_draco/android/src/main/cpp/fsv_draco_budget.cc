@@ -3,34 +3,42 @@
 #include <algorithm>
 #include <limits>
 #include <set>
+#include <string_view>
 #include <utility>
 
 namespace {
-FsvDracoDiagnostic InvalidMetadata(std::string field,
-                                   std::string message,
+void Assign(FsvDracoString* destination, std::string_view source) {
+  destination->assign(source.data(), source.size());
+}
+
+FsvDracoDiagnostic InvalidMetadata(std::string_view field,
+                                   std::string_view message,
                                    int mesh_index = -1,
                                    int primitive_index = -1,
-                                   std::string attribute = std::string()) {
-  FsvDracoDiagnostic diagnostic;
-  diagnostic.status = "invalidMetadata";
-  diagnostic.message = std::move(message);
+                                   std::string_view attribute = {},
+                                   fsv_draco::FsvDecodeControl* control = nullptr) {
+  FsvDracoDiagnostic diagnostic(control);
+  Assign(&diagnostic.status, "invalidMetadata");
+  Assign(&diagnostic.message, message);
   diagnostic.mesh_index = mesh_index;
   diagnostic.primitive_index = primitive_index;
-  diagnostic.attribute = std::move(attribute);
-  diagnostic.stage = "dracoNativePreflight";
-  diagnostic.field = std::move(field);
+  Assign(&diagnostic.attribute, attribute);
+  Assign(&diagnostic.stage, "dracoNativePreflight");
+  Assign(&diagnostic.field, field);
   return diagnostic;
 }
 
 bool ReadNumber(const FsvDracoBudgetNumber& number,
                 const char* field,
                 uint64_t* value,
-                FsvDracoDiagnostic* diagnostic) {
+                FsvDracoDiagnostic* diagnostic,
+                fsv_draco::FsvDecodeControl* control) {
   if (!number.present || !number.is_integer || number.value < 0 ||
       number.value > kFsvDracoMaxSafeInteger) {
     *diagnostic = InvalidMetadata(
         field,
-        "Native Draco decode metadata must be a non-negative web-safe integer.");
+        "Native Draco decode metadata must be a non-negative web-safe integer.",
+        -1, -1, {}, control);
     if (number.present && number.is_integer && number.value >= 0) {
       diagnostic->has_actual = true;
       diagnostic->actual = static_cast<uint64_t>(number.value);
@@ -50,11 +58,11 @@ bool CheckedAdd(uint64_t current,
                 uint64_t* result,
                 FsvDracoDiagnostic* diagnostic) {
   if (current > limit || increment > limit - current) {
-    diagnostic->status = "budgetExceeded";
-    diagnostic->message =
-        "Declared native Draco output exceeds the configured decode budget.";
-    diagnostic->stage = "dracoNativePreflight";
-    diagnostic->field = field;
+    Assign(&diagnostic->status, "budgetExceeded");
+    Assign(&diagnostic->message,
+           "Declared native Draco output exceeds the configured decode budget.");
+    Assign(&diagnostic->stage, "dracoNativePreflight");
+    Assign(&diagnostic->field, field);
     diagnostic->has_limit = true;
     diagnostic->limit = limit;
     diagnostic->has_actual = true;
@@ -93,7 +101,7 @@ int ComponentBytes(int64_t component_type, bool indices) {
   }
 }
 
-int ComponentCount(const std::string& type, bool indices) {
+int ComponentCount(std::string_view type, bool indices) {
   if (type == "SCALAR") {
     return 1;
   }
@@ -115,16 +123,17 @@ int ComponentCount(const std::string& type, bool indices) {
 bool ValidateAccessor(const FsvDracoAccessorSchema& schema,
                       bool indices,
                       const FsvDracoPrimitiveRequest& request,
-                      const std::string& attribute,
+                      std::string_view attribute,
                       uint64_t* byte_length,
-                      FsvDracoDiagnostic* diagnostic) {
+                      FsvDracoDiagnostic* diagnostic,
+                      fsv_draco::FsvDecodeControl* control) {
   if (schema.accessor_index < 0 ||
       schema.accessor_index > kFsvDracoMaxSafeInteger) {
     *diagnostic = InvalidMetadata("accessorIndex",
                                   "Draco accessor index is invalid.",
                                   request.mesh_index,
                                   request.primitive_index,
-                                  attribute);
+                                  attribute, control);
     return false;
   }
   if (!schema.component_type.present || !schema.component_type.is_integer ||
@@ -134,7 +143,7 @@ bool ValidateAccessor(const FsvDracoAccessorSchema& schema,
                                   "Draco accessor component type is invalid.",
                                   request.mesh_index,
                                   request.primitive_index,
-                                  attribute);
+                                  attribute, control);
     diagnostic->has_limit = true;
     diagnostic->limit = static_cast<uint64_t>(kFsvDracoMaxSafeInteger);
     if (schema.component_type.present && schema.component_type.is_integer &&
@@ -152,7 +161,7 @@ bool ValidateAccessor(const FsvDracoAccessorSchema& schema,
                                   "Draco accessor component type is invalid.",
                                   request.mesh_index,
                                   request.primitive_index,
-                                  attribute);
+                                  attribute, control);
     return false;
   }
   const int component_count = ComponentCount(schema.type, indices);
@@ -161,7 +170,7 @@ bool ValidateAccessor(const FsvDracoAccessorSchema& schema,
                                   "Draco accessor type is invalid.",
                                   request.mesh_index,
                                   request.primitive_index,
-                                  attribute);
+                                  attribute, control);
     return false;
   }
   if (schema.count <= 0 || schema.count > kFsvDracoMaxSafeInteger) {
@@ -169,7 +178,7 @@ bool ValidateAccessor(const FsvDracoAccessorSchema& schema,
                                   "Draco accessor count is invalid.",
                                   request.mesh_index,
                                   request.primitive_index,
-                                  attribute);
+                                  attribute, control);
     if (schema.count >= 0) {
       diagnostic->has_actual = true;
       diagnostic->actual = static_cast<uint64_t>(schema.count);
@@ -188,7 +197,7 @@ bool ValidateAccessor(const FsvDracoAccessorSchema& schema,
         "Draco accessor output byte length exceeds the web-safe range.",
         request.mesh_index,
         request.primitive_index,
-        attribute);
+        attribute, control);
     diagnostic->has_limit = true;
     diagnostic->limit =
         static_cast<uint64_t>(kFsvDracoMaxSafeInteger) / bytes_per_element;
@@ -211,26 +220,28 @@ bool SameSchema(const FsvDracoAccessorSchema& left,
 
 FsvDracoDiagnostic DecodedSchemaDiagnostic(
     const FsvDracoPrimitiveRequest& request,
-    std::string field,
-    std::string message,
-    std::string attribute = std::string()) {
-  FsvDracoDiagnostic diagnostic;
-  diagnostic.status = "malformedOutput";
-  diagnostic.message = std::move(message);
+    std::string_view field,
+    std::string_view message,
+    std::string_view attribute = {},
+    fsv_draco::FsvDecodeControl* control = nullptr) {
+  FsvDracoDiagnostic diagnostic(control);
+  Assign(&diagnostic.status, "malformedOutput");
+  Assign(&diagnostic.message, message);
   diagnostic.mesh_index = request.mesh_index;
   diagnostic.primitive_index = request.primitive_index;
-  diagnostic.attribute = std::move(attribute);
-  diagnostic.stage = "dracoDecodedSchema";
-  diagnostic.field = std::move(field);
+  Assign(&diagnostic.attribute, attribute);
+  Assign(&diagnostic.stage, "dracoDecodedSchema");
+  Assign(&diagnostic.field, field);
   return diagnostic;
 }
 }  // namespace
 
 FsvDracoPreflightResult FsvDracoPreflightRequests(
-    const std::vector<FsvDracoPrimitiveRequest>& requests,
+    const FsvDracoPrimitiveRequests& requests,
     const FsvDracoDecodeBudgetMetadata& budget,
-    const FsvDracoDecodeBudgetState& state) {
-  FsvDracoPreflightResult result;
+    const FsvDracoDecodeBudgetState& state,
+    fsv_draco::FsvDecodeControl* control) {
+  FsvDracoPreflightResult result(control);
   uint64_t max_total_decoded_bytes = 0;
   uint64_t max_accessors = 0;
   uint64_t max_vertices = 0;
@@ -241,9 +252,9 @@ FsvDracoPreflightResult FsvDracoPreflightRequests(
   uint64_t current_vertices = 0;
   uint64_t current_indices = 0;
   uint64_t current_native_output_bytes = 0;
-  FsvDracoDiagnostic diagnostic;
+  FsvDracoDiagnostic diagnostic(control);
 #define FSV_READ(number, field, target)                                      \
-  if (!ReadNumber(number, field, &target, &diagnostic)) {                    \
+  if (!ReadNumber(number, field, &target, &diagnostic, control)) {           \
     result.diagnostics.push_back(std::move(diagnostic));                     \
     return result;                                                           \
   }
@@ -280,14 +291,23 @@ FsvDracoPreflightResult FsvDracoPreflightRequests(
   if (current_native_output_bytes > current_total_decoded_bytes) {
     result.diagnostics.push_back(InvalidMetadata(
         "nativeOutputBytes",
-        "Native output accounting exceeds total decoded-byte accounting."));
+        "Native output accounting exceeds total decoded-byte accounting.",
+        -1, -1, {}, control));
     return result;
   }
 
-  std::set<std::pair<int, int>> primitive_targets;
-  std::map<int64_t, FsvDracoAccessorSchema> output_accessors;
-  std::map<int64_t, uint64_t> vertex_counts;
-  std::map<int64_t, uint64_t> index_counts;
+  FsvDracoSet<std::pair<int, int>> primitive_targets{
+      std::less<>(), FsvDracoAllocator<std::pair<int, int>>(control)};
+  FsvDracoMap<int64_t, FsvDracoAccessorSchema> output_accessors{
+      std::less<>(),
+      FsvDracoAllocator<std::pair<const int64_t, FsvDracoAccessorSchema>>(
+          control)};
+  FsvDracoMap<int64_t, uint64_t> vertex_counts{
+      std::less<>(),
+      FsvDracoAllocator<std::pair<const int64_t, uint64_t>>(control)};
+  FsvDracoMap<int64_t, uint64_t> index_counts{
+      std::less<>(),
+      FsvDracoAllocator<std::pair<const int64_t, uint64_t>>(control)};
   uint64_t output_bytes = 0;
   for (const FsvDracoPrimitiveRequest& request : requests) {
     if (!primitive_targets
@@ -297,7 +317,7 @@ FsvDracoPreflightResult FsvDracoPreflightRequests(
           "dracoPrimitives",
           "Native Draco primitive targets must be unique.",
           request.mesh_index,
-          request.primitive_index));
+          request.primitive_index, {}, control));
       return result;
     }
     if (request.attributes.empty() || request.attribute_accessors.empty()) {
@@ -305,7 +325,7 @@ FsvDracoPreflightResult FsvDracoPreflightRequests(
           "primitive.attributes",
           "Native Draco primitive accessor metadata is incomplete.",
           request.mesh_index,
-          request.primitive_index));
+          request.primitive_index, {}, control));
       return result;
     }
 
@@ -313,7 +333,7 @@ FsvDracoPreflightResult FsvDracoPreflightRequests(
     for (const auto& entry : request.attribute_accessors) {
       uint64_t byte_length = 0;
       if (!ValidateAccessor(entry.second, false, request, entry.first,
-                            &byte_length, &diagnostic)) {
+                            &byte_length, &diagnostic, control)) {
         result.diagnostics.push_back(std::move(diagnostic));
         return result;
       }
@@ -325,7 +345,7 @@ FsvDracoPreflightResult FsvDracoPreflightRequests(
             "Authored Draco primitive attributes have inconsistent counts.",
             request.mesh_index,
             request.primitive_index,
-            entry.first));
+            entry.first, control));
         return result;
       }
     }
@@ -341,7 +361,7 @@ FsvDracoPreflightResult FsvDracoPreflightRequests(
           "vertexAccessorIndex",
           "Native Draco vertex reservation accessor is invalid.",
           request.mesh_index,
-          request.primitive_index));
+          request.primitive_index, {}, control));
       return result;
     }
     const auto prior_vertex = vertex_counts.find(request.vertex_accessor_index);
@@ -351,11 +371,11 @@ FsvDracoPreflightResult FsvDracoPreflightRequests(
           "vertexAccessorIndex",
           "A reused Draco vertex accessor has conflicting counts.",
           request.mesh_index,
-          request.primitive_index));
+          request.primitive_index, {}, control));
       return result;
     }
-    vertex_counts[request.vertex_accessor_index] =
-        static_cast<uint64_t>(authored_count);
+    vertex_counts.insert_or_assign(request.vertex_accessor_index,
+                                   static_cast<uint64_t>(authored_count));
 
     for (const auto& attribute : request.attributes) {
       if (attribute.second < 0 ||
@@ -366,22 +386,25 @@ FsvDracoPreflightResult FsvDracoPreflightRequests(
             "Compressed Draco attribute id is outside the uint32 range.",
             request.mesh_index,
             request.primitive_index,
-            attribute.first));
+            attribute.first, control));
         return result;
       }
       const auto schema = request.attribute_accessors.find(attribute.first);
       if (schema == request.attribute_accessors.end()) {
+        FsvDracoString field("primitive.attributes.",
+                             FsvDracoAllocator<char>(control));
+        field.append(attribute.first.data(), attribute.first.size());
         result.diagnostics.push_back(InvalidMetadata(
-            "primitive.attributes." + attribute.first,
+            field,
             "Compressed Draco attribute has no accessor schema.",
             request.mesh_index,
             request.primitive_index,
-            attribute.first));
+            attribute.first, control));
         return result;
       }
       uint64_t byte_length = 0;
       if (!ValidateAccessor(schema->second, false, request, attribute.first,
-                            &byte_length, &diagnostic)) {
+                            &byte_length, &diagnostic, control)) {
         result.diagnostics.push_back(std::move(diagnostic));
         return result;
       }
@@ -393,10 +416,14 @@ FsvDracoPreflightResult FsvDracoPreflightRequests(
             "A reused Draco accessor has conflicting schemas.",
             request.mesh_index,
             request.primitive_index,
-            attribute.first));
+            attribute.first, control));
         return result;
       }
-      output_accessors[schema->second.accessor_index] = schema->second;
+      if (prior == output_accessors.end()) {
+        output_accessors.emplace(
+            schema->second.accessor_index,
+            FsvDracoAccessorSchema(schema->second, control));
+      }
       if (output_bytes > static_cast<uint64_t>(kFsvDracoMaxSafeInteger) -
                              byte_length) {
         result.diagnostics.push_back(InvalidMetadata(
@@ -404,7 +431,7 @@ FsvDracoPreflightResult FsvDracoPreflightRequests(
             "Aggregate Draco output exceeds the web-safe integer range.",
             request.mesh_index,
             request.primitive_index,
-            attribute.first));
+            attribute.first, control));
         return result;
       }
       output_bytes += byte_length;
@@ -413,7 +440,7 @@ FsvDracoPreflightResult FsvDracoPreflightRequests(
     if (request.has_indices_accessor) {
       uint64_t byte_length = 0;
       if (!ValidateAccessor(request.indices_accessor, true, request,
-                            std::string(), &byte_length, &diagnostic)) {
+                            {}, &byte_length, &diagnostic, control)) {
         result.diagnostics.push_back(std::move(diagnostic));
         return result;
       }
@@ -425,20 +452,24 @@ FsvDracoPreflightResult FsvDracoPreflightRequests(
             "accessorIndex",
             "A reused Draco index accessor has a conflicting schema.",
             request.mesh_index,
-            request.primitive_index));
+          request.primitive_index, {}, control));
         return result;
       }
-      output_accessors[request.indices_accessor.accessor_index] =
-          request.indices_accessor;
-      index_counts[request.indices_accessor.accessor_index] =
-          static_cast<uint64_t>(request.indices_accessor.count);
+      if (prior == output_accessors.end()) {
+        output_accessors.emplace(
+            request.indices_accessor.accessor_index,
+            FsvDracoAccessorSchema(request.indices_accessor, control));
+      }
+      index_counts.insert_or_assign(
+          request.indices_accessor.accessor_index,
+          static_cast<uint64_t>(request.indices_accessor.count));
       if (output_bytes > static_cast<uint64_t>(kFsvDracoMaxSafeInteger) -
                              byte_length) {
         result.diagnostics.push_back(InvalidMetadata(
             "nativeOutputBytes",
             "Aggregate Draco output exceeds the web-safe integer range.",
             request.mesh_index,
-            request.primitive_index));
+            request.primitive_index, {}, control));
         return result;
       }
       output_bytes += byte_length;
@@ -450,7 +481,8 @@ FsvDracoPreflightResult FsvDracoPreflightRequests(
     if (vertex_increment > static_cast<uint64_t>(kFsvDracoMaxSafeInteger) -
                                entry.second) {
       result.diagnostics.push_back(InvalidMetadata(
-          "vertices", "Aggregate Draco vertex count is not web-safe."));
+          "vertices", "Aggregate Draco vertex count is not web-safe.",
+          -1, -1, {}, control));
       return result;
     }
     vertex_increment += entry.second;
@@ -460,7 +492,8 @@ FsvDracoPreflightResult FsvDracoPreflightRequests(
     if (index_increment > static_cast<uint64_t>(kFsvDracoMaxSafeInteger) -
                               entry.second) {
       result.diagnostics.push_back(InvalidMetadata(
-          "indices", "Aggregate Draco index count is not web-safe."));
+          "indices", "Aggregate Draco index count is not web-safe.",
+          -1, -1, {}, control));
       return result;
     }
     index_increment += entry.second;
@@ -486,16 +519,17 @@ FsvDracoPreflightResult FsvDracoPreflightRequests(
 }
 
 FsvDracoPostDecodeValidationResult FsvDracoValidateDecodedSchemas(
-    const std::vector<FsvDracoPrimitiveRequest>& requests,
-    const std::vector<FsvDracoDecodedMeshMetadata>& decoded_meshes) {
-  FsvDracoPostDecodeValidationResult result;
+    const FsvDracoPrimitiveRequests& requests,
+    const FsvDracoDecodedMeshMetadataVector& decoded_meshes,
+    fsv_draco::FsvDecodeControl* control) {
+  FsvDracoPostDecodeValidationResult result(control);
   if (requests.size() != decoded_meshes.size()) {
-    FsvDracoDiagnostic diagnostic;
-    diagnostic.status = "malformedOutput";
-    diagnostic.message =
-        "Google Draco returned an unexpected decoded mesh count.";
-    diagnostic.stage = "dracoDecodedSchema";
-    diagnostic.field = "decodedMeshes";
+    FsvDracoDiagnostic diagnostic(control);
+    Assign(&diagnostic.status, "malformedOutput");
+    Assign(&diagnostic.message,
+           "Google Draco returned an unexpected decoded mesh count.");
+    Assign(&diagnostic.stage, "dracoDecodedSchema");
+    Assign(&diagnostic.field, "decodedMeshes");
     diagnostic.has_limit = true;
     diagnostic.limit = requests.size();
     diagnostic.has_actual = true;
@@ -511,7 +545,8 @@ FsvDracoPostDecodeValidationResult FsvDracoValidateDecodedSchemas(
       result.diagnostics.push_back(DecodedSchemaDiagnostic(
           request,
           "decodedMesh.count",
-          "Google Draco returned a negative point or face count."));
+          "Google Draco returned a negative point or face count.", {},
+          control));
       return result;
     }
     for (const auto& entry : request.attribute_accessors) {
@@ -520,7 +555,7 @@ FsvDracoPostDecodeValidationResult FsvDracoValidateDecodedSchemas(
             request,
             "accessor.count",
             "Google Draco point count does not match the glTF accessor schema.",
-            entry.first);
+            entry.first, control);
         diagnostic.has_limit = true;
         diagnostic.limit = static_cast<uint64_t>(entry.second.count);
         diagnostic.has_actual = true;
@@ -539,7 +574,7 @@ FsvDracoPostDecodeValidationResult FsvDracoValidateDecodedSchemas(
             request,
             "dracoAttributeId",
             "Google Draco did not return a requested attribute unique id.",
-            attribute.first);
+            attribute.first, control);
         if (attribute.second >= 0) {
           diagnostic.has_limit = true;
           diagnostic.limit = static_cast<uint64_t>(attribute.second);
@@ -554,7 +589,8 @@ FsvDracoPostDecodeValidationResult FsvDracoValidateDecodedSchemas(
         result.diagnostics.push_back(DecodedSchemaDiagnostic(
             request,
             "indices.count",
-            "Google Draco face count exceeds the web-safe index range."));
+            "Google Draco face count exceeds the web-safe index range.", {},
+            control));
         return result;
       }
       const int64_t decoded_index_count = decoded.face_count * 3;
@@ -562,7 +598,8 @@ FsvDracoPostDecodeValidationResult FsvDracoValidateDecodedSchemas(
         FsvDracoDiagnostic diagnostic = DecodedSchemaDiagnostic(
             request,
             "indices.count",
-            "Google Draco face count does not match the glTF index accessor schema.");
+            "Google Draco face count does not match the glTF index accessor schema.",
+            {}, control);
         diagnostic.has_limit = true;
         diagnostic.limit =
             static_cast<uint64_t>(request.indices_accessor.count);

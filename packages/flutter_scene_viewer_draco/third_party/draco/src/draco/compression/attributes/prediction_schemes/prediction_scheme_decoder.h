@@ -40,10 +40,14 @@ class PredictionSchemeDecoder : public PredictionSchemeTypedDecoderInterface<
   // Correction type needs to be defined in the prediction transform class.
   typedef typename Transform::CorrType CorrType;
   explicit PredictionSchemeDecoder(const PointAttribute *attribute)
-      : PredictionSchemeDecoder(attribute, Transform()) {}
+      : PredictionSchemeDecoder(attribute, Transform(), nullptr) {}
   PredictionSchemeDecoder(const PointAttribute *attribute,
                           const Transform &transform)
-      : attribute_(attribute), transform_(transform) {}
+      : PredictionSchemeDecoder(attribute, transform, nullptr) {}
+  PredictionSchemeDecoder(const PointAttribute *attribute,
+                          const Transform &transform,
+                          FsvDecodeControl *control)
+      : attribute_(attribute), transform_(transform), control_(control) {}
 
   bool DecodePredictionData(DecoderBuffer *buffer) override {
     if (!transform_.DecodeTransformData(buffer)) {
@@ -75,6 +79,8 @@ class PredictionSchemeDecoder : public PredictionSchemeTypedDecoderInterface<
     return transform_.GetType();
   }
 
+  FsvDecodeControl *fsv_decode_control() const { return control_; }
+
  protected:
   inline const PointAttribute *attribute() const { return attribute_; }
   inline const Transform &transform() const { return transform_; }
@@ -83,6 +89,7 @@ class PredictionSchemeDecoder : public PredictionSchemeTypedDecoderInterface<
  private:
   const PointAttribute *attribute_;
   Transform transform_;
+  FsvDecodeControl *control_;
 };
 
 }  // namespace draco

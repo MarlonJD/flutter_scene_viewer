@@ -52,6 +52,7 @@ template <class TraversalDecoderT>
 class MeshEdgebreakerDecoderImpl : public MeshEdgebreakerDecoderImplInterface {
  public:
   MeshEdgebreakerDecoderImpl();
+  explicit MeshEdgebreakerDecoderImpl(FsvDecodeControl *control);
   bool Init(MeshEdgebreakerDecoder *decoder) override;
 
   const MeshAttributeCornerTable *GetAttributeCornerTable(
@@ -146,22 +147,22 @@ class MeshEdgebreakerDecoderImpl : public MeshEdgebreakerDecoderImplInterface {
   // handling meshes with lots of disjoint components.  Originally, we used
   // recursive functions to handle this behavior, but that can cause stack
   // memory overflow when compressing huge meshes.
-  std::vector<CornerIndex> corner_traversal_stack_;
+  FsvVector<CornerIndex> corner_traversal_stack_;
 
   // Array stores the number of visited visited for each mesh traversal.
-  std::vector<int> vertex_traversal_length_;
+  FsvVector<int> vertex_traversal_length_;
 
   // List of decoded topology split events.
-  std::vector<TopologySplitEventData> topology_split_data_;
+  FsvVector<TopologySplitEventData> topology_split_data_;
 
   // List of decoded hole events.
-  std::vector<HoleEventData> hole_event_data_;
+  FsvVector<HoleEventData> hole_event_data_;
 
   // Configuration of the initial face for each mesh component.
-  std::vector<bool> init_face_configurations_;
+  FsvVector<bool> init_face_configurations_;
 
   // Initial corner for each traversal.
-  std::vector<CornerIndex> init_corners_;
+  FsvVector<CornerIndex> init_corners_;
 
   // Id of the last processed input symbol.
   int last_symbol_id_;
@@ -173,11 +174,11 @@ class MeshEdgebreakerDecoderImpl : public MeshEdgebreakerDecoderImplInterface {
   int last_face_id_;
 
   // Array for marking visited faces.
-  std::vector<bool> visited_faces_;
+  FsvVector<bool> visited_faces_;
   // Array for marking visited vertices.
-  std::vector<bool> visited_verts_;
+  FsvVector<bool> visited_verts_;
   // Array for marking vertices on open boundaries.
-  std::vector<bool> is_vert_hole_;
+  FsvVector<bool> is_vert_hole_;
 
   // The number of new vertices added by the encoder (because of non-manifold
   // vertices on the input mesh).
@@ -186,19 +187,19 @@ class MeshEdgebreakerDecoderImpl : public MeshEdgebreakerDecoderImplInterface {
   int num_new_vertices_;
   // For every newly added vertex, this array stores it's mapping to the
   // parent vertex id of the encoded mesh.
-  std::unordered_map<int, int> new_to_parent_vertex_map_;
+  FsvUnorderedMap<int, int> new_to_parent_vertex_map_;
   // The number of vertices that were encoded (can be different from the number
   // of vertices of the input mesh).
   int num_encoded_vertices_;
 
   // Array for storing the encoded corner ids in the order their associated
   // vertices were decoded.
-  std::vector<int32_t> processed_corner_ids_;
+  FsvVector<int32_t> processed_corner_ids_;
 
   // Array storing corners in the order they were visited during the
   // connectivity decoding (always storing the tip corner of each newly visited
   // face).
-  std::vector<int> processed_connectivity_corners_;
+  FsvVector<int> processed_connectivity_corners_;
 
   MeshAttributeIndicesEncodingData pos_encoding_data_;
 
@@ -207,7 +208,13 @@ class MeshEdgebreakerDecoderImpl : public MeshEdgebreakerDecoderImplInterface {
 
   // Data for non-position attributes used by the decoder.
   struct AttributeData {
-    AttributeData() : decoder_id(-1), is_connectivity_used(true) {}
+    AttributeData() : AttributeData(nullptr) {}
+    explicit AttributeData(FsvDecodeControl *control)
+        : decoder_id(-1),
+          connectivity_data(control),
+          is_connectivity_used(true),
+          encoding_data(control),
+          attribute_seam_corners(FsvDecodeAllocator<int32_t>(control)) {}
     // Id of the attribute decoder that was used to decode this attribute data.
     int decoder_id;
     MeshAttributeCornerTable connectivity_data;
@@ -216,9 +223,9 @@ class MeshEdgebreakerDecoderImpl : public MeshEdgebreakerDecoderImplInterface {
     bool is_connectivity_used;
     MeshAttributeIndicesEncodingData encoding_data;
     // Opposite corners to attribute seam edges.
-    std::vector<int32_t> attribute_seam_corners;
+    FsvVector<int32_t> attribute_seam_corners;
   };
-  std::vector<AttributeData> attribute_data_;
+  FsvVector<AttributeData> attribute_data_;
 
   TraversalDecoderT traversal_decoder_;
 };

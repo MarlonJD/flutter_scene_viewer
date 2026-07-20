@@ -23,7 +23,7 @@ namespace draco {
 
 // A base class for decoding attribute values encoded by the
 // SequentialAttributeEncoder.
-class SequentialAttributeDecoder {
+class SequentialAttributeDecoder : public FsvDecodeAllocated {
  public:
   SequentialAttributeDecoder();
   virtual ~SequentialAttributeDecoder() = default;
@@ -35,18 +35,18 @@ class SequentialAttributeDecoder {
   virtual bool InitializeStandalone(PointAttribute *attribute);
 
   // Performs lossless decoding of the portable attribute data.
-  virtual bool DecodePortableAttribute(const std::vector<PointIndex> &point_ids,
+  virtual bool DecodePortableAttribute(const FsvVector<PointIndex> &point_ids,
                                        DecoderBuffer *in_buffer);
 
   // Decodes any data needed to revert portable transform of the decoded
   // attribute.
   virtual bool DecodeDataNeededByPortableTransform(
-      const std::vector<PointIndex> &point_ids, DecoderBuffer *in_buffer);
+      const FsvVector<PointIndex> &point_ids, DecoderBuffer *in_buffer);
 
   // Reverts transformation performed by encoder in
   // SequentialAttributeEncoder::TransformAttributeToPortableFormat() method.
   virtual bool TransformAttributeToOriginalFormat(
-      const std::vector<PointIndex> &point_ids);
+      const FsvVector<PointIndex> &point_ids);
 
   const PointAttribute *GetPortableAttribute();
 
@@ -63,7 +63,7 @@ class SequentialAttributeDecoder {
 
   // The actual implementation of the attribute decoding. Should be overridden
   // for specialized decoders.
-  virtual bool DecodeValues(const std::vector<PointIndex> &point_ids,
+  virtual bool DecodeValues(const FsvVector<PointIndex> &point_ids,
                             DecoderBuffer *in_buffer);
 
   void SetPortableAttribute(std::unique_ptr<PointAttribute> att) {

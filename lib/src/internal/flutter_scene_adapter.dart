@@ -18,6 +18,8 @@ import '../part_address.dart';
 import '../texture_binding.dart';
 import '../texture_source.dart';
 import 'environment_source_loader.dart';
+import 'flutter_scene_adapter_cancellation.dart';
+import 'flutter_scene_authored_mip_texture.dart';
 import 'flutter_scene_extended_pbr_backend.dart';
 import 'flutter_scene_extended_pbr_material.dart';
 import 'flutter_scene_material_extension_backend.dart';
@@ -38,6 +40,7 @@ abstract interface class FlutterSceneAdapter {
     String? debugName,
     MaterialShadingPolicy materialShadingPolicy =
         MaterialShadingPolicy.authored,
+    bool Function()? tryAcceptPublication,
   });
 
   AdapterNodeSnapshot? get nodeSnapshot;
@@ -67,6 +70,18 @@ abstract interface class FlutterSceneAdapter {
   });
 
   List<ViewerDiagnostic> collectDiagnostics();
+}
+
+abstract interface class FlutterSceneAuthoredMipBindingAdapter {
+  Future<void> loadGlbBytesWithAuthoredMips(
+    Uint8List bytes, {
+    required FlutterSceneAuthoredMipBindingPlan bindingPlan,
+    String? debugName,
+    MaterialShadingPolicy materialShadingPolicy =
+        MaterialShadingPolicy.authored,
+    bool Function()? isLoadCancelled,
+    bool Function()? tryAcceptPublication,
+  });
 }
 
 /// Internal texture-construction seam used to verify that sampler intent is
@@ -139,7 +154,8 @@ final class _DefaultFlutterSceneTextureFactory
 }
 
 /// Runtime adapter backed by the installed `flutter_scene` package.
-final class FlutterSceneRuntimeAdapter implements FlutterSceneAdapter {
+final class FlutterSceneRuntimeAdapter
+    implements FlutterSceneAdapter, FlutterSceneAuthoredMipBindingAdapter {
   FlutterSceneRuntimeAdapter({
     EnvironmentSourceLoader? environmentSourceLoader,
     this.materialExtensionPolicy =
@@ -148,6 +164,7 @@ final class FlutterSceneRuntimeAdapter implements FlutterSceneAdapter {
     FlutterSceneExtendedPbrMaterialBackend? extendedPbrBackend,
     RendererMaterialExtensionProbe? materialExtensionRendererProbe,
     FlutterSceneTextureFactory? textureFactory,
+    FlutterSceneAuthoredMipTextureUploader? authoredMipTextureUploader,
   })  : _environmentSourceLoader =
             environmentSourceLoader ?? EnvironmentSourceLoader(),
         _materialExtensionBackend =
@@ -157,7 +174,9 @@ final class FlutterSceneRuntimeAdapter implements FlutterSceneAdapter {
         _materialExtensionRendererProbe = materialExtensionRendererProbe ??
             const CurrentFlutterSceneMaterialExtensionProbe(),
         _textureFactory =
-            textureFactory ?? const _DefaultFlutterSceneTextureFactory();
+            textureFactory ?? const _DefaultFlutterSceneTextureFactory(),
+        _authoredMipTextureUploader = authoredMipTextureUploader ??
+            FlutterSceneAuthoredMipTextureUploader();
 
   final EnvironmentSourceLoader _environmentSourceLoader;
   final ViewerMaterialExtensionPolicy materialExtensionPolicy;
@@ -165,6 +184,7 @@ final class FlutterSceneRuntimeAdapter implements FlutterSceneAdapter {
   final FlutterSceneExtendedPbrMaterialBackend _extendedPbrBackend;
   final RendererMaterialExtensionProbe _materialExtensionRendererProbe;
   final FlutterSceneTextureFactory _textureFactory;
+  final FlutterSceneAuthoredMipTextureUploader _authoredMipTextureUploader;
   MaterialExtensionSupport _productionMaterialExtensionSupport =
       MaterialExtensionSupport.unsupported;
   final List<ViewerDiagnostic> _diagnostics = <ViewerDiagnostic>[];
@@ -256,18 +276,50 @@ final class FlutterSceneRuntimeAdapter implements FlutterSceneAdapter {
     String? debugName,
     MaterialShadingPolicy materialShadingPolicy =
         MaterialShadingPolicy.authored,
+    bool Function()? tryAcceptPublication,
+  }) =>
+      _loadGlbBytes(
+        bytes,
+        debugName: debugName,
+        materialShadingPolicy: materialShadingPolicy,
+        tryAcceptPublication: tryAcceptPublication,
+      );
+
+  @override
+  Future<void> loadGlbBytesWithAuthoredMips(
+    Uint8List bytes, {
+    required FlutterSceneAuthoredMipBindingPlan bindingPlan,
+    String? debugName,
+    MaterialShadingPolicy materialShadingPolicy =
+        MaterialShadingPolicy.authored,
+    bool Function()? isLoadCancelled,
+    bool Function()? tryAcceptPublication,
+  }) =>
+      _loadGlbBytes(
+        bytes,
+        debugName: debugName,
+        materialShadingPolicy: materialShadingPolicy,
+        authoredMipBindingPlan: bindingPlan,
+        isLoadCancelled: isLoadCancelled,
+        tryAcceptPublication: tryAcceptPublication,
+      );
+
+  Future<void> _loadGlbBytes(
+    Uint8List bytes, {
+    String? debugName,
+    required MaterialShadingPolicy materialShadingPolicy,
+    FlutterSceneAuthoredMipBindingPlan? authoredMipBindingPlan,
+    bool Function()? isLoadCancelled,
+    bool Function()? tryAcceptPublication,
   }) async {
-    final previousScene = _scene;
-    if (previousScene != null) {
-      _materialExtensionBackend.clear(sceneViews: previousScene.views);
-    }
-    _diagnostics.clear();
-    _productionMaterialExtensionSupport = MaterialExtensionSupport.unsupported;
+    final stagedDiagnostics = <ViewerDiagnostic>[];
+    var stagedProductionMaterialExtensionSupport =
+        MaterialExtensionSupport.unsupported;
     final extendedPbrDiagnostic = await _extendedPbrBackend.preflight(
       PartAddress(nodePath: const <String>['model'], primitiveIndex: 0),
     );
     if (extendedPbrDiagnostic != null) {
-      _diagnostics.add(extendedPbrDiagnostic);
+      stagedDiagnostics.add(extendedPbrDiagnostic);
     }
     if (materialExtensionPolicy.mode ==
         ViewerMaterialExtensionMode.productionFlutterSceneShaders) {
@@ -276,15 +328,15 @@ final class FlutterSceneRuntimeAdapter implements FlutterSceneAdapter {
       );
       final shaderPreflight =
           await _materialExtensionBackend.preflightProductionSupport();
-      _productionMaterialExtensionSupport =
+      stagedProductionMaterialExtensionSupport =
           _resolveProductionMaterialExtensionSupport(
         nativeCapability,
         shaderPreflight,
       );
       if (!_hasAvailableMaterialExtensionBackendFeatures(
-        _productionMaterialExtensionSupport,
+        stagedProductionMaterialExtensionSupport,
       )) {
-        _diagnostics
+        stagedDiagnostics
           ..addAll(nativeCapability.diagnostics)
           ..addAll(shaderPreflight.diagnostics);
       }
@@ -293,14 +345,49 @@ final class FlutterSceneRuntimeAdapter implements FlutterSceneAdapter {
     await flutter_scene.Material.initializeStaticResources();
     final rootNode = await flutter_scene.Node.fromGlbBytes(bytes);
     _applyMaterialShadingPolicy(rootNode, materialShadingPolicy);
+    final bindingPlan = authoredMipBindingPlan;
+    if (bindingPlan != null) {
+      final bindingDiagnostics = _applyFlutterSceneAuthoredMipBindingPlan(
+        rootNode,
+        bindingPlan,
+        uploader: _authoredMipTextureUploader,
+        isCancelled: isLoadCancelled,
+      );
+      stagedDiagnostics.addAll(bindingDiagnostics);
+      final blocking = bindingDiagnostics
+          .where((diagnostic) => diagnostic.details['blocking'] == true)
+          .firstOrNull;
+      if (blocking != null) {
+        throw FlutterSceneAuthoredMipBindingException(
+          blocking,
+          bindingDiagnostics,
+        );
+      }
+    }
     await flutter_scene.Scene.initializeStaticResources();
     final scene = flutter_scene.Scene()..root.add(rootNode);
-    _rootNode = rootNode;
-    _scene = scene;
-    _renderScene = _FlutterSceneRenderScene(
+    final renderScene = _FlutterSceneRenderScene(
       scene,
       materialExtensionBackend: _materialExtensionBackend,
     );
+    if (tryAcceptPublication?.call() == false) {
+      throw const FlutterSceneAdapterLoadCancelledException();
+    }
+    final previousScene = _scene;
+    if (previousScene != null) {
+      _materialExtensionBackend.clear(
+        sceneViews: previousScene.views,
+        preserveProductionPreflight: true,
+      );
+    }
+    _diagnostics
+      ..clear()
+      ..addAll(stagedDiagnostics);
+    _productionMaterialExtensionSupport =
+        stagedProductionMaterialExtensionSupport;
+    _rootNode = rootNode;
+    _scene = scene;
+    _renderScene = renderScene;
     _originalMaterials.clear();
   }
 
@@ -2882,6 +2969,316 @@ MaterialExtensionSupport _withExtendedPbrSupport(
   );
 }
 
+List<ViewerDiagnostic> _applyFlutterSceneAuthoredMipBindingPlan(
+  flutter_scene.Node root,
+  FlutterSceneAuthoredMipBindingPlan plan, {
+  required FlutterSceneAuthoredMipTextureUploader uploader,
+  bool Function()? isCancelled,
+}) {
+  final diagnostics = <ViewerDiagnostic>[];
+  final resolvedByBinding =
+      <FlutterSceneAuthoredMipTextureBinding, List<_ResolvedMipTarget>>{};
+  final targetKeys = <String>{};
+  final uploadKeys = <String>{};
+
+  for (final upload in plan.uploads) {
+    final uploadKey = '${upload.imageIndex}:${upload.storageRole.name}';
+    if (!uploadKeys.add(uploadKey)) {
+      return <ViewerDiagnostic>[
+        _authoredMipBindingDiagnostic(
+          'An authored mip image/content-role pair was scheduled twice.',
+          limitation: 'invalidAuthoredMipBindingPlan',
+          blocking: true,
+          imageIndex: upload.imageIndex,
+          contentRole: upload.contentRole,
+          storageRole: upload.storageRole,
+        ),
+      ];
+    }
+    if (upload.textureBindings.isEmpty) {
+      return <ViewerDiagnostic>[
+        _authoredMipBindingDiagnostic(
+          'An authored mip upload has no consuming texture binding.',
+          limitation: 'invalidAuthoredMipBindingPlan',
+          blocking: true,
+          imageIndex: upload.imageIndex,
+          contentRole: upload.contentRole,
+          storageRole: upload.storageRole,
+        ),
+      ];
+    }
+    for (final binding in upload.textureBindings) {
+      final resolved = <_ResolvedMipTarget>[];
+      for (final target in binding.targets) {
+        final diagnostic = _resolveAuthoredMipTarget(
+          root,
+          target,
+          upload: upload,
+          textureIndex: binding.textureIndex,
+          targetKeys: targetKeys,
+        );
+        if (diagnostic is ViewerDiagnostic) {
+          diagnostics.add(diagnostic);
+          if (target.required) {
+            return diagnostics;
+          }
+          continue;
+        }
+        resolved.add(diagnostic as _ResolvedMipTarget);
+      }
+      resolvedByBinding[binding] = resolved;
+    }
+  }
+
+  final mutations = <_AuthoredMipMutation>[];
+  for (final upload in plan.uploads) {
+    if (isCancelled?.call() ?? false) {
+      throw const FlutterSceneAdapterLoadCancelledException();
+    }
+    final bindings = upload.textureBindings;
+    final result = uploader.upload(
+      levels: upload.levels,
+      contentRole: upload.contentRole,
+      sampler: bindings.first.sampler,
+      additionalSamplers: <FlutterSceneAuthoredMipSamplerIntent>[
+        for (final binding in bindings.skip(1)) binding.sampler,
+      ],
+    );
+    final uploadDiagnostic = result.diagnostic;
+    if (uploadDiagnostic != null) {
+      final blocking = bindings
+          .expand((binding) => resolvedByBinding[binding]!)
+          .any((target) => target.target.required);
+      diagnostics.add(
+        ViewerDiagnostic(
+          code: uploadDiagnostic.code,
+          message: uploadDiagnostic.message,
+          details: <String, Object?>{
+            ...uploadDiagnostic.details,
+            'blocking': blocking,
+            'imageIndex': upload.imageIndex,
+            'contentRole': upload.contentRole.name,
+            'storageRole': upload.storageRole.name,
+          },
+        ),
+      );
+      if (blocking) {
+        return diagnostics;
+      }
+      continue;
+    }
+    for (var index = 0; index < bindings.length; index += 1) {
+      final source = result.textureSources[index];
+      for (final target in resolvedByBinding[bindings[index]]!) {
+        mutations
+            .add(_AuthoredMipMutation(target.material, target.target, source));
+      }
+    }
+  }
+
+  if (isCancelled?.call() ?? false) {
+    throw const FlutterSceneAdapterLoadCancelledException();
+  }
+  for (final mutation in mutations) {
+    _commitAuthoredMipMutation(mutation);
+  }
+  return List<ViewerDiagnostic>.unmodifiable(diagnostics);
+}
+
+Object _resolveAuthoredMipTarget(
+  flutter_scene.Node root,
+  FlutterSceneAuthoredMipMaterialTarget target, {
+  required FlutterSceneAuthoredMipImageUpload upload,
+  required int textureIndex,
+  required Set<String> targetKeys,
+}) {
+  flutter_scene.Node node = root;
+  for (final childIndex in target.nodeChildPath) {
+    if (childIndex < 0 || childIndex >= node.children.length) {
+      return _authoredMipTargetDiagnostic(
+        target,
+        upload: upload,
+        textureIndex: textureIndex,
+        reason: 'node child path is outside the staged imported topology',
+      );
+    }
+    node = node.children[childIndex];
+  }
+  final primitives = node.mesh?.primitives;
+  if (primitives == null ||
+      target.primitiveIndex < 0 ||
+      target.primitiveIndex >= primitives.length) {
+    return _authoredMipTargetDiagnostic(
+      target,
+      upload: upload,
+      textureIndex: textureIndex,
+      reason: 'primitive index is outside the staged imported topology',
+    );
+  }
+  if (_storageRoleForAuthoredMipSlot(target.slot) != upload.storageRole) {
+    return _authoredMipTargetDiagnostic(
+      target,
+      upload: upload,
+      textureIndex: textureIndex,
+      reason: 'content role does not match the consuming material slot',
+    );
+  }
+  final material = primitives[target.primitiveIndex].material;
+  if (!_canBindAuthoredMipSlot(material, target.slot)) {
+    return _authoredMipTargetDiagnostic(
+      target,
+      upload: upload,
+      textureIndex: textureIndex,
+      reason: 'the pinned material cannot represent the consuming slot',
+      limitation: 'authoredMipMaterialSlotUnsupported',
+    );
+  }
+  final key =
+      '${target.nodeChildPath.join('.')}:${target.primitiveIndex}:${target.slot.name}';
+  if (!targetKeys.add(key)) {
+    return _authoredMipTargetDiagnostic(
+      target,
+      upload: upload,
+      textureIndex: textureIndex,
+      reason: 'the same staged material slot was targeted more than once',
+    );
+  }
+  return _ResolvedMipTarget(material, target);
+}
+
+ViewerDiagnostic _authoredMipTargetDiagnostic(
+  FlutterSceneAuthoredMipMaterialTarget target, {
+  required FlutterSceneAuthoredMipImageUpload upload,
+  required int textureIndex,
+  required String reason,
+  String limitation = 'invalidAuthoredMipBindingPlan',
+}) =>
+    _authoredMipBindingDiagnostic(
+      'The authored mip texture could not be bound to its staged material slot.',
+      limitation: limitation,
+      blocking: target.required,
+      imageIndex: upload.imageIndex,
+      contentRole: upload.contentRole,
+      storageRole: upload.storageRole,
+      details: <String, Object?>{
+        'reason': reason,
+        'textureIndex': textureIndex,
+        'nodeChildPath': target.nodeChildPath,
+        'primitiveIndex': target.primitiveIndex,
+        'slot': target.slot.name,
+        'required': target.required,
+      },
+    );
+
+ViewerDiagnostic _authoredMipBindingDiagnostic(
+  String message, {
+  required String limitation,
+  required bool blocking,
+  required int imageIndex,
+  required FlutterSceneAuthoredMipContentRole contentRole,
+  required FlutterSceneAuthoredMipStorageRole storageRole,
+  Map<String, Object?> details = const <String, Object?>{},
+}) =>
+    ViewerDiagnostic(
+      code: ViewerDiagnosticCode.unsupportedModelFeature,
+      message: message,
+      details: <String, Object?>{
+        'limitation': limitation,
+        'status': blocking ? 'blocked' : 'unsupported',
+        'blocking': blocking,
+        'imageIndex': imageIndex,
+        'contentRole': contentRole.name,
+        'storageRole': storageRole.name,
+        ...details,
+      },
+    );
+
+FlutterSceneAuthoredMipContentRole _roleForAuthoredMipSlot(
+  FlutterSceneAuthoredMipMaterialSlot slot,
+) =>
+    switch (slot) {
+      FlutterSceneAuthoredMipMaterialSlot.baseColor ||
+      FlutterSceneAuthoredMipMaterialSlot.emissive ||
+      FlutterSceneAuthoredMipMaterialSlot.specularColor =>
+        FlutterSceneAuthoredMipContentRole.color,
+      FlutterSceneAuthoredMipMaterialSlot.normal ||
+      FlutterSceneAuthoredMipMaterialSlot.clearcoatNormal =>
+        FlutterSceneAuthoredMipContentRole.normal,
+      _ => FlutterSceneAuthoredMipContentRole.data,
+    };
+
+FlutterSceneAuthoredMipStorageRole _storageRoleForAuthoredMipSlot(
+  FlutterSceneAuthoredMipMaterialSlot slot,
+) =>
+    _roleForAuthoredMipSlot(slot) == FlutterSceneAuthoredMipContentRole.color
+        ? FlutterSceneAuthoredMipStorageRole.color
+        : FlutterSceneAuthoredMipStorageRole.nonColor;
+
+bool _canBindAuthoredMipSlot(
+  flutter_scene.Material material,
+  FlutterSceneAuthoredMipMaterialSlot slot,
+) {
+  if (material is flutter_scene.UnlitMaterial) {
+    return slot == FlutterSceneAuthoredMipMaterialSlot.baseColor;
+  }
+  if (material is! flutter_scene.PhysicallyBasedMaterial) {
+    return false;
+  }
+  return slot != FlutterSceneAuthoredMipMaterialSlot.specular &&
+      slot != FlutterSceneAuthoredMipMaterialSlot.specularColor;
+}
+
+void _commitAuthoredMipMutation(_AuthoredMipMutation mutation) {
+  final material = mutation.material;
+  final source = mutation.source;
+  final slot = mutation.target.slot;
+  if (material is flutter_scene.UnlitMaterial) {
+    material.baseColorTexture = source;
+    return;
+  }
+  final pbr = material as flutter_scene.PhysicallyBasedMaterial;
+  switch (slot) {
+    case FlutterSceneAuthoredMipMaterialSlot.baseColor:
+      pbr.baseColorTexture = source;
+    case FlutterSceneAuthoredMipMaterialSlot.metallicRoughness:
+      pbr.metallicRoughnessTexture = source;
+    case FlutterSceneAuthoredMipMaterialSlot.normal:
+      pbr.normalTexture = source;
+    case FlutterSceneAuthoredMipMaterialSlot.occlusion:
+      pbr.occlusionTexture = source;
+    case FlutterSceneAuthoredMipMaterialSlot.emissive:
+      pbr.emissiveTexture = source;
+    case FlutterSceneAuthoredMipMaterialSlot.transmission:
+      pbr.transmissionTexture = source;
+    case FlutterSceneAuthoredMipMaterialSlot.thickness:
+      pbr.thicknessTexture = source;
+    case FlutterSceneAuthoredMipMaterialSlot.clearcoat:
+      pbr.clearcoatTexture = source;
+    case FlutterSceneAuthoredMipMaterialSlot.clearcoatRoughness:
+      pbr.clearcoatRoughnessTexture = source;
+    case FlutterSceneAuthoredMipMaterialSlot.clearcoatNormal:
+      pbr.clearcoatNormalTexture = source;
+    case FlutterSceneAuthoredMipMaterialSlot.specular ||
+          FlutterSceneAuthoredMipMaterialSlot.specularColor:
+      throw StateError('Unsupported authored mip slot reached commit.');
+  }
+}
+
+final class _ResolvedMipTarget {
+  const _ResolvedMipTarget(this.material, this.target);
+
+  final flutter_scene.Material material;
+  final FlutterSceneAuthoredMipMaterialTarget target;
+}
+
+final class _AuthoredMipMutation {
+  const _AuthoredMipMutation(this.material, this.target, this.source);
+
+  final flutter_scene.Material material;
+  final FlutterSceneAuthoredMipMaterialTarget target;
+  final flutter_scene.TextureSource source;
+}
+
 @visibleForTesting
 flutter_scene.AlphaMode debugFlutterSceneAlphaModeFor(
   MaterialAlphaMode alphaMode,
@@ -2920,6 +3317,18 @@ Future<List<ViewerDiagnostic>> debugLoadTextureBinding(
       ? const <ViewerDiagnostic>[]
       : <ViewerDiagnostic>[diagnostic];
 }
+
+@visibleForTesting
+List<ViewerDiagnostic> debugApplyFlutterSceneAuthoredMipBindingPlan(
+  flutter_scene.Node root,
+  FlutterSceneAuthoredMipBindingPlan plan, {
+  required FlutterSceneAuthoredMipTextureUploader uploader,
+}) =>
+    _applyFlutterSceneAuthoredMipBindingPlan(
+      root,
+      plan,
+      uploader: uploader,
+    );
 
 @visibleForTesting
 bool debugRequiresPbrFamilyReplacement(MaterialPatch patch) =>
@@ -3010,4 +3419,14 @@ final class FlutterSceneAdapterUnavailableException implements Exception {
 
   @override
   String toString() => message;
+}
+
+final class FlutterSceneAuthoredMipBindingException implements Exception {
+  FlutterSceneAuthoredMipBindingException(
+    this.diagnostic,
+    List<ViewerDiagnostic> diagnostics,
+  ) : diagnostics = List<ViewerDiagnostic>.unmodifiable(diagnostics);
+
+  final ViewerDiagnostic diagnostic;
+  final List<ViewerDiagnostic> diagnostics;
 }

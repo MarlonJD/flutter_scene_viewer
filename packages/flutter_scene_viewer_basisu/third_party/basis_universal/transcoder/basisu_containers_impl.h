@@ -38,33 +38,31 @@ namespace basisu
 		std::terminate();
 	}
 
-	bool elemental_vector::increase_capacity(size_t min_new_capacity, bool grow_hint, size_t element_size, object_mover pMover, bool nofail_flag)
+	bool elemental_vector::increase_capacity(size_t min_new_capacity, bool grow_hint, size_t element_size, size_t element_alignment, object_mover pMover, bool nofail_flag)
 	{
 		assert(m_size <= m_capacity);
 		assert(min_new_capacity >= m_size);
 		assert(element_size);
 		
 		// Basic sanity check min_new_capacity
-		if (!can_fit_into_size_t((uint64_t)min_new_capacity * element_size))
+		if (mul_overflow_check(min_new_capacity, element_size) ||
+			!can_fit_into_size_t((uint64_t)min_new_capacity * element_size))
 		{
-			assert(0);
-			
 			if (nofail_flag)
 				return false;
+			assert(0);
 
 			container_abort("elemental_vector::increase_capacity: requesting too many elements\n");
 		}
 
 		// Check for sane library limits
-		if (sizeof(void*) == sizeof(uint64_t))
+		if ((sizeof(void*) == sizeof(uint64_t) && min_new_capacity >= (0x400000000ULL / element_size)) ||
+			(sizeof(void*) != sizeof(uint64_t) && min_new_capacity >= (0x7FFF0000U / element_size)))
 		{
-			// 16 GB
-			assert(min_new_capacity < (0x400000000ULL / element_size));
-		}
-		else
-		{
-			// ~1.99 GB
-			assert(min_new_capacity < (0x7FFF0000U / element_size));
+			if (nofail_flag)
+				return false;
+			assert(0);
+			container_abort("elemental_vector::increase_capacity: vector too large\n");
 		}
 
 		// If vector is already large enough just return.
@@ -79,10 +77,9 @@ namespace basisu
 
 			if (!can_fit_into_size_t(new_capacity_u64))
 			{
-				assert(0);
-
 				if (nofail_flag)
 					return false;
+				assert(0);
 
 				container_abort("elemental_vector::increase_capacity: vector too large\n");
 			}
@@ -92,10 +89,9 @@ namespace basisu
 
 		if (!can_fit_into_size_t(desired_size_u64))
 		{
-			assert(0);
-
 			if (nofail_flag)
 				return false;
+			assert(0);
 
 			container_abort("elemental_vector::increase_capacity: vector too large\n");
 		}
@@ -105,7 +101,36 @@ namespace basisu
 		size_t actual_size = 0;
 		BASISU_NOTE_UNUSED(actual_size);
 
-		if (!pMover)
+		if (m_fsv_allocator)
+		{
+			fsv_allocation_result allocation = m_fsv_allocator->fsv_allocate(desired_size, element_alignment);
+			if ((allocation.m_outcome != fsv_allocation_outcome::kSuccess) || !allocation.m_p)
+			{
+				if (nofail_flag)
+					return false;
+				container_abort("elemental_vector::increase_capacity: request allocation failed allocating %zu bytes", desired_size);
+			}
+			void* new_p = allocation.m_p;
+			actual_size = allocation.m_bytes;
+			if (pMover)
+			{
+				if (!(*pMover)(new_p, m_p, m_size))
+				{
+					if (!m_fsv_allocator->fsv_release(allocation, new_p, desired_size, element_alignment))
+						container_abort("elemental_vector::increase_capacity: failed relocation release mismatch\n");
+					if (nofail_flag)
+						return false;
+					container_abort("elemental_vector::increase_capacity: element relocation failed\n");
+				}
+			}
+			else if (m_p && m_size)
+				memcpy(new_p, m_p, m_size * element_size);
+			if (m_p && !m_fsv_allocator->fsv_release(m_fsv_allocation, m_p, m_capacity * element_size, element_alignment))
+				container_abort("elemental_vector::increase_capacity: request allocation release mismatch\n");
+			m_p = new_p;
+			m_fsv_allocation.swap(allocation);
+		}
+		else if (!pMover)
 		{
 			void* new_p = realloc(m_p, desired_size);
 			if (!new_p)
@@ -154,7 +179,13 @@ namespace basisu
 			actual_size = desired_size;
 #endif
 
-			(*pMover)(new_p, m_p, m_size);
+			if (!(*pMover)(new_p, m_p, m_size))
+			{
+				free(new_p);
+				if (nofail_flag)
+					return false;
+				container_abort("elemental_vector::increase_capacity: element relocation failed\n");
+			}
 
 			if (m_p)
 				free(m_p);

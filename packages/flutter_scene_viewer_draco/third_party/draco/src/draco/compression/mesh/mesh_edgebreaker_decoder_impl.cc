@@ -45,13 +45,36 @@ namespace draco {
 
 template <class TraversalDecoder>
 MeshEdgebreakerDecoderImpl<TraversalDecoder>::MeshEdgebreakerDecoderImpl()
+    : MeshEdgebreakerDecoderImpl(nullptr) {}
+
+template <class TraversalDecoder>
+MeshEdgebreakerDecoderImpl<TraversalDecoder>::MeshEdgebreakerDecoderImpl(
+    FsvDecodeControl *control)
     : decoder_(nullptr),
+      corner_traversal_stack_(FsvDecodeAllocator<CornerIndex>(control)),
+      vertex_traversal_length_(FsvDecodeAllocator<int>(control)),
+      topology_split_data_(
+          FsvDecodeAllocator<TopologySplitEventData>(control)),
+      hole_event_data_(FsvDecodeAllocator<HoleEventData>(control)),
+      init_face_configurations_(FsvDecodeAllocator<bool>(control)),
+      init_corners_(FsvDecodeAllocator<CornerIndex>(control)),
       last_symbol_id_(-1),
       last_vert_id_(-1),
       last_face_id_(-1),
+      visited_faces_(FsvDecodeAllocator<bool>(control)),
+      visited_verts_(FsvDecodeAllocator<bool>(control)),
+      is_vert_hole_(FsvDecodeAllocator<bool>(control)),
       num_new_vertices_(0),
+      new_to_parent_vertex_map_(
+          0, std::hash<int>(), std::equal_to<int>(),
+          FsvDecodeAllocator<std::pair<const int, int>>(control)),
       num_encoded_vertices_(0),
-      pos_data_decoder_id_(-1) {}
+      processed_corner_ids_(FsvDecodeAllocator<int32_t>(control)),
+      processed_connectivity_corners_(FsvDecodeAllocator<int>(control)),
+      pos_encoding_data_(control),
+      pos_data_decoder_id_(-1),
+      attribute_data_(FsvDecodeAllocator<AttributeData>(control)),
+      traversal_decoder_(control) {}
 
 template <class TraversalDecoder>
 bool MeshEdgebreakerDecoderImpl<TraversalDecoder>::Init(
@@ -113,12 +136,13 @@ MeshEdgebreakerDecoderImpl<TraversalDecoder>::CreateVertexTraversalSequencer(
 
   const Mesh *mesh = decoder_->mesh();
   std::unique_ptr<MeshTraversalSequencer<TraverserT>> traversal_sequencer(
-      new MeshTraversalSequencer<TraverserT>(mesh, encoding_data));
+      new (decoder_->fsv_decode_control()) MeshTraversalSequencer<TraverserT>(
+          mesh, encoding_data, decoder_->fsv_decode_control()));
 
   AttObserver att_observer(corner_table_.get(), mesh, traversal_sequencer.get(),
                            encoding_data);
 
-  TraverserT att_traverser;
+  TraverserT att_traverser(decoder_->fsv_decode_control());
   att_traverser.Init(corner_table_.get(), att_observer);
 
   traversal_sequencer->SetTraverser(att_traverser);
@@ -220,12 +244,14 @@ bool MeshEdgebreakerDecoderImpl<TraversalDecoder>::CreateAttributesDecoder(
         &attribute_data_[att_data_id].connectivity_data;
 
     std::unique_ptr<MeshTraversalSequencer<AttTraverser>> traversal_sequencer(
-        new MeshTraversalSequencer<AttTraverser>(mesh, encoding_data));
+        new (decoder_->fsv_decode_control())
+            MeshTraversalSequencer<AttTraverser>(
+            mesh, encoding_data, decoder_->fsv_decode_control()));
 
     AttObserver att_observer(corner_table, mesh, traversal_sequencer.get(),
                              encoding_data);
 
-    AttTraverser att_traverser;
+    AttTraverser att_traverser(decoder_->fsv_decode_control());
     att_traverser.Init(corner_table, att_observer);
 
     traversal_sequencer->SetTraverser(att_traverser);
@@ -237,7 +263,8 @@ bool MeshEdgebreakerDecoderImpl<TraversalDecoder>::CreateAttributesDecoder(
   }
 
   std::unique_ptr<SequentialAttributeDecodersController> att_controller(
-      new SequentialAttributeDecodersController(std::move(sequencer)));
+      new (decoder_->fsv_decode_control()) SequentialAttributeDecodersController(
+          std::move(sequencer), decoder_->fsv_decode_control()));
 
   return decoder_->SetAttributesDecoder(att_decoder_id,
                                         std::move(att_controller));
@@ -372,7 +399,9 @@ bool MeshEdgebreakerDecoderImpl<TraversalDecoder>::DecodeConnectivity() {
 
   // Decode topology (connectivity).
   vertex_traversal_length_.clear();
-  corner_table_ = std::unique_ptr<CornerTable>(new CornerTable());
+  corner_table_ = std::unique_ptr<CornerTable>(
+      new (decoder_->fsv_decode_control())
+          CornerTable(decoder_->fsv_decode_control()));
   if (corner_table_ == nullptr) {
     return false;
   }
@@ -391,7 +420,10 @@ bool MeshEdgebreakerDecoderImpl<TraversalDecoder>::DecodeConnectivity() {
 
   attribute_data_.clear();
   // Add one attribute data for each attribute decoder.
-  attribute_data_.resize(num_attribute_data);
+  attribute_data_.reserve(num_attribute_data);
+  for (int i = 0; i < num_attribute_data; ++i) {
+    attribute_data_.emplace_back(decoder_->fsv_decode_control());
+  }
 
   if (!corner_table_->Reset(
           num_faces, num_encoded_vertices_ + num_encoded_split_symbols)) {
@@ -544,22 +576,32 @@ int MeshEdgebreakerDecoderImpl<TraversalDecoder>::DecodeConnectivity(
   // decoder always processes only the latest active edge. TOPOLOGY_S then
   // removes the top edge from the stack and TOPOLOGY_E adds a new edge to the
   // stack.
-  std::vector<CornerIndex> active_corner_stack;
+  FsvVector<CornerIndex> active_corner_stack(
+      FsvDecodeAllocator<CornerIndex>(decoder_->fsv_decode_control()));
 
   // Additional active edges may be added as a result of topology split events.
   // They can be added in arbitrary order, but we always know the split symbol
   // id they belong to, so we can address them using this symbol id.
-  std::unordered_map<int, CornerIndex> topology_split_active_corners;
+  FsvUnorderedMap<int, CornerIndex> topology_split_active_corners(
+      0, std::hash<int>(), std::equal_to<int>(),
+      FsvDecodeAllocator<std::pair<const int, CornerIndex>>(
+          decoder_->fsv_decode_control()));
 
   // Vector used for storing vertices that were marked as isolated during the
   // decoding process. Currently used only when the mesh doesn't contain any
   // non-position connectivity data.
-  std::vector<VertexIndex> invalid_vertices;
+  FsvVector<VertexIndex> invalid_vertices(
+      FsvDecodeAllocator<VertexIndex>(decoder_->fsv_decode_control()));
   const bool remove_invalid_vertices = attribute_data_.empty();
 
   int max_num_vertices = static_cast<int>(is_vert_hole_.size());
   int num_faces = 0;
   for (int symbol_id = 0; symbol_id < num_symbols; ++symbol_id) {
+    // FSV LOCAL MODIFICATION (Apache-2.0 section 4(b)): bound topology
+    // cancellation latency to at most 256 decoded connectivity symbols.
+    if ((symbol_id & 255) == 0 && decoder_->ShouldStopDecoding()) {
+      return -1;
+    }
     const FaceIndex face(num_faces++);
     // Used to flag cases where we need to look for topology split events.
     bool check_topology_split = false;
@@ -847,6 +889,9 @@ int MeshEdgebreakerDecoderImpl<TraversalDecoder>::DecodeConnectivity(
   }
   // Decode start faces and connect them to the faces from the active stack.
   while (!active_corner_stack.empty()) {
+    if (decoder_->ShouldStopDecoding()) {
+      return -1;
+    }
     const CornerIndex corner = active_corner_stack.back();
     active_corner_stack.pop_back();
     const bool interior_face =
@@ -1190,9 +1235,12 @@ bool MeshEdgebreakerDecoderImpl<TraversalDecoder>::AssignPointsToCorners(
   // Map between point id and an associated corner id. Only one corner for
   // each point is stored. The corners are used to sample the attribute values
   // in the last stage of the deduplication.
-  std::vector<int32_t> point_to_corner_map;
+  FsvVector<int32_t> point_to_corner_map(
+      FsvDecodeAllocator<int32_t>(decoder_->fsv_decode_control()));
   // Map between every corner and their new point ids.
-  std::vector<int32_t> corner_to_point_map(corner_table_->num_corners());
+  FsvVector<int32_t> corner_to_point_map(
+      corner_table_->num_corners(), 0,
+      FsvDecodeAllocator<int32_t>(decoder_->fsv_decode_control()));
   for (int v = 0; v < corner_table_->num_vertices(); ++v) {
     CornerIndex c = corner_table_->LeftMostCorner(VertexIndex(v));
     if (c == kInvalidCornerIndex) {

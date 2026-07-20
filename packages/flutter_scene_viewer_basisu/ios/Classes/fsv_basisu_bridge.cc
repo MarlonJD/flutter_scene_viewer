@@ -6,6 +6,7 @@
 #include <exception>
 #include <limits>
 #include <mutex>
+#include <new>
 #include <utility>
 
 #if __has_include("basisu_transcoder.h")
@@ -17,8 +18,78 @@
 #endif
 
 namespace {
-constexpr uint8_t kPngSignature[] = {0x89, 0x50, 0x4E, 0x47,
-                                     0x0D, 0x0A, 0x1A, 0x0A};
+class BasisuCodecControlAdapter final : public basist::fsv_transcode_control,
+                                        public basisu::fsv_vector_allocator {
+ public:
+  BasisuCodecControlAdapter(fsv_basisu::FsvDecodeControl* control,
+                            FsvBasisuTranscodeTestingHooks* testing_hooks)
+      : control_(control), testing_hooks_(testing_hooks) {}
+
+  bool fsv_checkpoint(const char*) override {
+    return control_ == nullptr || !control_->IsCancelled();
+  }
+
+  bool fsv_try_reserve(size_t bytes) override {
+    if (testing_hooks_ != nullptr &&
+        testing_hooks_->fail_next_codec_allocation) {
+      testing_hooks_->fail_next_codec_allocation = false;
+      allocation_failed_ = true;
+      return false;
+    }
+    return control_ == nullptr || control_->TryReserve(bytes);
+  }
+
+  void fsv_release(size_t bytes) override {
+    if (control_ != nullptr) control_->Release(bytes);
+  }
+
+  void fsv_note_allocation_failure() override { allocation_failed_ = true; }
+
+  basisu::fsv_vector_allocator* fsv_get_vector_allocator() override {
+    return this;
+  }
+
+  basisu::fsv_allocation_result fsv_allocate(size_t bytes,
+                                              size_t alignment) override {
+    if (testing_hooks_ != nullptr &&
+        testing_hooks_->fail_next_codec_allocation) {
+      testing_hooks_->fail_next_codec_allocation = false;
+      allocation_failed_ = true;
+      basisu::fsv_allocation_result failed;
+      failed.m_outcome = basisu::fsv_allocation_outcome::kHeapFailure;
+      return failed;
+    }
+    if (control_ == nullptr) return basisu::fsv_allocation_result();
+    basisu::fsv_allocation_result allocation =
+        control_->fsv_allocate(bytes, alignment);
+    if (allocation.m_outcome ==
+        basisu::fsv_allocation_outcome::kHeapFailure) {
+      allocation_failed_ = true;
+    }
+    return allocation;
+  }
+
+  bool fsv_release(basisu::fsv_allocation_result& allocation, void* pointer,
+                   size_t bytes, size_t alignment) override {
+    return control_ != nullptr &&
+           control_->fsv_release(allocation, pointer, bytes, alignment);
+  }
+
+  void fsv_retain_owner() noexcept override {
+    if (control_ != nullptr) control_->fsv_retain_owner();
+  }
+
+  void fsv_release_owner() noexcept override {
+    if (control_ != nullptr) control_->fsv_release_owner();
+  }
+
+  bool allocation_failed() const { return allocation_failed_; }
+
+ private:
+  fsv_basisu::FsvDecodeControl* control_;
+  FsvBasisuTranscodeTestingHooks* testing_hooks_;
+  bool allocation_failed_ = false;
+};
 
 std::once_flag g_basisu_init_once;
 
@@ -27,28 +98,53 @@ void EnsureBasisuInitialized() {
 }
 
 void AddDiagnostic(FsvBasisuTranscodeResult& result,
-                   const FsvBasisuImageRequest& request, std::string status,
-                   std::string message, std::string stage,
-                   std::string field) {
+                   const FsvBasisuImageRequest& request,
+                   std::string_view status, std::string_view message,
+                   std::string_view stage, std::string_view field) {
   result.decoded_images.clear();
   result.diagnostics.clear();
-  FsvBasisuDiagnostic diagnostic;
-  diagnostic.status = std::move(status);
-  diagnostic.message = std::move(message);
+  FsvBasisuDiagnostic diagnostic(result.control());
+  diagnostic.status.assign(status.data(), status.size());
+  diagnostic.message.assign(message.data(), message.size());
   diagnostic.texture_index = request.texture_index;
   diagnostic.image_index = request.image_index;
-  diagnostic.stage = std::move(stage);
-  diagnostic.field = std::move(field);
+  diagnostic.stage.assign(stage.data(), stage.size());
+  diagnostic.field.assign(field.data(), field.size());
   result.diagnostics.push_back(std::move(diagnostic));
 }
 
-uint16_t ReadLittleEndian16(const std::vector<uint8_t>& bytes,
+void AddCodecFailureDiagnostic(FsvBasisuTranscodeResult& result,
+                               const FsvBasisuImageRequest& request,
+                               fsv_basisu::FsvDecodeControl* control,
+                               const BasisuCodecControlAdapter& adapter,
+                               const char* message, const char* stage,
+                               const char* field) {
+  if (control != nullptr && control->IsCancelled()) {
+    FsvBasisuRecordTerminalOutcome(&result, control);
+    return;
+  }
+  if (control != nullptr &&
+      control->stop_reason() == fsv_basisu::FsvDecodeStopReason::kBudget) {
+    FsvBasisuRecordTerminalOutcome(&result, control);
+    return;
+  }
+  if ((control != nullptr &&
+       control->stop_reason() ==
+           fsv_basisu::FsvDecodeStopReason::kHeapFailure) ||
+      adapter.allocation_failed()) {
+    FsvBasisuRecordTerminalOutcome(&result, control);
+    return;
+  }
+  AddDiagnostic(result, request, "decodeFailed", message, stage, field);
+}
+
+uint16_t ReadLittleEndian16(const FsvBasisuByteVector& bytes,
                             size_t offset) {
   return static_cast<uint16_t>(bytes[offset]) |
          static_cast<uint16_t>(bytes[offset + 1] << 8);
 }
 
-uint32_t ReadLittleEndian32(const std::vector<uint8_t>& bytes,
+uint32_t ReadLittleEndian32(const FsvBasisuByteVector& bytes,
                             size_t offset) {
   return static_cast<uint32_t>(bytes[offset]) |
          (static_cast<uint32_t>(bytes[offset + 1]) << 8) |
@@ -85,14 +181,14 @@ bool RejectUnsupportedUsage(FsvBasisuTranscodeResult& result,
   return false;
 }
 
-bool BytesEqual(const std::vector<uint8_t>& bytes, size_t offset,
+bool BytesEqual(const FsvBasisuByteVector& bytes, size_t offset,
                 size_t length, const uint8_t* expected,
                 size_t expected_length) {
   return length == expected_length &&
          std::memcmp(bytes.data() + offset, expected, expected_length) == 0;
 }
 
-bool IsValidUtf8(const std::vector<uint8_t>& bytes, size_t offset,
+bool IsValidUtf8(const FsvBasisuByteVector& bytes, size_t offset,
                  size_t length) {
   size_t index = 0;
   while (index < length) {
@@ -147,7 +243,7 @@ bool IsValidUtf8(const std::vector<uint8_t>& bytes, size_t offset,
   return true;
 }
 
-int CompareByteSlices(const std::vector<uint8_t>& bytes, size_t left_offset,
+int CompareByteSlices(const FsvBasisuByteVector& bytes, size_t left_offset,
                       size_t left_length, size_t right_offset,
                       size_t right_length) {
   const size_t shared_length = std::min(left_length, right_length);
@@ -172,14 +268,16 @@ bool ValidateKhrTextureBasisuProfile(
     const FsvBasisuImageRequest& request,
     FsvBasisuTranscodeResult& result) {
   // The bounded dimension/layout preflight has already established an
-  // 80-byte header and one complete Level Index entry. Validate every raw
+  // 80-byte header and a complete Level Index. Validate every raw
   // DFD/KVD range before interpreting values so malformed input keeps the
   // invalidMetadata precedence it had before profile policy is applied.
-  const std::vector<uint8_t>& bytes = request.bytes;
+  const FsvBasisuByteVector& bytes = request.bytes;
   const uint32_t dfd_offset = ReadLittleEndian32(bytes, 48);
   const uint32_t dfd_length = ReadLittleEndian32(bytes, 52);
-  constexpr uint64_t kSingleLevelIndexEnd = 104;
-  if (dfd_offset < kSingleLevelIndexEnd || (dfd_offset & 3U) != 0 ||
+  const uint32_t declared_levels = ReadLittleEndian32(bytes, 40);
+  const uint64_t level_count = declared_levels == 0 ? 1 : declared_levels;
+  const uint64_t level_index_end = 80U + level_count * 24U;
+  if (dfd_offset < level_index_end || (dfd_offset & 3U) != 0 ||
       dfd_length < 44 ||
       !HasByteRange(bytes.size(), dfd_offset, dfd_length)) {
     return RejectMalformedProfileContainer(
@@ -211,6 +309,7 @@ bool ValidateKhrTextureBasisuProfile(
   bool swizzle_allowed = true;
   bool orientation_present = false;
   bool orientation_allowed = true;
+  bool animation_present = false;
   if (kvd_length == 0) {
     if (kvd_offset != 0) {
       return RejectMalformedProfileContainer(
@@ -229,6 +328,7 @@ bool ValidateKhrTextureBasisuProfile(
 
     constexpr uint8_t kSwizzleKey[] = "KTXswizzle";
     constexpr uint8_t kOrientationKey[] = "KTXorientation";
+    constexpr uint8_t kAnimationKey[] = "KTXanimData";
     constexpr uint8_t kAllowedSwizzle[] = {'r', 'g', 'b', 'a', 0};
     constexpr uint8_t kAllowedOrientation[] = {'r', 'd', 0};
     const uint64_t kvd_end =
@@ -314,6 +414,9 @@ bool ValidateKhrTextureBasisuProfile(
         orientation_allowed = BytesEqual(
             bytes, value_offset, value_length, kAllowedOrientation,
             sizeof(kAllowedOrientation));
+      } else if (BytesEqual(bytes, key_offset, key_length, kAnimationKey,
+                            sizeof(kAnimationKey) - 1U)) {
+        animation_present = true;
       }
 
       const uint64_t padding = (4U - (entry_length & 3U)) & 3U;
@@ -338,6 +441,12 @@ bool ValidateKhrTextureBasisuProfile(
           result, request, "ktx2KeyValueData",
           "KTX2 Key/Value Data length does not end on an entry boundary.");
     }
+  }
+
+  if (animation_present) {
+    return RejectUnsupportedProfile(
+        result, request, "ktx2KTXanimData",
+        "KHR_texture_basisu material images must be 2D and cannot use KTXanimData array-layer animation metadata.");
   }
 
   const uint32_t dfd_bits = ReadLittleEndian32(bytes, dfd_offset + 12);
@@ -530,114 +639,51 @@ bool ValidateKhrTextureBasisuUsage(
   return true;
 }
 
-void AppendBigEndian32(std::vector<uint8_t>& bytes, uint32_t value) {
-  bytes.push_back(static_cast<uint8_t>((value >> 24) & 0xFF));
-  bytes.push_back(static_cast<uint8_t>((value >> 16) & 0xFF));
-  bytes.push_back(static_cast<uint8_t>((value >> 8) & 0xFF));
-  bytes.push_back(static_cast<uint8_t>(value & 0xFF));
-}
-
-uint32_t Crc32(const uint8_t* data, size_t size) {
-  uint32_t crc = 0xFFFFFFFFU;
-  for (size_t index = 0; index < size; index += 1) {
-    crc ^= data[index];
-    for (int bit = 0; bit < 8; bit += 1) {
-      crc = (crc >> 1) ^ (0xEDB88320U & (0U - (crc & 1U)));
-    }
+const char* ContentRoleName(FsvBasisuUsageRole role) {
+  switch (role) {
+    case FsvBasisuUsageRole::kColor:
+      return "color";
+    case FsvBasisuUsageRole::kNonColor:
+      return "nonColor";
+    case FsvBasisuUsageRole::kStructuralOnly:
+      return "structuralOnly";
+    case FsvBasisuUsageRole::kAmbiguous:
+      return "ambiguous";
   }
-  return crc ^ 0xFFFFFFFFU;
-}
-
-uint32_t Adler32(const uint8_t* data, size_t size) {
-  constexpr uint32_t kModAdler = 65521U;
-  uint32_t a = 1U;
-  uint32_t b = 0U;
-  for (size_t index = 0; index < size; index += 1) {
-    a = (a + data[index]) % kModAdler;
-    b = (b + a) % kModAdler;
-  }
-  return (b << 16) | a;
-}
-
-void AppendChunk(std::vector<uint8_t>& png, const char type[4],
-                 const std::vector<uint8_t>& data) {
-  AppendBigEndian32(png, static_cast<uint32_t>(data.size()));
-  const size_t type_offset = png.size();
-  png.insert(png.end(), type, type + 4);
-  png.insert(png.end(), data.begin(), data.end());
-  AppendBigEndian32(png, Crc32(png.data() + type_offset,
-                               png.size() - type_offset));
-}
-
-std::vector<uint8_t> DeflateStoredBlocks(const std::vector<uint8_t>& data) {
-  std::vector<uint8_t> zlib;
-  zlib.reserve(data.size() + (data.size() / 65535U + 1U) * 5U + 6U);
-  zlib.push_back(0x78);
-  zlib.push_back(0x01);
-
-  size_t offset = 0;
-  while (offset < data.size() || data.empty()) {
-    const size_t remaining = data.size() - offset;
-    const uint16_t block_size =
-        static_cast<uint16_t>(std::min<size_t>(remaining, 65535U));
-    const bool final_block = offset + block_size >= data.size();
-    zlib.push_back(final_block ? 0x01 : 0x00);
-    zlib.push_back(static_cast<uint8_t>(block_size & 0xFF));
-    zlib.push_back(static_cast<uint8_t>((block_size >> 8) & 0xFF));
-    const uint16_t nlen = static_cast<uint16_t>(~block_size);
-    zlib.push_back(static_cast<uint8_t>(nlen & 0xFF));
-    zlib.push_back(static_cast<uint8_t>((nlen >> 8) & 0xFF));
-    zlib.insert(zlib.end(), data.begin() + static_cast<ptrdiff_t>(offset),
-                data.begin() + static_cast<ptrdiff_t>(offset + block_size));
-    offset += block_size;
-    if (data.empty()) {
-      break;
-    }
-  }
-
-  AppendBigEndian32(zlib, Adler32(data.data(), data.size()));
-  return zlib;
-}
-
-std::vector<uint8_t> EncodePngRgba(const uint8_t* rgba, uint32_t width,
-                                   uint32_t height) {
-  const uint64_t row_stride = static_cast<uint64_t>(width) * 4ULL;
-  const uint64_t scanline_stride = row_stride + 1ULL;
-  const uint64_t raw_size = scanline_stride * height;
-  if (raw_size > static_cast<uint64_t>(std::numeric_limits<size_t>::max())) {
-    return {};
-  }
-
-  std::vector<uint8_t> raw(static_cast<size_t>(raw_size));
-  for (uint32_t y = 0; y < height; y += 1) {
-    const size_t destination = static_cast<size_t>(y * scanline_stride);
-    const size_t source = static_cast<size_t>(y * row_stride);
-    raw[destination] = 0;
-    std::memcpy(raw.data() + destination + 1, rgba + source,
-                static_cast<size_t>(row_stride));
-  }
-
-  std::vector<uint8_t> png;
-  png.insert(png.end(), kPngSignature,
-             kPngSignature + sizeof(kPngSignature));
-
-  std::vector<uint8_t> ihdr;
-  ihdr.reserve(13);
-  AppendBigEndian32(ihdr, width);
-  AppendBigEndian32(ihdr, height);
-  ihdr.push_back(8);
-  ihdr.push_back(6);
-  ihdr.push_back(0);
-  ihdr.push_back(0);
-  ihdr.push_back(0);
-  AppendChunk(png, "IHDR", ihdr);
-
-  AppendChunk(png, "IDAT", DeflateStoredBlocks(raw));
-  AppendChunk(png, "IEND", {});
-  return png;
+  return "structuralOnly";
 }
 
 }  // namespace
+
+void FsvBasisuRecordTerminalOutcome(
+    FsvBasisuTranscodeResult* result,
+    fsv_basisu::FsvDecodeControl* control) noexcept {
+  if (result == nullptr) return;
+  result->Reset();
+  if (control == nullptr) {
+    result->terminal_outcome =
+        FsvBasisuTerminalOutcomeKind::kAllocationFailed;
+    return;
+  }
+  switch (control->stop_reason()) {
+    case fsv_basisu::FsvDecodeStopReason::kCallerCancelled:
+      result->terminal_outcome =
+          FsvBasisuTerminalOutcomeKind::kCallerCancelled;
+      return;
+    case fsv_basisu::FsvDecodeStopReason::kDeadline:
+      result->terminal_outcome = FsvBasisuTerminalOutcomeKind::kDeadline;
+      return;
+    case fsv_basisu::FsvDecodeStopReason::kBudget:
+      result->terminal_outcome =
+          FsvBasisuTerminalOutcomeKind::kBudgetExceeded;
+      return;
+    case fsv_basisu::FsvDecodeStopReason::kHeapFailure:
+    case fsv_basisu::FsvDecodeStopReason::kNone:
+      result->terminal_outcome =
+          FsvBasisuTerminalOutcomeKind::kAllocationFailed;
+      return;
+  }
+}
 
 bool FsvBasisuTranscoderLinked() {
   return true;
@@ -648,12 +694,22 @@ bool FsvBasisuImageTranscodeAvailable() {
 }
 
 FsvBasisuTranscodeResult FsvBasisuTranscodeImages(
-    const std::vector<FsvBasisuImageRequest>& requests,
+    const FsvBasisuImageRequests& requests,
     const FsvBasisuDecodeBudgetMetadata& budget,
-    const FsvBasisuDecodeBudgetState& state) {
-  FsvBasisuTranscodeResult result;
+    const FsvBasisuDecodeBudgetState& state,
+    fsv_basisu::FsvDecodeControl* control,
+    FsvBasisuTranscodeTestingHooks* testing_hooks) {
+  FsvBasisuTranscodeResult result(control);
+#if defined(__cpp_exceptions) || defined(__EXCEPTIONS) || defined(_CPPUNWIND)
+  try
+#endif
+  {
+  if (control != nullptr && control->IsCancelled()) {
+    FsvBasisuRecordTerminalOutcome(&result, control);
+    return result;
+  }
   FsvBasisuPreflightResult preflight =
-      FsvBasisuPreflightRequests(requests, budget, state);
+      FsvBasisuPreflightRequests(requests, budget, state, control);
   if (!preflight.ok) {
     result.diagnostics = std::move(preflight.diagnostics);
     return result;
@@ -668,22 +724,42 @@ FsvBasisuTranscodeResult FsvBasisuTranscodeImages(
     if (!ValidateKhrTextureBasisuUsage(request, result)) {
       return result;
     }
+    if (control != nullptr && control->IsCancelled()) {
+      FsvBasisuRecordTerminalOutcome(&result, control);
+      return result;
+    }
   }
+  BasisuCodecControlAdapter codec_control(control, testing_hooks);
   result.decoded_images.reserve(requests.size());
   for (size_t request_index = 0; request_index < requests.size();
        request_index += 1) {
+    if (testing_hooks != nullptr && control != nullptr &&
+        testing_hooks->cancel_before_request_index ==
+            static_cast<int>(request_index)) {
+      control->Cancel();
+    }
+    if (control != nullptr && control->IsCancelled()) {
+      FsvBasisuRecordTerminalOutcome(&result, control);
+      return result;
+    }
     const FsvBasisuImageRequest& request = requests[request_index];
     const FsvBasisuImageLayout& layout = preflight.layouts[request_index];
 
-    try {
       EnsureBasisuInitialized();
 
       basist::ktx2_transcoder transcoder;
+      transcoder.set_fsv_transcode_control(
+          control == nullptr ? nullptr : &codec_control);
       if (!transcoder.init(request.bytes.data(),
                            static_cast<uint32_t>(request.bytes.size()))) {
-        AddDiagnostic(result, request, "decodeFailed",
-                      "BasisU transcoder failed to parse the KTX2 payload.",
-                      "basisuNativeDecode", "ktx2Payload");
+        AddCodecFailureDiagnostic(
+            result, request, control, codec_control,
+            "BasisU transcoder failed to parse the KTX2 payload.",
+            "basisuNativeDecode", "ktx2Payload");
+        return result;
+      }
+      if (control != nullptr && control->IsCancelled()) {
+        FsvBasisuRecordTerminalOutcome(&result, control);
         return result;
       }
       if (transcoder.get_faces() != 1 || transcoder.get_layers() > 1) {
@@ -694,68 +770,86 @@ FsvBasisuTranscodeResult FsvBasisuTranscodeImages(
         return result;
       }
       if (!transcoder.start_transcoding()) {
-        AddDiagnostic(result, request, "decodeFailed",
-                      "BasisU transcoder failed to start KTX2 transcoding.",
-                      "basisuNativeDecode", "startTranscoding");
+        AddCodecFailureDiagnostic(
+            result, request, control, codec_control,
+            "BasisU transcoder failed to start KTX2 transcoding.",
+            "basisuNativeDecode", "startTranscoding");
         return result;
       }
 
-      basist::ktx2_image_level_info level_info;
-      if (!transcoder.get_image_level_info(level_info, 0, 0, 0)) {
-        AddDiagnostic(result, request, "decodeFailed",
-                      "BasisU transcoder failed to read KTX2 level info.",
-                      "basisuDecodedSchema", "levelInfo");
-        return result;
+      FsvBasisuDecodedImage decoded_image(control);
+      decoded_image.image_index = request.image_index;
+      decoded_image.content_role = ContentRoleName(request.usage_role);
+      decoded_image.levels.reserve(layout.levels.size());
+      for (const FsvBasisuMipLevelLayout& expected : layout.levels) {
+        if (testing_hooks != nullptr && control != nullptr &&
+            testing_hooks->cancel_before_level ==
+                static_cast<int>(expected.level)) {
+          control->Cancel();
+        }
+        if (control != nullptr && control->IsCancelled()) {
+          FsvBasisuRecordTerminalOutcome(&result, control);
+          return result;
+        }
+        basist::ktx2_image_level_info level_info;
+        if (!transcoder.get_image_level_info(level_info, expected.level, 0,
+                                             0)) {
+          AddCodecFailureDiagnostic(
+              result, request, control, codec_control,
+              "BasisU transcoder failed to read KTX2 level info.",
+              "basisuDecodedSchema", "levelInfo");
+          return result;
+        }
+        if (level_info.m_orig_width != expected.width ||
+            level_info.m_orig_height != expected.height) {
+          AddDiagnostic(
+              result, request, "malformedOutput",
+              "BasisU decoded level dimensions do not match the trusted KTX2 mip layout.",
+              "basisuDecodedSchema", "levelDimensions");
+          return result;
+        }
+        FsvBasisuByteVector rgba(
+            static_cast<size_t>(expected.rgba_bytes), uint8_t{0},
+            FsvBasisuAllocator<uint8_t>(control));
+        if (!transcoder.transcode_image_level(
+                expected.level, 0, 0, rgba.data(),
+                static_cast<uint32_t>(expected.pixel_count),
+                basist::transcoder_texture_format::cTFRGBA32)) {
+          AddCodecFailureDiagnostic(
+              result, request, control, codec_control,
+              "BasisU transcoder failed to decode an authored KTX2 level.",
+              "basisuNativeDecode", "levelPixels");
+          return result;
+        }
+        decoded_image.levels.push_back(FsvBasisuDecodedMipLevel(
+            expected.level, expected.width, expected.height, std::move(rgba),
+            control));
       }
-      if (level_info.m_orig_width != layout.width ||
-          level_info.m_orig_height != layout.height) {
-        AddDiagnostic(
-            result, request, "malformedOutput",
-            "BasisU level-0 dimensions do not match the trusted KTX2 header.",
-            "basisuDecodedSchema", "level0Dimensions");
-        return result;
-      }
-
-      std::vector<uint32_t> pixels(
-          static_cast<size_t>(layout.pixel_count));
-      if (!transcoder.transcode_image_level(
-              0, 0, 0, pixels.data(), static_cast<uint32_t>(pixels.size()),
-              basist::transcoder_texture_format::cTFRGBA32)) {
-        AddDiagnostic(result, request, "decodeFailed",
-                      "BasisU transcoder failed to decode KTX2 level 0.",
-                      "basisuNativeDecode", "level0Pixels");
-        return result;
-      }
-
-      std::vector<uint8_t> png = EncodePngRgba(
-          reinterpret_cast<const uint8_t*>(pixels.data()),
-          level_info.m_orig_width, level_info.m_orig_height);
-      if (png.size() != layout.png_bytes) {
-        AddDiagnostic(
-            result, request, "malformedOutput",
-            "BasisU encoded PNG length does not match the preflight prediction.",
-            "basisuDecodedSchema", "pngBytes");
-        return result;
-      }
-
-      result.decoded_images.push_back(FsvBasisuDecodedImage{
-          request.image_index,
-          "image/png",
-          layout.width,
-          layout.height,
-          std::move(png),
-      });
-    } catch (const std::exception& error) {
-      AddDiagnostic(result, request, "decodeFailed",
-                    std::string("BasisU transcoder failed: ") + error.what(),
+      result.decoded_images.push_back(std::move(decoded_image));
+  }
+  }
+#if defined(__cpp_exceptions) || defined(__EXCEPTIONS) || defined(_CPPUNWIND)
+  catch (const std::bad_alloc&) {
+    FsvBasisuRecordTerminalOutcome(&result, control);
+  } catch (const std::exception&) {
+    if (control != nullptr && control->stop_reason() !=
+                                  fsv_basisu::FsvDecodeStopReason::kNone) {
+      FsvBasisuRecordTerminalOutcome(&result, control);
+    } else if (!requests.empty()) {
+      AddDiagnostic(result, requests.front(), "decodeFailed",
+                    "BasisU transcoder failed with a native exception.",
                     "basisuNativeDecode", "nativeException");
-      return result;
-    } catch (...) {
-      AddDiagnostic(result, request, "decodeFailed",
+    }
+  } catch (...) {
+    if (control != nullptr && control->stop_reason() !=
+                                  fsv_basisu::FsvDecodeStopReason::kNone) {
+      FsvBasisuRecordTerminalOutcome(&result, control);
+    } else if (!requests.empty()) {
+      AddDiagnostic(result, requests.front(), "decodeFailed",
                     "BasisU transcoder failed with an unknown native error.",
                     "basisuNativeDecode", "nativeException");
-      return result;
     }
   }
+#endif
   return result;
 }

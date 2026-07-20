@@ -1607,7 +1607,12 @@ final class MaterialSink implements ViewerCommandSink {
   int renderRequests = 0;
 
   @override
-  Future<ModelLoadResult> load(ModelSource source) async {
+  Future<ModelLoadResult> load(
+    ModelSource source, {
+    ModelLoadCancellationToken? cancellationToken,
+    bool Function()? tryAcceptPublication,
+    void Function()? onPublicationRejected,
+  }) async {
     return ModelLoadResult.success(
       diagnostics: loadDiagnostics,
       partTree: partTree,
@@ -1678,7 +1683,12 @@ final class AdapterMaterialSink implements ViewerCommandSink {
   int renderRequests = 0;
 
   @override
-  Future<ModelLoadResult> load(ModelSource source) async =>
+  Future<ModelLoadResult> load(
+    ModelSource source, {
+    ModelLoadCancellationToken? cancellationToken,
+    bool Function()? tryAcceptPublication,
+    void Function()? onPublicationRejected,
+  }) async =>
       ModelLoadResult.success(
         partTree: partTree,
         authoredCoreMaterialPatches: authoredCoreMaterialPatches,

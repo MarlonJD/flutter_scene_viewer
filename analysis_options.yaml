@@ -9,6 +9,7 @@ analyzer:
     - windows/**
     - macos/**
     - linux/**
+    - tools/out/**
     - packages/flutter_scene_viewer_basisu/**
     - packages/flutter_scene_viewer_draco/**
   errors:

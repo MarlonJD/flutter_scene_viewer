@@ -7,6 +7,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_scene_viewer/flutter_scene_viewer.dart';
 import 'package:flutter_scene_viewer/src/internal/flutter_scene_adapter.dart';
+import 'package:flutter_scene_viewer/src/internal/flutter_scene_adapter_cancellation.dart';
 import 'package:flutter_scene_viewer/src/internal/render_surface.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -131,6 +132,141 @@ void main() {
     await tester.pump();
 
     expect(adapter.loadCalls, 1);
+  });
+
+  testWidgets('cancelled replacement keeps the ready model and environment',
+      (tester) async {
+    final replacementGate = Completer<void>();
+    final controller = FlutterSceneViewerController();
+    final adapter = FakeViewerAdapter(
+      snapshot: AdapterNodeSnapshot(name: 'Root', primitiveCount: 1),
+      loadGates: <String, Completer<void>>{'replacement.glb': replacementGate},
+    );
+    final renderScene = RecordingRenderScene();
+    adapter.renderScene = renderScene;
+
+    await tester.pumpWidget(
+      Directionality(
+        textDirection: TextDirection.ltr,
+        child: FlutterSceneViewer.test(
+          source: source,
+          adapter: adapter,
+          controller: controller,
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    final readyKey = _readyViewerKey(tester);
+    final environmentCallsBefore = adapter.configuredEnvironmentFrames.length;
+    final renderFramesBefore = renderScene.environmentFrames.length;
+
+    final cancellation = ModelLoadCancellationController();
+    final replacement = controller.load(
+      ModelSource.bytes(
+        Uint8List.fromList(<int>[9]),
+        debugName: 'replacement.glb',
+      ),
+      cancellationToken: cancellation.token,
+    );
+    await adapter.waitForLoad('replacement.glb');
+    expect(cancellation.cancel('dismissed'), isTrue);
+    await replacement;
+    await tester.pump();
+
+    expect(_readyViewerKey(tester), readyKey);
+    expect(controller.loadState.status, ViewerLoadStatus.success);
+    expect(
+        adapter.configuredEnvironmentFrames, hasLength(environmentCallsBefore));
+    expect(renderScene.environmentFrames, hasLength(renderFramesBefore));
+
+    replacementGate.complete();
+    await tester.pump();
+    await tester.pump();
+    expect(_readyViewerKey(tester), readyKey);
+    expect(
+        adapter.configuredEnvironmentFrames, hasLength(environmentCallsBefore));
+  });
+
+  testWidgets(
+      'late ordinary failure from a cancelled replacement leaves newer ready state intact',
+      (tester) async {
+    final replacementGate = Completer<void>();
+    final controller = FlutterSceneViewerController();
+    final renderScene = RecordingRenderScene();
+    final adapter = FakeViewerAdapter(
+      snapshot: AdapterNodeSnapshot(name: 'Root', primitiveCount: 1),
+      renderScene: renderScene,
+      loadGates: <String, Completer<void>>{'B': replacementGate},
+      failuresBeforePublication: const <String, ViewerDiagnostic>{
+        'B': ViewerDiagnostic(
+          code: ViewerDiagnosticCode.networkFailure,
+          message: 'Late B source-style failure.',
+        ),
+      },
+    );
+
+    await tester.pumpWidget(
+      Directionality(
+        textDirection: TextDirection.ltr,
+        child: FlutterSceneViewer.test(
+          source: source,
+          adapter: adapter,
+          controller: controller,
+          debugShowStatsOverlay: true,
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    final cancellation = ModelLoadCancellationController();
+    final loadB = controller.load(
+      ModelSource.bytes(Uint8List.fromList(<int>[8, 9]), debugName: 'B'),
+      cancellationToken: cancellation.token,
+    );
+    await adapter.waitForLoad('B');
+    expect(cancellation.cancel('superseded'), isTrue);
+    await loadB;
+
+    await controller.load(
+      ModelSource.bytes(Uint8List.fromList(<int>[4, 5, 6, 7]), debugName: 'C'),
+    );
+    await tester.pump();
+    await tester.pump();
+    final readyKey = _readyViewerKey(tester);
+    final environmentCalls = adapter.configuredEnvironmentFrames.length;
+    final renderFrames = renderScene.environmentFrames.length;
+    expect(find.textContaining('model bytes: 4'), findsOneWidget);
+
+    replacementGate.complete();
+    await tester.pump();
+    await tester.pump();
+
+    expect(_readyViewerKey(tester), readyKey);
+    expect(controller.loadState.status, ViewerLoadStatus.success);
+    expect((controller.loadState.source as BytesModelSource).debugName, 'C');
+    expect(find.textContaining('model bytes: 4'), findsOneWidget);
+    expect(adapter.configuredEnvironmentFrames, hasLength(environmentCalls));
+    expect(renderScene.environmentFrames, hasLength(renderFrames));
+  });
+
+  testWidgets(
+      'late tokenless pre-publication failure cannot clear newer ready bookkeeping',
+      (tester) async {
+    await _verifyStalePrePublicationFailure(
+      tester,
+      withCancellationToken: false,
+    );
+  });
+
+  testWidgets(
+      'late live-token pre-publication failure cannot clear newer ready bookkeeping',
+      (tester) async {
+    await _verifyStalePrePublicationFailure(
+      tester,
+      withCancellationToken: true,
+    );
   });
 
   testWidgets('material shading policy is passed during load and reloads',
@@ -1228,12 +1364,14 @@ final class FakeViewerAdapter implements FlutterSceneAdapter {
     this.pickedPart,
     this.environmentDiagnostics = const <ViewerDiagnostic>[],
     this.materialApplyGate,
+    this.loadGates = const <String, Completer<void>>{},
+    this.failuresBeforePublication = const <String, ViewerDiagnostic>{},
   });
 
   final AdapterNodeSnapshot? snapshot;
   final ViewerDiagnostic? loadFailure;
   @override
-  final AdapterRenderScene? renderScene;
+  AdapterRenderScene? renderScene;
   @override
   final AdapterModelBounds? modelBounds;
   @override
@@ -1241,6 +1379,9 @@ final class FakeViewerAdapter implements FlutterSceneAdapter {
   final PartAddress? pickedPart;
   final List<ViewerDiagnostic> environmentDiagnostics;
   final Completer<void>? materialApplyGate;
+  final Map<String, Completer<void>> loadGates;
+  final Map<String, ViewerDiagnostic> failuresBeforePublication;
+  final Map<String, Completer<void>> _loadStarted = <String, Completer<void>>{};
   final List<PartAddress> materialCalls = <PartAddress>[];
   final List<MaterialPatch> materialPatches = <MaterialPatch>[];
   final List<Offset> pickPositions = <Offset>[];
@@ -1260,14 +1401,34 @@ final class FakeViewerAdapter implements FlutterSceneAdapter {
     String? debugName,
     MaterialShadingPolicy materialShadingPolicy =
         MaterialShadingPolicy.authored,
+    bool Function()? tryAcceptPublication,
   }) async {
     loadCalls += 1;
     materialShadingPolicies.add(materialShadingPolicy);
+    final loadGate = debugName == null ? null : loadGates[debugName];
+    if (loadGate != null) {
+      final started = _loadStarted[debugName!] ??= Completer<void>();
+      if (!started.isCompleted) {
+        started.complete();
+      }
+      await loadGate.future;
+    }
+    final earlyFailure =
+        debugName == null ? null : failuresBeforePublication[debugName];
+    if (earlyFailure != null) {
+      throw FlutterSceneAdapterUnavailableException(earlyFailure.message);
+    }
+    if (tryAcceptPublication != null && !tryAcceptPublication()) {
+      throw const FlutterSceneAdapterLoadCancelledException();
+    }
     final failure = loadFailure;
     if (failure != null) {
       throw FlutterSceneAdapterUnavailableException(failure.message);
     }
   }
+
+  Future<void> waitForLoad(String debugName) =>
+      (_loadStarted[debugName] ??= Completer<void>()).future;
 
   @override
   Future<List<ViewerDiagnostic>> applyMaterialPatch(
@@ -1364,6 +1525,72 @@ String _readyViewerKey(WidgetTester tester) {
   final widget = tester.widget<Listener>(_readyViewerFinder());
   final key = widget.key! as ValueKey<String>;
   return key.value;
+}
+
+Future<void> _verifyStalePrePublicationFailure(
+  WidgetTester tester, {
+  required bool withCancellationToken,
+}) async {
+  final bGate = Completer<void>();
+  final controller = FlutterSceneViewerController();
+  final renderScene = RecordingRenderScene();
+  final adapter = FakeViewerAdapter(
+    snapshot: AdapterNodeSnapshot(name: 'Root', primitiveCount: 1),
+    renderScene: renderScene,
+    loadGates: <String, Completer<void>>{'B': bGate},
+    failuresBeforePublication: const <String, ViewerDiagnostic>{
+      'B': ViewerDiagnostic(
+        code: ViewerDiagnosticCode.networkFailure,
+        message: 'Late B pre-publication failure.',
+      ),
+    },
+  );
+  await tester.pumpWidget(
+    Directionality(
+      textDirection: TextDirection.ltr,
+      child: FlutterSceneViewer.test(
+        source: ModelSource.bytes(Uint8List.fromList(<int>[1, 2, 3])),
+        adapter: adapter,
+        controller: controller,
+        debugShowStatsOverlay: true,
+      ),
+    ),
+  );
+  await tester.pump();
+  await tester.pump();
+
+  final cancellation =
+      withCancellationToken ? ModelLoadCancellationController() : null;
+  final loadB = controller.load(
+    ModelSource.bytes(Uint8List.fromList(<int>[8, 9]), debugName: 'B'),
+    cancellationToken: cancellation?.token,
+  );
+  await adapter.waitForLoad('B');
+
+  await controller.load(
+    ModelSource.bytes(Uint8List.fromList(<int>[4, 5, 6, 7]), debugName: 'C'),
+  );
+  await tester.pump();
+  await tester.pump();
+  final readyKey = _readyViewerKey(tester);
+  final environmentCalls = adapter.configuredEnvironmentFrames.length;
+  final renderFrames = renderScene.environmentFrames.length;
+  expect(find.textContaining('model bytes: 4'), findsOneWidget);
+
+  bGate.complete();
+  await loadB;
+  await tester.pump();
+  await tester.pump();
+
+  expect(_readyViewerKey(tester), readyKey);
+  expect(controller.loadState.status, ViewerLoadStatus.success);
+  expect((controller.loadState.source as BytesModelSource).debugName, 'C');
+  expect(find.textContaining('model bytes: 4'), findsOneWidget);
+  expect(adapter.configuredEnvironmentFrames, hasLength(environmentCalls));
+  expect(renderScene.environmentFrames, hasLength(renderFrames));
+  if (cancellation != null) {
+    expect(cancellation.cancel('still-live'), isTrue);
+  }
 }
 
 Uint8List _transmissionGlb() {

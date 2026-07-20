@@ -1,0 +1,699 @@
+{
+  "schemaVersion": 2,
+  "scope": "Selected glTF extension capability and evidence truth; historical, host, simulator, build-only, and target evidence remain independent.",
+  "historicalPlan014": {
+    "path": "tools/capability_matrix/history/plan014_feature_target_snapshot.json",
+    "sourcePath": "tools/capability_matrix/history/plan014_selected_extension_capabilities.json",
+    "sourceSha256": "0ebe4e6c17919e3dca21dedf0e7d21ef1eef24431c1ab8c62d408ebfd52ac74d",
+    "featureTargetRowsSha256": "9d9dd71db8768cf42d54319fa7996190bdc034d4270fdbe9fcc372864c19ba06",
+    "historicalContextSha256": "12f4205de76da66db7d89e391fc869500b5e0380f5fd88d55b1a003b2419adab"
+  },
+  "featureSet": [
+    "KHR_texture_transform",
+    "KHR_materials_specular",
+    "KHR_materials_ior",
+    "KHR_materials_clearcoat",
+    "KHR_materials_transmission",
+    "KHR_materials_volume",
+    "KHR_draco_mesh_compression",
+    "EXT_meshopt_compression",
+    "KHR_texture_basisu"
+  ],
+  "targetSet": [
+    "ios_simulator",
+    "ios_physical",
+    "android",
+    "web"
+  ],
+  "historicalContext": [
+    {
+      "feature": "KHR_draco_mesh_compression",
+      "target": "ios_simulator",
+      "evidenceStatus": "verified locally",
+      "evidenceDate": "2026-07-04",
+      "scope": "historical Plan 013 iPhone 17 Simulator candidate run",
+      "source": "docs/exec-plans/completed/013_v2_production_glb_pipeline.md",
+      "artifactDurability": "not durable",
+      "currentPlan014TargetEvidence": "verified locally",
+      "releaseMaturity": "candidate-only"
+    },
+    {
+      "feature": "KHR_texture_basisu",
+      "target": "ios_simulator",
+      "evidenceStatus": "verified locally",
+      "evidenceDate": "2026-07-05",
+      "scope": "historical Plan 013 iPhone 17 Simulator candidate run",
+      "source": "docs/exec-plans/completed/013_v2_production_glb_pipeline.md",
+      "artifactDurability": "not durable",
+      "currentPlan014TargetEvidence": "not run",
+      "releaseMaturity": "candidate-only"
+    }
+  ],
+  "decoderControlBoundaries": [
+    {
+      "feature": "EXT_meshopt_compression",
+      "implementation": "yieldable pure-Dart EXT-v0 decode and GLB rewrite",
+      "allocationControl": "declared-output and aggregate rewrite budgets use atomic commit outside the decoder loop",
+      "timeoutControl": "cooperative Dart deadline checkpoints are enforced across claimed modes and filters",
+      "cancellationControl": "cooperative caller cancellation checkpoints are enforced across claimed modes and filters",
+      "resourceRelease": "timed-out decode buffers become garbage-collectible after stack unwind; deterministic collection is not guaranteed",
+      "blockingApi": "asynchronous decoder accepts an internal deadline control and a load cancellation token",
+      "bridgeContract": "not applicable; Meshopt has no native MethodChannel bridge",
+      "evidenceSources": [
+        "lib/src/internal/meshopt_decoder.dart",
+        "lib/src/internal/glb_meshopt_rewriter.dart",
+        "lib/src/internal/glb_decode_budget.dart"
+      ],
+      "evidenceSha256": {
+        "lib/src/internal/meshopt_decoder.dart": "f7efcea019d4b7505bf7eede8d9ae2310a57308956f66dd3d2dc794774577e7c",
+        "lib/src/internal/glb_meshopt_rewriter.dart": "26d3462406d1f2f9c1dcec4ec9c09b0bcd876082064731878bafd70839114a86",
+        "lib/src/internal/glb_decode_budget.dart": "8661beb697dcaa363cf858dfe67f99bd34329086fe6f217615556ad947cf2e2c"
+      }
+    },
+    {
+      "feature": "KHR_draco_mesh_compression",
+      "implementation": "synchronous pinned Google Draco 1.5.7 native decode",
+      "allocationControl": "every reachable native request, codec, preflight, decoded output, and retained-result allocation is request-owned; managed platform message copies are size-guarded but outside maxNativeWorkingBytes",
+      "timeoutControl": "one shared Dart deadline cancels the active request; native stop latency is bounded by pinned codec-loop checkpoints",
+      "cancellationControl": "requestId and cancelDecode reach a request-owned atomic control checked inside pinned topology, attribute, and output loops",
+      "resourceRelease": "request-owned native allocations release by normal unwind after success, cancellation, deadline, budget, heap failure, and corruption; exact live-byte gates cover bridge and platform-copy lifetimes",
+      "blockingApi": "the repo-local pinned DecodeMeshFromBuffer overload and platform serializers accept explicit request control; no global/TLS current-request state is used",
+      "bridgeContract": "decodeGlb carries a unique requestId; missing native controls fail atomically before registry or native work; signed-size guards and pre/post-copy stop checks keep native results alive until atomic managed serialization completes; every non-detached request delivers exactly one response or typed terminal error and no partial response escapes",
+      "evidenceSources": [
+        "packages/flutter_scene_viewer_draco/third_party/draco/src/draco/compression/decode.h",
+        "packages/flutter_scene_viewer_draco/third_party/draco/src/draco/core/fsv_decode_allocator.h",
+        "packages/flutter_scene_viewer_draco/third_party/draco/FSV_LOCAL_MODIFICATIONS.md",
+        "packages/flutter_scene_viewer_draco/android/src/main/cpp/fsv_draco_control.h",
+        "packages/flutter_scene_viewer_draco/android/src/main/cpp/fsv_draco_control.cc",
+        "packages/flutter_scene_viewer_draco/android/src/main/cpp/fsv_draco_owned.h",
+        "packages/flutter_scene_viewer_draco/android/src/main/cpp/fsv_draco_bridge.cc",
+        "packages/flutter_scene_viewer_draco/android/src/main/cpp/fsv_draco_platform_serialization.h",
+        "packages/flutter_scene_viewer_draco/android/src/main/cpp/flutter_scene_viewer_draco_jni.cc",
+        "packages/flutter_scene_viewer_draco/android/src/main/java/com/marlonjd/flutter_scene_viewer_draco/FlutterSceneViewerDracoPlugin.java",
+        "packages/flutter_scene_viewer_draco/android/src/main/java/com/marlonjd/flutter_scene_viewer_draco/FsvDecodeRequestRegistry.java",
+        "packages/flutter_scene_viewer_draco/ios/Classes/fsv_draco_control.h",
+        "packages/flutter_scene_viewer_draco/ios/Classes/fsv_draco_control.cc",
+        "packages/flutter_scene_viewer_draco/ios/Classes/fsv_draco_owned.h",
+        "packages/flutter_scene_viewer_draco/ios/Classes/fsv_draco_bridge.cc",
+        "packages/flutter_scene_viewer_draco/ios/Classes/fsv_draco_platform_serialization.h",
+        "packages/flutter_scene_viewer_draco/ios/Classes/FlutterSceneViewerDracoPlugin.mm",
+        "packages/flutter_scene_viewer_draco/ios/Classes/fsv_draco_request_registry.h",
+        "packages/flutter_scene_viewer_draco/ios/Classes/fsv_draco_request_registry.cc",
+        "lib/src/internal/glb_native_decoder_probe.dart"
+      ],
+      "evidenceSha256": {
+        "packages/flutter_scene_viewer_draco/third_party/draco/src/draco/compression/decode.h": "84845292bd3f94068e7ac79f28d74207637fae449d5f75c0913dc0bdf004d5d3",
+        "packages/flutter_scene_viewer_draco/third_party/draco/src/draco/core/fsv_decode_allocator.h": "cdfe7df8ec909d58b0a87635551f4e67d08f39bec099f8b077e63094c034bb36",
+        "packages/flutter_scene_viewer_draco/third_party/draco/FSV_LOCAL_MODIFICATIONS.md": "dfc98cfc0a5c39dbd101cd7f7dfba4a0f88f1e228196a49180661d0d754c7a5f",
+        "packages/flutter_scene_viewer_draco/android/src/main/cpp/fsv_draco_control.h": "c504953bedd79711b67f2921509e0e1551768f1d706430132148e0b8b3bbe5f7",
+        "packages/flutter_scene_viewer_draco/android/src/main/cpp/fsv_draco_control.cc": "3d24f41d8c38a1731448e6cd9bdb9bb96baa8a0c0aabf438ea81bb82119569cc",
+        "packages/flutter_scene_viewer_draco/android/src/main/cpp/fsv_draco_owned.h": "ced809b240b08d7ae168f046427b3bfba7a9351e4fa6bc4e25fa5c9336170f89",
+        "packages/flutter_scene_viewer_draco/android/src/main/cpp/fsv_draco_bridge.cc": "71c51e292687c7fe0b597b43204517aadb108b0f6ed7a2a903bce605ed1e4e54",
+        "packages/flutter_scene_viewer_draco/android/src/main/cpp/fsv_draco_platform_serialization.h": "3a1fb97462c5abccf1b4f2badde948e3391b05d24920327a78213e9d4f0d9999",
+        "packages/flutter_scene_viewer_draco/android/src/main/cpp/flutter_scene_viewer_draco_jni.cc": "f031ce9319c980d0b3e17b4fbdb2015448383c0c8c2a2c654a636841893d9d70",
+        "packages/flutter_scene_viewer_draco/android/src/main/java/com/marlonjd/flutter_scene_viewer_draco/FlutterSceneViewerDracoPlugin.java": "d898e973fdc447eba5c770dcb5f8894f86e3b7067f9441550beb91e18e446b87",
+        "packages/flutter_scene_viewer_draco/android/src/main/java/com/marlonjd/flutter_scene_viewer_draco/FsvDecodeRequestRegistry.java": "98db643056e14809f1393620777b274145a3af45c3d573e470013722705490cc",
+        "packages/flutter_scene_viewer_draco/ios/Classes/fsv_draco_control.h": "c504953bedd79711b67f2921509e0e1551768f1d706430132148e0b8b3bbe5f7",
+        "packages/flutter_scene_viewer_draco/ios/Classes/fsv_draco_control.cc": "3d24f41d8c38a1731448e6cd9bdb9bb96baa8a0c0aabf438ea81bb82119569cc",
+        "packages/flutter_scene_viewer_draco/ios/Classes/fsv_draco_owned.h": "ced809b240b08d7ae168f046427b3bfba7a9351e4fa6bc4e25fa5c9336170f89",
+        "packages/flutter_scene_viewer_draco/ios/Classes/fsv_draco_bridge.cc": "71c51e292687c7fe0b597b43204517aadb108b0f6ed7a2a903bce605ed1e4e54",
+        "packages/flutter_scene_viewer_draco/ios/Classes/fsv_draco_platform_serialization.h": "3a1fb97462c5abccf1b4f2badde948e3391b05d24920327a78213e9d4f0d9999",
+        "packages/flutter_scene_viewer_draco/ios/Classes/FlutterSceneViewerDracoPlugin.mm": "d5541a5509b5e6396706e6038b16f1183316c3672529be2130aecaf57ad3e202",
+        "packages/flutter_scene_viewer_draco/ios/Classes/fsv_draco_request_registry.h": "8513d6d1568bc53b2866e24e8a8ad2720ca5b5882d939be34771b98fed14d686",
+        "packages/flutter_scene_viewer_draco/ios/Classes/fsv_draco_request_registry.cc": "30dfc6dfe37e8f177c74864610119160998191c7025a08c4ee375c8dd055ef11",
+        "lib/src/internal/glb_native_decoder_probe.dart": "691b5ec51b2e02259de62e05d9016aa2cb5eed98b8263a478561c241a45ad7ed"
+      }
+    },
+    {
+      "feature": "KHR_texture_basisu",
+      "implementation": "synchronous pinned Basis Universal KTX2 native transcode",
+      "allocationControl": "every reached native request input, preflight, metadata, ETC1S codec state, Zstd workspace, decoded output, retained-result, and bridge-staging allocation is request-owned; managed platform message copies are size-guarded but outside maxNativeWorkingBytes",
+      "timeoutControl": "one shared Dart deadline cancels the active request; native stop latency is bounded by metadata-owner, image, ETC1S/UASTC block-row, and Zstd block-output checkpoints",
+      "cancellationControl": "requestId and cancelDecode reach a request-owned atomic control checked inside pinned BasisU and Zstd codec loops",
+      "resourceRelease": "request-owned native allocations release by normal unwind after success, cancellation, deadline, budget, heap failure, corruption, and platform serialization failure; exact live-byte gates cover codec, bridge, and platform-copy lifetimes",
+      "blockingApi": "the repo-local pinned KTX2, ETC1S, and static-Zstd paths plus platform serializers accept explicit request control; no global/TLS current-request state is used",
+      "bridgeContract": "decodeGlb carries a unique requestId; signed-size guards and pre/post-copy stop checks keep native results alive until atomic managed serialization completes; every non-detached request delivers exactly one response or typed terminal error and no partial response escapes",
+      "evidenceSources": [
+        "packages/flutter_scene_viewer_basisu/third_party/basis_universal/transcoder/basisu_containers.h",
+        "packages/flutter_scene_viewer_basisu/third_party/basis_universal/transcoder/basisu_transcoder_internal.h",
+        "packages/flutter_scene_viewer_basisu/third_party/basis_universal/transcoder/basisu_transcoder.h",
+        "packages/flutter_scene_viewer_basisu/third_party/basis_universal/transcoder/basisu_transcoder.cpp",
+        "packages/flutter_scene_viewer_basisu/third_party/basis_universal/zstd/zstd.h",
+        "packages/flutter_scene_viewer_basisu/third_party/basis_universal/zstd/zstddeclib.c",
+        "packages/flutter_scene_viewer_basisu/third_party/basis_universal/FSV_LOCAL_MODIFICATIONS.md",
+        "packages/flutter_scene_viewer_basisu/android/src/main/cpp/fsv_basisu_control.h",
+        "packages/flutter_scene_viewer_basisu/android/src/main/cpp/fsv_basisu_control.cc",
+        "packages/flutter_scene_viewer_basisu/android/src/main/cpp/fsv_basisu_budget.h",
+        "packages/flutter_scene_viewer_basisu/android/src/main/cpp/fsv_basisu_budget.cc",
+        "packages/flutter_scene_viewer_basisu/android/src/main/cpp/fsv_basisu_owned.h",
+        "packages/flutter_scene_viewer_basisu/android/src/main/cpp/fsv_basisu_bridge.h",
+        "packages/flutter_scene_viewer_basisu/android/src/main/cpp/fsv_basisu_bridge.cc",
+        "packages/flutter_scene_viewer_basisu/android/src/main/cpp/fsv_basisu_platform_serialization.h",
+        "packages/flutter_scene_viewer_basisu/android/src/main/cpp/flutter_scene_viewer_basisu_jni.cc",
+        "packages/flutter_scene_viewer_basisu/android/src/main/java/com/marlonjd/flutter_scene_viewer_basisu/FlutterSceneViewerBasisuPlugin.java",
+        "packages/flutter_scene_viewer_basisu/android/src/main/java/com/marlonjd/flutter_scene_viewer_basisu/FsvDecodeRequestRegistry.java",
+        "packages/flutter_scene_viewer_basisu/ios/Classes/fsv_basisu_control.h",
+        "packages/flutter_scene_viewer_basisu/ios/Classes/fsv_basisu_control.cc",
+        "packages/flutter_scene_viewer_basisu/ios/Classes/fsv_basisu_budget.h",
+        "packages/flutter_scene_viewer_basisu/ios/Classes/fsv_basisu_budget.cc",
+        "packages/flutter_scene_viewer_basisu/ios/Classes/fsv_basisu_owned.h",
+        "packages/flutter_scene_viewer_basisu/ios/Classes/fsv_basisu_bridge.h",
+        "packages/flutter_scene_viewer_basisu/ios/Classes/fsv_basisu_bridge.cc",
+        "packages/flutter_scene_viewer_basisu/ios/Classes/fsv_basisu_platform_serialization.h",
+        "packages/flutter_scene_viewer_basisu/ios/Classes/FlutterSceneViewerBasisuPlugin.mm",
+        "packages/flutter_scene_viewer_basisu/ios/Classes/fsv_basisu_request_registry.h",
+        "packages/flutter_scene_viewer_basisu/ios/Classes/fsv_basisu_request_registry.cc",
+        "lib/src/internal/glb_native_decoder_probe.dart"
+      ],
+      "evidenceSha256": {
+        "packages/flutter_scene_viewer_basisu/third_party/basis_universal/transcoder/basisu_containers.h": "312c491ed8d15323dc3a9d617da2d05569e9ed0d02b99c29ae43911a5a156c8a",
+        "packages/flutter_scene_viewer_basisu/third_party/basis_universal/transcoder/basisu_transcoder_internal.h": "da36bb4e18483bda1804bb45de25a9ea65f36d82f1d16b92d3c3fbe3c7d831c5",
+        "packages/flutter_scene_viewer_basisu/third_party/basis_universal/transcoder/basisu_transcoder.h": "5a0b32d64e3335a9926a8bf17ba3cb7120cbaf48042859c14be6ff96d4aeb551",
+        "packages/flutter_scene_viewer_basisu/third_party/basis_universal/transcoder/basisu_transcoder.cpp": "316c54c224889e7b887c66663b6668e51ec90b89a7d836db8deec167b1b239d2",
+        "packages/flutter_scene_viewer_basisu/third_party/basis_universal/zstd/zstd.h": "704a4c95feec9487ade1db223b7b4bcd745711c96421f4b57f7f71ea9438fc1c",
+        "packages/flutter_scene_viewer_basisu/third_party/basis_universal/zstd/zstddeclib.c": "2107e6c0d421f5c0bb838d978f6b20bbd14b5b8c493e5be55247f645020284b4",
+        "packages/flutter_scene_viewer_basisu/third_party/basis_universal/FSV_LOCAL_MODIFICATIONS.md": "6d9e1984399050c50392c5638431ff6c07b8dcbdd2a879b4c0fb3f17775d6794",
+        "packages/flutter_scene_viewer_basisu/android/src/main/cpp/fsv_basisu_control.h": "89d0b464615a1a3e6c788040623a7ba8fba9839705d3bf864bff234753dddfbf",
+        "packages/flutter_scene_viewer_basisu/android/src/main/cpp/fsv_basisu_control.cc": "c6d27fa6d1ac170e39cd4c787c2117d71ed28657969730e6c42baffc55c9019a",
+        "packages/flutter_scene_viewer_basisu/android/src/main/cpp/fsv_basisu_budget.h": "1f9c859ccea3a856d6c73e86504a46e62c4aeb509059c9cdf69f538d42073d08",
+        "packages/flutter_scene_viewer_basisu/android/src/main/cpp/fsv_basisu_budget.cc": "e952eb4747b4413a54fa410db2936de1d20310de98823947b806f21475b0c2f6",
+        "packages/flutter_scene_viewer_basisu/android/src/main/cpp/fsv_basisu_owned.h": "945572f28948be01272207b1ff0c5cb509f2434a8307681a498e8cc5b387db06",
+        "packages/flutter_scene_viewer_basisu/android/src/main/cpp/fsv_basisu_bridge.h": "cc05b9db420e8e2798017742c3d2ecc1de14ac7854276110b7a865be9dca99d4",
+        "packages/flutter_scene_viewer_basisu/android/src/main/cpp/fsv_basisu_bridge.cc": "1d3ce97e80fa6fa353eac1cb6cdde0a4d107664a1d8da3bde124c3ab057e6f58",
+        "packages/flutter_scene_viewer_basisu/android/src/main/cpp/fsv_basisu_platform_serialization.h": "03b98ad1809d1eb486209a135a483d3dda838ebafc402e1d3a1e30b215bbeb6b",
+        "packages/flutter_scene_viewer_basisu/android/src/main/cpp/flutter_scene_viewer_basisu_jni.cc": "dba89a12488c0fc2a4a1dd214d8677df1db1d43c5a6b1e136233600cfc21237e",
+        "packages/flutter_scene_viewer_basisu/android/src/main/java/com/marlonjd/flutter_scene_viewer_basisu/FlutterSceneViewerBasisuPlugin.java": "e10fdb82ab233be44317d043c3db5f1a22a59cc2f0f07b858035fe55545cd22a",
+        "packages/flutter_scene_viewer_basisu/android/src/main/java/com/marlonjd/flutter_scene_viewer_basisu/FsvDecodeRequestRegistry.java": "ffe931d33314e32c9f05448192aa828f4098f6cc1c04432cbdc44fa3e65a6744",
+        "packages/flutter_scene_viewer_basisu/ios/Classes/fsv_basisu_control.h": "89d0b464615a1a3e6c788040623a7ba8fba9839705d3bf864bff234753dddfbf",
+        "packages/flutter_scene_viewer_basisu/ios/Classes/fsv_basisu_control.cc": "c6d27fa6d1ac170e39cd4c787c2117d71ed28657969730e6c42baffc55c9019a",
+        "packages/flutter_scene_viewer_basisu/ios/Classes/fsv_basisu_budget.h": "1f9c859ccea3a856d6c73e86504a46e62c4aeb509059c9cdf69f538d42073d08",
+        "packages/flutter_scene_viewer_basisu/ios/Classes/fsv_basisu_budget.cc": "e952eb4747b4413a54fa410db2936de1d20310de98823947b806f21475b0c2f6",
+        "packages/flutter_scene_viewer_basisu/ios/Classes/fsv_basisu_owned.h": "945572f28948be01272207b1ff0c5cb509f2434a8307681a498e8cc5b387db06",
+        "packages/flutter_scene_viewer_basisu/ios/Classes/fsv_basisu_bridge.h": "cc05b9db420e8e2798017742c3d2ecc1de14ac7854276110b7a865be9dca99d4",
+        "packages/flutter_scene_viewer_basisu/ios/Classes/fsv_basisu_bridge.cc": "1d3ce97e80fa6fa353eac1cb6cdde0a4d107664a1d8da3bde124c3ab057e6f58",
+        "packages/flutter_scene_viewer_basisu/ios/Classes/fsv_basisu_platform_serialization.h": "03b98ad1809d1eb486209a135a483d3dda838ebafc402e1d3a1e30b215bbeb6b",
+        "packages/flutter_scene_viewer_basisu/ios/Classes/FlutterSceneViewerBasisuPlugin.mm": "ef77d609455bf57f519f96c04c042c887bd6ac5d4cb597b41911e47ff7d0890b",
+        "packages/flutter_scene_viewer_basisu/ios/Classes/fsv_basisu_request_registry.h": "fc8667dafa97fb370af14073ea722585a24875c6872ba72b9f59a6caf87093eb",
+        "packages/flutter_scene_viewer_basisu/ios/Classes/fsv_basisu_request_registry.cc": "118bfab5a4d3f0f590dee47a8fc3b716edfb2bc36da4376a71dc3003ab1fdf1a",
+        "lib/src/internal/glb_native_decoder_probe.dart": "691b5ec51b2e02259de62e05d9016aa2cb5eed98b8263a478561c241a45ad7ed"
+      }
+    }
+  ],
+  "features": [
+    {
+      "id": "KHR_texture_transform",
+      "displayName": "Texture transform",
+      "hostStages": {
+        "parsed": {
+          "status": "verified locally",
+          "scope": "host CPU reader",
+          "evidence": "shared texture binding tests cover offset, rotation, scale, texCoord, and sampler intent"
+        },
+        "preserved": {
+          "status": "verified locally",
+          "scope": "wrapper binding intent",
+          "evidence": "slot-aware immutable bindings preserve transform and original encoded image bytes"
+        },
+        "decoded": {
+          "status": "not applicable",
+          "scope": "transform metadata has no codec stage",
+          "evidence": "image decoding remains renderer-owned"
+        }
+      },
+      "targets": {
+        "ios_simulator": {
+          "applied": "verified locally",
+          "visuallyVerified": "verified locally",
+          "runtimeCapability": "candidate-only availability",
+          "releaseMaturity": "candidate-only",
+          "targetEvidence": "verified locally",
+          "blocker": "candidate-only iPhone 17 Simulator transform evidence recorded at tools/out/material_extension_acceptance/plan014_extended_pbr_ios_simulator/evidence.json; physical and release evidence remain not run"
+        },
+        "ios_physical": {
+          "applied": "blocked",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "diagnostic-only",
+          "releaseMaturity": "diagnostic-only",
+          "targetEvidence": "not run",
+          "blocker": "package-local FSViewerExtendedPbr transform path has no physical-device run"
+        },
+        "android": {
+          "applied": "blocked",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "diagnostic-only",
+          "releaseMaturity": "diagnostic-only",
+          "targetEvidence": "not run",
+          "blocker": "package-local FSViewerExtendedPbr transform path has no Android runtime/render run"
+        },
+        "web": {
+          "applied": "blocked",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "diagnostic-only",
+          "releaseMaturity": "diagnostic-only",
+          "targetEvidence": "not run",
+          "blocker": "package-local FSViewerExtendedPbr transform path has no Web runtime/render run"
+        }
+      }
+    },
+    {
+      "id": "KHR_materials_specular",
+      "displayName": "Specular",
+      "hostStages": {
+        "parsed": {
+          "status": "verified locally",
+          "scope": "host CPU reader and validation",
+          "evidence": "factor, color factor, texture roles, defaults, and malformed-group isolation are tested"
+        },
+        "preserved": {
+          "status": "verified locally",
+          "scope": "serializable wrapper intent",
+          "evidence": "factors and texture bindings survive without metallic or clearcoat substitution"
+        },
+        "decoded": {
+          "status": "not applicable",
+          "scope": "wrapper intent boundary",
+          "evidence": "encoded texture bytes are preserved and renderer decoding is not claimed"
+        }
+      },
+      "targets": {
+        "ios_simulator": {
+          "applied": "verified locally",
+          "visuallyVerified": "verified locally",
+          "runtimeCapability": "candidate-only availability",
+          "releaseMaturity": "candidate-only",
+          "targetEvidence": "verified locally",
+          "blocker": "candidate-only iPhone 17 Simulator specular evidence recorded at tools/out/material_extension_acceptance/plan014_extended_pbr_ios_simulator/evidence.json; physical and release evidence remain not run"
+        },
+        "ios_physical": {
+          "applied": "blocked",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "diagnostic-only",
+          "releaseMaturity": "diagnostic-only",
+          "targetEvidence": "not run",
+          "blocker": "package-local FSViewerExtendedPbr specular path has no physical-device run"
+        },
+        "android": {
+          "applied": "blocked",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "diagnostic-only",
+          "releaseMaturity": "diagnostic-only",
+          "targetEvidence": "not run",
+          "blocker": "package-local FSViewerExtendedPbr specular path has no Android runtime/render run"
+        },
+        "web": {
+          "applied": "blocked",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "diagnostic-only",
+          "releaseMaturity": "diagnostic-only",
+          "targetEvidence": "not run",
+          "blocker": "package-local FSViewerExtendedPbr specular path has no Web runtime/render run"
+        }
+      }
+    },
+    {
+      "id": "KHR_materials_ior",
+      "displayName": "Opaque IOR",
+      "hostStages": {
+        "parsed": {
+          "status": "verified locally",
+          "scope": "host CPU reader and validation",
+          "evidence": "defaults, finite range, ior zero compatibility, and opaque classification are tested"
+        },
+        "preserved": {
+          "status": "verified locally",
+          "scope": "serializable wrapper intent",
+          "evidence": "opaque IOR remains distinct from metallic and clearcoat intent"
+        },
+        "decoded": {
+          "status": "not applicable",
+          "scope": "scalar extension has no codec stage",
+          "evidence": "no texture or compressed payload is defined by KHR_materials_ior"
+        }
+      },
+      "targets": {
+        "ios_simulator": {
+          "applied": "verified locally",
+          "visuallyVerified": "verified locally",
+          "runtimeCapability": "candidate-only availability",
+          "releaseMaturity": "candidate-only",
+          "targetEvidence": "verified locally",
+          "blocker": "candidate-only iPhone 17 Simulator opaque-IOR evidence recorded at tools/out/material_extension_acceptance/plan014_extended_pbr_ios_simulator/evidence.json; physical and release evidence remain not run"
+        },
+        "ios_physical": {
+          "applied": "blocked",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "diagnostic-only",
+          "releaseMaturity": "diagnostic-only",
+          "targetEvidence": "not run",
+          "blocker": "package-local FSViewerExtendedPbr opaque-IOR path has no physical-device run"
+        },
+        "android": {
+          "applied": "blocked",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "diagnostic-only",
+          "releaseMaturity": "diagnostic-only",
+          "targetEvidence": "not run",
+          "blocker": "package-local FSViewerExtendedPbr opaque-IOR path has no Android runtime/render run"
+        },
+        "web": {
+          "applied": "blocked",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "diagnostic-only",
+          "releaseMaturity": "diagnostic-only",
+          "targetEvidence": "not run",
+          "blocker": "package-local FSViewerExtendedPbr opaque-IOR path has no Web runtime/render run"
+        }
+      }
+    },
+    {
+      "id": "KHR_materials_clearcoat",
+      "displayName": "Clearcoat",
+      "hostStages": {
+        "parsed": {
+          "status": "verified locally",
+          "scope": "host CPU reader and validation",
+          "evidence": "factor, roughness, texture roles, normal semantics, and authored-group isolation are tested"
+        },
+        "preserved": {
+          "status": "verified locally",
+          "scope": "wrapper patch and candidate backend intent",
+          "evidence": "authored clearcoat values and texture bytes remain distinct from the base material"
+        },
+        "decoded": {
+          "status": "not applicable",
+          "scope": "wrapper intent boundary",
+          "evidence": "encoded images remain renderer-owned; no wrapper texture baking occurs"
+        }
+      },
+      "targets": {
+        "ios_simulator": {
+          "applied": "not run",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "candidate-only availability",
+          "releaseMaturity": "candidate-only",
+          "targetEvidence": "not run",
+          "blocker": "durable current target run is absent; renderer-native integration was completed separately by Plan 015"
+        },
+        "ios_physical": {
+          "applied": "not run",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "candidate-only availability",
+          "releaseMaturity": "candidate-only",
+          "targetEvidence": "not run",
+          "blocker": "no physical-iOS candidate-backend or renderer-native run; follow-up is Plan 015"
+        },
+        "android": {
+          "applied": "not run",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "candidate-only availability",
+          "releaseMaturity": "candidate-only",
+          "targetEvidence": "not run",
+          "blocker": "no Android candidate-backend or renderer-native runtime run; follow-up is Plan 015"
+        },
+        "web": {
+          "applied": "not run",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "candidate-only availability",
+          "releaseMaturity": "candidate-only",
+          "targetEvidence": "not run",
+          "blocker": "no Web candidate-backend or renderer-native runtime run; follow-up is Plan 015"
+        }
+      }
+    },
+    {
+      "id": "KHR_materials_transmission",
+      "displayName": "Transmission",
+      "hostStages": {
+        "parsed": {
+          "status": "verified locally",
+          "scope": "host CPU reader and validation",
+          "evidence": "factor, red-channel texture role, required UV, and authored-group isolation are tested"
+        },
+        "preserved": {
+          "status": "verified locally",
+          "scope": "wrapper patch and candidate backend intent",
+          "evidence": "transmission remains distinct from alpha blending and encoded bytes are unchanged"
+        },
+        "decoded": {
+          "status": "not applicable",
+          "scope": "wrapper intent boundary",
+          "evidence": "encoded images remain renderer-owned; no wrapper texture baking occurs"
+        }
+      },
+      "targets": {
+        "ios_simulator": {
+          "applied": "not run",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "candidate-only availability",
+          "releaseMaturity": "candidate-only",
+          "targetEvidence": "not run",
+          "blocker": "durable current target run is absent; renderer-native glass was completed separately by Plan 016"
+        },
+        "ios_physical": {
+          "applied": "not run",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "candidate-only availability",
+          "releaseMaturity": "candidate-only",
+          "targetEvidence": "not run",
+          "blocker": "no physical-iOS candidate-backend or renderer-native glass run; follow-up is Plan 016"
+        },
+        "android": {
+          "applied": "not run",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "candidate-only availability",
+          "releaseMaturity": "candidate-only",
+          "targetEvidence": "not run",
+          "blocker": "no Android candidate-backend or renderer-native glass run; follow-up is Plan 016"
+        },
+        "web": {
+          "applied": "not run",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "candidate-only availability",
+          "releaseMaturity": "candidate-only",
+          "targetEvidence": "not run",
+          "blocker": "no Web candidate-backend or renderer-native glass run; follow-up is Plan 016"
+        }
+      }
+    },
+    {
+      "id": "KHR_materials_volume",
+      "displayName": "Volume",
+      "hostStages": {
+        "parsed": {
+          "status": "verified locally",
+          "scope": "host CPU reader and validation",
+          "evidence": "thickness, green-channel texture role, attenuation distance/color, and isolation are tested"
+        },
+        "preserved": {
+          "status": "verified locally",
+          "scope": "wrapper patch and candidate backend intent",
+          "evidence": "volume remains coupled to authored transmission intent without alpha substitution"
+        },
+        "decoded": {
+          "status": "not applicable",
+          "scope": "wrapper intent boundary",
+          "evidence": "encoded images remain renderer-owned; no wrapper texture baking occurs"
+        }
+      },
+      "targets": {
+        "ios_simulator": {
+          "applied": "not run",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "candidate-only availability",
+          "releaseMaturity": "candidate-only",
+          "targetEvidence": "not run",
+          "blocker": "durable current target run is absent; full volume transport was completed separately by Plan 016"
+        },
+        "ios_physical": {
+          "applied": "not run",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "candidate-only availability",
+          "releaseMaturity": "candidate-only",
+          "targetEvidence": "not run",
+          "blocker": "no physical-iOS volume run; renderer-native follow-up is Plan 016"
+        },
+        "android": {
+          "applied": "not run",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "candidate-only availability",
+          "releaseMaturity": "candidate-only",
+          "targetEvidence": "not run",
+          "blocker": "no Android volume run; renderer-native follow-up is Plan 016"
+        },
+        "web": {
+          "applied": "not run",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "candidate-only availability",
+          "releaseMaturity": "candidate-only",
+          "targetEvidence": "not run",
+          "blocker": "no Web volume run; renderer-native follow-up is Plan 016"
+        }
+      }
+    },
+    {
+      "id": "KHR_draco_mesh_compression",
+      "displayName": "Draco",
+      "hostStages": {
+        "parsed": {
+          "status": "verified locally",
+          "scope": "host GLB preflight",
+          "evidence": "requiredness, primitive manifests, accessor schemas, budgets, and malformed streams are tested"
+        },
+        "preserved": {
+          "status": "verified locally",
+          "scope": "pre-decode intent and post-decode GLB rewrite",
+          "evidence": "attribute addressing and untouched authored accessors survive the rewrite boundary"
+        },
+        "decoded": {
+          "status": "verified locally",
+          "scope": "host direct codec, bridge, rewrite, and validator",
+          "evidence": "pinned Draco 1.5.7 matches the official Box payload; rewritten GLB has zero errors and warnings"
+        }
+      },
+      "targets": {
+        "ios_simulator": {
+          "applied": "verified locally",
+          "visuallyVerified": "verified locally",
+          "runtimeCapability": "candidate-only native plugin",
+          "releaseMaturity": "candidate-only",
+          "targetEvidence": "verified locally",
+          "blocker": "candidate-only A1B32 Draco decode/render evidence recorded at tools/out/material_extension_acceptance/plan014_extended_pbr_ios_simulator/evidence.json; native in-flight cancellation, allocation control, and release packaging remain unverified"
+        },
+        "ios_physical": {
+          "applied": "not run",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "candidate-only native plugin",
+          "releaseMaturity": "candidate-only",
+          "targetEvidence": "not run",
+          "blocker": "no physical-iOS runtime, render, or release-packaging run"
+        },
+        "android": {
+          "applied": "not run",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "candidate-only native plugin",
+          "releaseMaturity": "candidate-only",
+          "targetEvidence": "not run",
+          "blocker": "Android bridge/native sources compile on the host, but no Android app runtime or packaging run exists"
+        },
+        "web": {
+          "applied": "unsupported",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "unsupported",
+          "releaseMaturity": "diagnostic-only",
+          "targetEvidence": "not run",
+          "blocker": "the optional Draco decoder is native-only; no Web decoder is provided"
+        }
+      }
+    },
+    {
+      "id": "EXT_meshopt_compression",
+      "displayName": "Meshopt",
+      "hostStages": {
+        "parsed": {
+          "status": "verified locally",
+          "scope": "host GLB preflight",
+          "evidence": "EXT-v0 modes, filters, quantization interaction, budgets, and malformed metadata are tested"
+        },
+        "preserved": {
+          "status": "verified locally",
+          "scope": "pre-decode intent and post-decode GLB rewrite",
+          "evidence": "accessor and bufferView addressing survive the pure-Dart rewrite boundary"
+        },
+        "decoded": {
+          "status": "verified locally",
+          "scope": "host direct codec, rewrite, and validator",
+          "evidence": "official EXT-v0 bytes rewrite to GLB SHA-256 676271e5... and validate with zero issues"
+        }
+      },
+      "targets": {
+        "ios_simulator": {
+          "applied": "not run",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "candidate-only pure-Dart rewrite",
+          "releaseMaturity": "candidate-only",
+          "targetEvidence": "not run",
+          "blocker": "host validator green is not an iOS Simulator import/render capture"
+        },
+        "ios_physical": {
+          "applied": "not run",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "candidate-only pure-Dart rewrite",
+          "releaseMaturity": "candidate-only",
+          "targetEvidence": "not run",
+          "blocker": "no physical-iOS import/render or release-packaging run"
+        },
+        "android": {
+          "applied": "not run",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "candidate-only pure-Dart rewrite",
+          "releaseMaturity": "candidate-only",
+          "targetEvidence": "not run",
+          "blocker": "no Android app import/render or release-packaging run"
+        },
+        "web": {
+          "applied": "not run",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "candidate-only pure-Dart rewrite",
+          "releaseMaturity": "candidate-only",
+          "targetEvidence": "not run",
+          "blocker": "Chrome unit tests cover arithmetic only; no Web app import/render capture exists"
+        }
+      }
+    },
+    {
+      "id": "KHR_texture_basisu",
+      "displayName": "BasisU/KTX2",
+      "hostStages": {
+        "parsed": {
+          "status": "verified locally",
+          "scope": "host GLB and bounded KTX2 preflight",
+          "evidence": "texture roles, DFD/KVD profile, dimensions, channels, budgets, and malformed layouts are tested"
+        },
+        "preserved": {
+          "status": "verified locally",
+          "scope": "pre-transcode intent and post-transcode GLB rewrite",
+          "evidence": "slot roles remain explicit and source KTX2 bytes are not mutated"
+        },
+        "decoded": {
+          "status": "verified locally",
+          "scope": "host direct codec, bridge, rewrite, and validator",
+          "evidence": "pinned CTS payloads match the direct transcoder; actual PNG rewrite validates with zero errors and warnings"
+        }
+      },
+      "targets": {
+        "ios_simulator": {
+          "applied": "not run",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "candidate-only native plugin",
+          "releaseMaturity": "candidate-only",
+          "targetEvidence": "not run",
+          "blocker": "no durable iOS Simulator transcode/import/render or packaging run"
+        },
+        "ios_physical": {
+          "applied": "not run",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "candidate-only native plugin",
+          "releaseMaturity": "candidate-only",
+          "targetEvidence": "not run",
+          "blocker": "no physical-iOS transcode/import/render or release-packaging run"
+        },
+        "android": {
+          "applied": "not run",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "candidate-only native plugin",
+          "releaseMaturity": "candidate-only",
+          "targetEvidence": "not run",
+          "blocker": "Android bridge/native sources compile on the host, but no Android app runtime or packaging run exists"
+        },
+        "web": {
+          "applied": "unsupported",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "unsupported",
+          "releaseMaturity": "diagnostic-only",
+          "targetEvidence": "not run",
+          "blocker": "the optional BasisU transcoder is native-only; no Web transcoder is provided"
+        }
+      }
+    }
+  ]
+}

@@ -1,10 +1,13 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 
 import 'diagnostics.dart';
 import 'internal/flutter_scene_adapter.dart';
+import 'internal/flutter_scene_adapter_cancellation.dart';
+import 'internal/flutter_scene_authored_mip_texture.dart';
 import 'internal/glb_capability_reader.dart';
 import 'internal/glb_decode_budget.dart';
 import 'internal/glb_imported_texture_patch_reader.dart';
@@ -15,6 +18,7 @@ import 'internal/material_extension_patch_group.dart';
 import 'material_extension_policy.dart';
 import 'material_patch.dart';
 import 'material_shading_mode.dart';
+import 'model_load_cancellation.dart';
 import 'model_source.dart';
 import 'part_address.dart';
 import 'part_registry.dart';
@@ -50,11 +54,13 @@ final class ModelLoadResult {
     this.authoredCoreMaterialPatches = const <PartAddress, MaterialPatch>{},
     this.authoredExtensionMaterialPatches =
         const <PartAddress, Map<MaterialExtensionPatchGroup, MaterialPatch>>{},
-  }) : diagnostic = null;
+  })  : diagnostic = null,
+        superseded = false;
 
   const ModelLoadResult.failure(
     ViewerDiagnostic this.diagnostic, {
     this.diagnostics = const <ViewerDiagnostic>[],
+    this.superseded = false,
   })  : partTree = const PartTree.empty(),
         modelLoadDuration = null,
         modelByteSize = null,
@@ -78,6 +84,7 @@ final class ModelLoadResult {
   final Map<PartAddress, MaterialPatch> authoredCoreMaterialPatches;
   final Map<PartAddress, Map<MaterialExtensionPatchGroup, MaterialPatch>>
       authoredExtensionMaterialPatches;
+  final bool superseded;
 
   bool get isSuccess => diagnostic == null;
 }
@@ -106,18 +113,55 @@ final class ModelLoader {
     ModelSource source, {
     MaterialShadingPolicy materialShadingPolicy =
         MaterialShadingPolicy.authored,
+    ModelLoadCancellationToken? cancellationToken,
+    bool Function()? tryAcceptPublication,
+    void Function()? onPublicationRejected,
   }) async {
+    final preSourceCancellation = _cancellationResult(
+      source,
+      cancellationToken,
+      stage: 'sourceAcquisition',
+    );
+    if (preSourceCancellation != null) {
+      return preSourceCancellation;
+    }
     final stopwatch = Stopwatch()..start();
+    final sourceOperation = _loadBytes(source);
+    final sourceTerminal = await _firstSourceTerminal(
+      sourceOperation,
+      cancellationToken: cancellationToken,
+    );
     final _LoadedModelBytes loaded;
-    try {
-      loaded = await _loadBytes(source).timeout(options.timeout);
-    } on TimeoutException {
-      return ModelLoadResult.failure(_timeoutDiagnostic(source));
-    } on _ModelLoadFailure catch (failure) {
-      return ModelLoadResult.failure(failure.diagnostic);
-    } on Object catch (error) {
-      return ModelLoadResult.failure(
-          _unexpectedSourceDiagnostic(source, error));
+    switch (sourceTerminal) {
+      case _SourceAcquisitionSucceeded(:final value):
+        loaded = value;
+        break;
+      case _SourceAcquisitionFailed(:final error):
+        if (error case _ModelLoadFailure(:final diagnostic)) {
+          return ModelLoadResult.failure(diagnostic);
+        }
+        return ModelLoadResult.failure(
+          _unexpectedSourceDiagnostic(source, error),
+        );
+      case _SourceAcquisitionCancelled():
+        unawaited(sourceOperation.cancel());
+        return _cancelledResult(
+          source,
+          cancellationToken!,
+          stage: 'sourceAcquisition',
+        );
+      case _SourceAcquisitionTimedOut():
+        unawaited(sourceOperation.cancel());
+        return ModelLoadResult.failure(_timeoutDiagnostic(source));
+    }
+
+    final postSourceCancellation = _cancellationResult(
+      source,
+      cancellationToken,
+      stage: 'sourceAcquisition',
+    );
+    if (postSourceCancellation != null) {
+      return postSourceCancellation;
     }
 
     final sizeDiagnostic = _sizeDiagnostic(loaded);
@@ -128,6 +172,7 @@ final class ModelLoader {
     final isGlb = isBinaryGlb(loaded.bytes);
     final decodeBudgetTracker = GlbDecodeBudgetTracker(options.decodeBudget);
     var importBytes = loaded.bytes;
+    FlutterSceneAuthoredMipBindingPlan? authoredMipBindingPlan;
     var capabilityResult = isGlb
         ? readGlbAssetCapabilities(
             importBytes,
@@ -137,14 +182,44 @@ final class ModelLoader {
         : const GlbAssetCapabilityResult();
     var meshoptRewriteDiagnostics = const <ViewerDiagnostic>[];
     if (isGlb && capabilityResult.meshoptCompressedBufferViewCount > 0) {
-      final meshoptRewrite = rewriteMeshoptCompressedGlb(
+      final preMeshoptCancellation = _cancellationResult(
+        source,
+        cancellationToken,
+        stage: 'meshoptDispatch',
+      );
+      if (preMeshoptCancellation != null) {
+        return preMeshoptCancellation;
+      }
+      final meshoptRewrite = await rewriteMeshoptCompressedGlb(
         importBytes,
         debugName: loaded.debugName,
         budget: options.decodeBudget,
         budgetTracker: decodeBudgetTracker,
+        cancellationToken: cancellationToken,
       );
       meshoptRewriteDiagnostics =
           meshoptRewrite.diagnostics.toList(growable: false);
+      ViewerDiagnostic? meshoptCancellation;
+      for (final diagnostic in meshoptRewriteDiagnostics) {
+        if (diagnostic.code == ViewerDiagnosticCode.modelLoadCancelled) {
+          meshoptCancellation = diagnostic;
+          break;
+        }
+      }
+      if (meshoptCancellation != null) {
+        return ModelLoadResult.failure(
+          meshoptCancellation,
+          diagnostics: <ViewerDiagnostic>[meshoptCancellation],
+        );
+      }
+      final postMeshoptCancellation = _cancellationResult(
+        source,
+        cancellationToken,
+        stage: 'meshoptDecode',
+      );
+      if (postMeshoptCancellation != null) {
+        return postMeshoptCancellation;
+      }
       final rewrittenBytes = meshoptRewrite.bytes;
       if (rewrittenBytes != null) {
         importBytes = rewrittenBytes;
@@ -174,11 +249,27 @@ final class ModelLoader {
     var nativeDecoderDiagnostics = const <ViewerDiagnostic>[];
     if (isGlb && _blockingCapabilityDiagnostic(capabilityResult) != null) {
       final requiredExtensions = capabilityResult.extensionsRequired;
+      final preAvailabilityCancellation = _cancellationResult(
+        source,
+        cancellationToken,
+        stage: 'nativeAvailability',
+      );
+      if (preAvailabilityCancellation != null) {
+        return preAvailabilityCancellation;
+      }
       final nativeAvailability =
           await options.nativeDecoderProbe.checkAvailability(
         requiredExtensions: requiredExtensions,
         source: loaded.debugName,
       );
+      final postAvailabilityCancellation = _cancellationResult(
+        source,
+        cancellationToken,
+        stage: 'nativeAvailability',
+      );
+      if (postAvailabilityCancellation != null) {
+        return postAvailabilityCancellation;
+      }
       nativeDecoderDiagnostics =
           nativeAvailability.diagnostics.toList(growable: false);
       final mergedDecoderCapabilities = options.decoderCapabilities.merge(
@@ -195,18 +286,48 @@ final class ModelLoader {
             baseCapabilities: options.decoderCapabilities,
             nativeCapabilities: nativeAvailability.capabilities,
           )) {
+        final preNativeDecodeCancellation = _cancellationResult(
+          source,
+          cancellationToken,
+          stage: 'nativeDispatch',
+        );
+        if (preNativeDecodeCancellation != null) {
+          return preNativeDecodeCancellation;
+        }
         final decodeResult = await options.nativeDecoderProbe.decodeGlb(
           bytes: importBytes,
           requiredExtensions: requiredExtensions,
           budget: options.decodeBudget,
           budgetTracker: decodeBudgetTracker,
+          cancellationToken: cancellationToken,
           source: loaded.debugName,
         );
         nativeDecoderDiagnostics = <ViewerDiagnostic>[
           ...nativeDecoderDiagnostics,
           ...decodeResult.diagnostics,
         ];
+        final nativeCancellation = decodeResult.diagnostics
+            .where(
+              (diagnostic) =>
+                  diagnostic.code == ViewerDiagnosticCode.modelLoadCancelled,
+            )
+            .firstOrNull;
+        if (nativeCancellation != null) {
+          return ModelLoadResult.failure(
+            nativeCancellation,
+            diagnostics: nativeDecoderDiagnostics,
+          );
+        }
+        final postNativeDecodeCancellation = _cancellationResult(
+          source,
+          cancellationToken,
+          stage: 'nativeDecode',
+        );
+        if (postNativeDecodeCancellation != null) {
+          return postNativeDecodeCancellation;
+        }
         final decodedBytes = decodeResult.bytes;
+        final decodedMipImages = decodeResult.decodedBasisuImages;
         final accountingDiagnostic = _nativeDecodeOutputAccountingDiagnostic(
           decodeResult,
           loaded.debugName,
@@ -221,7 +342,7 @@ final class ModelLoader {
             ],
           );
         }
-        if (decodedBytes == null) {
+        if (decodedBytes == null && decodedMipImages.isEmpty) {
           return ModelLoadResult.failure(
             _nativeDecodeDiagnostic(
               nativeDecoderDiagnostics,
@@ -231,41 +352,129 @@ final class ModelLoader {
             diagnostics: nativeDecoderDiagnostics,
           );
         }
-        try {
-          switch (decodeResult.outputAccounting) {
-            case GlbNativeDecodeOutputAccounting.none:
-              break;
-            case GlbNativeDecodeOutputAccounting.opaqueFinalBytes:
-              decodeBudgetTracker.reserveNativeOutputBytes(
-                decodedBytes.lengthInBytes,
-                stage: 'nativeDecodedGlbOutput',
-              );
-            case GlbNativeDecodeOutputAccounting.componentPayloadsAccounted:
-              decodeBudgetTracker.checkNativeOutputBytes(
-                decodedBytes.lengthInBytes,
-                stage: 'nativeDecodedGlbOutput',
-              );
-          }
-        } on GlbDecodeBudgetExceeded catch (error) {
-          final diagnostic = _nativeDecodeBudgetDiagnostic(
-            error,
-            loaded.debugName,
-            requiredExtensions,
-          );
-          return ModelLoadResult.failure(
-            diagnostic,
-            diagnostics: <ViewerDiagnostic>[
-              ...nativeDecoderDiagnostics,
+        if (decodedBytes != null) {
+          try {
+            switch (decodeResult.outputAccounting) {
+              case GlbNativeDecodeOutputAccounting.none:
+                break;
+              case GlbNativeDecodeOutputAccounting.opaqueFinalBytes:
+                decodeBudgetTracker.reserveNativeOutputBytes(
+                  decodedBytes.lengthInBytes,
+                  stage: 'nativeDecodedGlbOutput',
+                );
+              case GlbNativeDecodeOutputAccounting.componentPayloadsAccounted:
+                decodeBudgetTracker.checkNativeOutputBytes(
+                  decodedBytes.lengthInBytes,
+                  stage: 'nativeDecodedGlbOutput',
+                );
+            }
+          } on GlbDecodeBudgetExceeded catch (error) {
+            final diagnostic = _nativeDecodeBudgetDiagnostic(
+              error,
+              loaded.debugName,
+              requiredExtensions,
+            );
+            return ModelLoadResult.failure(
               diagnostic,
-            ],
+              diagnostics: <ViewerDiagnostic>[
+                ...nativeDecoderDiagnostics,
+                diagnostic,
+              ],
+            );
+          }
+          importBytes = decodedBytes;
+        }
+        if (decodedMipImages.isNotEmpty) {
+          final topologyBytes = decodeResult.topologyBytes;
+          if (topologyBytes == null) {
+            final diagnostic = ViewerDiagnostic(
+              code: ViewerDiagnosticCode.unsupportedModelFeature,
+              message:
+                  'Native authored mip output did not retain importer topology bytes.',
+              details: <String, Object?>{
+                'source': loaded.debugName,
+                'extension': kBasisuTextureExtension,
+                'decoder': 'basisu',
+                'required': true,
+                'limitation': 'authoredMipTopologyMissing',
+                'status': 'malformedOutput',
+                'blocking': true,
+              },
+            );
+            return ModelLoadResult.failure(
+              diagnostic,
+              diagnostics: <ViewerDiagnostic>[
+                ...nativeDecoderDiagnostics,
+                diagnostic,
+              ],
+            );
+          }
+          try {
+            switch (decodeResult.topologyOutputAccounting) {
+              case GlbNativeDecodeOutputAccounting.none:
+                break;
+              case GlbNativeDecodeOutputAccounting.opaqueFinalBytes:
+                decodeBudgetTracker.reserveNativeOutputBytes(
+                  topologyBytes.lengthInBytes,
+                  stage: 'nativeDecodedTopologyOutput',
+                );
+              case GlbNativeDecodeOutputAccounting.componentPayloadsAccounted:
+                decodeBudgetTracker.checkNativeOutputBytes(
+                  topologyBytes.lengthInBytes,
+                  stage: 'nativeDecodedTopologyOutput',
+                );
+            }
+          } on GlbDecodeBudgetExceeded catch (error) {
+            final diagnostic = _nativeDecodeBudgetDiagnostic(
+              error,
+              loaded.debugName,
+              requiredExtensions,
+            );
+            return ModelLoadResult.failure(
+              diagnostic,
+              diagnostics: <ViewerDiagnostic>[
+                ...nativeDecoderDiagnostics,
+                diagnostic,
+              ],
+            );
+          }
+          importBytes = topologyBytes;
+          final planResult = buildFlutterSceneAuthoredMipBindingPlan(
+            importBytes,
+            decodedImages: decodedMipImages,
+            debugName: loaded.debugName,
+          );
+          if (planResult.plan == null) {
+            final diagnostic = planResult.diagnostics.first;
+            return ModelLoadResult.failure(
+              diagnostic,
+              diagnostics: <ViewerDiagnostic>[
+                ...nativeDecoderDiagnostics,
+                ...planResult.diagnostics,
+              ],
+            );
+          }
+          authoredMipBindingPlan = planResult.plan;
+          nativeDecoderDiagnostics = nativeDecoderDiagnostics
+              .where(
+                (diagnostic) =>
+                    diagnostic.details['status'] != 'mipAwareImporterRequired',
+              )
+              .toList(growable: false);
+          capabilityResult = readGlbAssetCapabilities(
+            importBytes,
+            debugName: loaded.debugName,
+            decoderCapabilities: options.decoderCapabilities.merge(
+              const GlbDecoderCapabilities(textureBasisu: true),
+            ),
+          );
+        } else {
+          capabilityResult = readGlbAssetCapabilities(
+            importBytes,
+            debugName: loaded.debugName,
+            decoderCapabilities: options.decoderCapabilities,
           );
         }
-        importBytes = decodedBytes;
-        capabilityResult = readGlbAssetCapabilities(
-          importBytes,
-          debugName: loaded.debugName,
-          decoderCapabilities: options.decoderCapabilities,
-        );
       }
     }
     final blockingCapabilityDiagnostic =
@@ -283,6 +492,14 @@ final class ModelLoader {
         ],
       );
     }
+    final preAuthoredPatchCancellation = _cancellationResult(
+      source,
+      cancellationToken,
+      stage: 'authoredPatchExtraction',
+    );
+    if (preAuthoredPatchCancellation != null) {
+      return preAuthoredPatchCancellation;
+    }
     final authoredExtensionResult = isGlb
         ? readGlbMaterialExtensionIntent(
             importBytes,
@@ -295,11 +512,27 @@ final class ModelLoader {
             debugName: loaded.debugName,
           )
         : GlbImportedTexturePatchResult.empty;
+    final importedTextureDiagnostics = authoredMipBindingPlan == null
+        ? importedTexturePatchResult.diagnostics
+        : importedTexturePatchResult.diagnostics
+            .where(
+              (diagnostic) =>
+                  diagnostic.details['extension'] != kBasisuTextureExtension,
+            )
+            .toList(growable: false);
+    final preAdapterCancellation = _cancellationResult(
+      source,
+      cancellationToken,
+      stage: 'adapterImport',
+    );
+    if (preAdapterCancellation != null) {
+      return preAdapterCancellation;
+    }
     final preImportDiagnostics = <ViewerDiagnostic>[
       ...meshoptRewriteDiagnostics,
       ...nativeDecoderDiagnostics,
       ...capabilityResult.diagnostics,
-      ...importedTexturePatchResult.diagnostics,
+      ...importedTextureDiagnostics,
       ...authoredExtensionResult.diagnostics,
     ];
     final blockingTextureBindingDiagnostic =
@@ -311,14 +544,83 @@ final class ModelLoader {
       );
     }
 
+    var publicationSuperseded = false;
+    var publicationClosed = false;
+    bool acceptPublication() {
+      if (publicationClosed) {
+        return false;
+      }
+      if (tryAcceptPublication?.call() == false) {
+        publicationSuperseded = true;
+        return false;
+      }
+      final tokenAccepted = cancellationToken == null ||
+          tryAcceptModelLoadPublication(cancellationToken);
+      if (!tokenAccepted) {
+        onPublicationRejected?.call();
+      }
+      return tokenAccepted;
+    }
+
     try {
-      await adapter
-          .loadGlbBytes(
-            importBytes,
-            debugName: loaded.debugName,
-            materialShadingPolicy: materialShadingPolicy,
-          )
-          .timeout(options.timeout);
+      final bindingPlan = authoredMipBindingPlan;
+      if (bindingPlan == null) {
+        await adapter
+            .loadGlbBytes(
+              importBytes,
+              debugName: loaded.debugName,
+              materialShadingPolicy: materialShadingPolicy,
+              tryAcceptPublication: acceptPublication,
+            )
+            .timeout(options.timeout);
+      } else if (adapter is FlutterSceneAuthoredMipBindingAdapter) {
+        final mipAdapter = adapter as FlutterSceneAuthoredMipBindingAdapter;
+        await mipAdapter
+            .loadGlbBytesWithAuthoredMips(
+              importBytes,
+              bindingPlan: bindingPlan,
+              debugName: loaded.debugName,
+              materialShadingPolicy: materialShadingPolicy,
+              isLoadCancelled: () => cancellationToken?.isCancelled ?? false,
+              tryAcceptPublication: acceptPublication,
+            )
+            .timeout(options.timeout);
+      } else {
+        throw FlutterSceneAuthoredMipBindingException(
+          ViewerDiagnostic(
+            code: ViewerDiagnosticCode.adapterUnavailable,
+            message:
+                'The configured adapter does not support authored mip binding.',
+            details: <String, Object?>{
+              'source': loaded.debugName,
+              'extension': kBasisuTextureExtension,
+              'limitation': 'authoredMipBindingAdapterUnavailable',
+              'status': 'blocked',
+              'blocking': true,
+              'required': true,
+            },
+          ),
+          const <ViewerDiagnostic>[],
+        );
+      }
+    } on FlutterSceneAdapterLoadCancelledException {
+      if (publicationSuperseded) {
+        return _supersededPublicationResult(loaded.debugName);
+      }
+      if (cancellationToken != null) {
+        return _cancelledResult(source, cancellationToken,
+            stage: 'adapterPublication');
+      }
+      return _supersededPublicationResult(loaded.debugName);
+    } on FlutterSceneAuthoredMipBindingException catch (error) {
+      return ModelLoadResult.failure(
+        error.diagnostic,
+        diagnostics: <ViewerDiagnostic>[
+          ...preImportDiagnostics,
+          ...error.diagnostics,
+          if (!error.diagnostics.contains(error.diagnostic)) error.diagnostic,
+        ],
+      );
     } on FlutterSceneAdapterUnavailableException catch (error) {
       return ModelLoadResult.failure(
         ViewerDiagnostic(
@@ -345,12 +647,31 @@ final class ModelLoader {
         ),
         diagnostics: preImportDiagnostics,
       );
+    } finally {
+      publicationClosed = true;
+    }
+
+    final postAdapterCancellation = _cancellationResult(
+      source,
+      cancellationToken,
+      stage: 'adapterImport',
+    );
+    if (postAdapterCancellation != null) {
+      return postAdapterCancellation;
     }
 
     final snapshot = adapter.nodeSnapshot;
     final registry = _buildPartRegistry(snapshot);
     final fallbackStats = _modelStatsFromSnapshot(snapshot);
     final adapterStats = adapter.modelStats;
+    final successCancellation = _cancellationResult(
+      source,
+      cancellationToken,
+      stage: 'successPublication',
+    );
+    if (successCancellation != null) {
+      return successCancellation;
+    }
     return ModelLoadResult.success(
       diagnostics: <ViewerDiagnostic>[
         ...preImportDiagnostics,
@@ -376,15 +697,89 @@ final class ModelLoader {
     }
   }
 
-  Future<_LoadedModelBytes> _loadBytes(ModelSource source) async {
+  ModelLoadResult? _cancellationResult(
+    ModelSource source,
+    ModelLoadCancellationToken? cancellationToken, {
+    required String stage,
+  }) {
+    if (cancellationToken?.isCancelled != true) {
+      return null;
+    }
+    return _cancelledResult(source, cancellationToken!, stage: stage);
+  }
+
+  ModelLoadResult _cancelledResult(
+    ModelSource source,
+    ModelLoadCancellationToken cancellationToken, {
+    required String stage,
+  }) {
+    return ModelLoadResult.failure(
+      modelLoadCancellationDiagnostic(
+        source,
+        cancellationToken,
+        stage: stage,
+      ),
+    );
+  }
+
+  ModelLoadResult _supersededPublicationResult(String source) {
+    return ModelLoadResult.failure(
+      ViewerDiagnostic(
+        code: ViewerDiagnosticCode.adapterFailure,
+        message: 'Model publication was superseded before commit.',
+        details: <String, Object?>{
+          'source': source,
+          'stage': 'controllerPublication',
+          'reason': 'superseded',
+          'status': 'notPublished',
+        },
+      ),
+      superseded: true,
+    );
+  }
+
+  _SourceLoadOperation _loadBytes(ModelSource source) {
     return switch (source) {
-      BytesModelSource() => _LoadedModelBytes(
-          source.bytes,
-          debugName: source.debugName ?? 'bytes',
+      BytesModelSource() => _SourceLoadOperation(
+          Future<_LoadedModelBytes>.value(
+            _LoadedModelBytes(
+              source.bytes,
+              debugName: source.debugName ?? 'bytes',
+            ),
+          ),
         ),
-      AssetModelSource() => _loadAssetBytes(source),
-      NetworkModelSource() => _loadNetworkBytes(source),
+      AssetModelSource() => _SourceLoadOperation(_loadAssetBytes(source)),
+      NetworkModelSource() => _networkLoadOperation(source),
     };
+  }
+
+  Future<_SourceAcquisitionTerminal> _firstSourceTerminal(
+    _SourceLoadOperation operation, {
+    ModelLoadCancellationToken? cancellationToken,
+  }) async {
+    final timeout = Completer<_SourceAcquisitionTerminal>();
+    final timer = Timer(
+      options.timeout,
+      () => timeout.complete(const _SourceAcquisitionTimedOut()),
+    );
+    try {
+      return await Future.any<_SourceAcquisitionTerminal>(
+        <Future<_SourceAcquisitionTerminal>>[
+          operation.future.then<_SourceAcquisitionTerminal>(
+            _SourceAcquisitionSucceeded.new,
+            onError: (Object error, StackTrace _) =>
+                _SourceAcquisitionFailed(error),
+          ),
+          if (cancellationToken != null)
+            cancellationToken.whenCancelled.then<_SourceAcquisitionTerminal>(
+              (_) => const _SourceAcquisitionCancelled(),
+            ),
+          timeout.future,
+        ],
+      );
+    } finally {
+      timer.cancel();
+    }
   }
 
   Future<_LoadedModelBytes> _loadAssetBytes(AssetModelSource source) async {
@@ -408,50 +803,30 @@ final class ModelLoader {
     }
   }
 
-  Future<_LoadedModelBytes> _loadNetworkBytes(NetworkModelSource source) async {
+  _SourceLoadOperation _networkLoadOperation(NetworkModelSource source) {
     final uri = source.uri;
     if (!_isValidNetworkUri(uri)) {
-      throw _ModelLoadFailure(
-        ViewerDiagnostic(
-          code: ViewerDiagnosticCode.invalidModelUrl,
-          message: 'Network model URLs must be absolute http or https URLs.',
-          details: <String, Object?>{'url': uri.toString()},
-        ),
-      );
-    }
-
-    try {
-      final response = await _httpClient.get(uri, headers: source.headers);
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        throw _ModelLoadFailure(
-          ViewerDiagnostic(
-            code: ViewerDiagnosticCode.networkFailure,
-            message: 'Network model request failed.',
-            details: <String, Object?>{
-              'url': uri.toString(),
-              'statusCode': response.statusCode,
-            },
+      return _SourceLoadOperation(
+        Future<_LoadedModelBytes>.error(
+          _ModelLoadFailure(
+            ViewerDiagnostic(
+              code: ViewerDiagnosticCode.invalidModelUrl,
+              message:
+                  'Network model URLs must be absolute http or https URLs.',
+              details: <String, Object?>{'url': uri.toString()},
+            ),
           ),
-        );
-      }
-      return _LoadedModelBytes(
-        response.bodyBytes,
-        debugName: uri.toString(),
-      );
-    } on _ModelLoadFailure {
-      rethrow;
-    } on Object catch (error) {
-      throw _ModelLoadFailure(
-        ViewerDiagnostic(
-          code: ViewerDiagnosticCode.networkFailure,
-          message: 'Network model request failed.',
-          details: <String, Object?>{
-            'url': uri.toString(),
-            'error': error.toString(),
-          },
         ),
       );
     }
+    final request = _LoadScopedNetworkRequest(
+      client: _httpClient,
+      source: source,
+    );
+    return _SourceLoadOperation(
+      request.result,
+      cancel: request.cancel,
+    );
   }
 
   bool _isValidNetworkUri(Uri uri) {
@@ -542,6 +917,194 @@ final class ModelLoader {
       meshCount: meshCount,
       primitiveCount: primitiveCount,
     );
+  }
+}
+
+final class _SourceLoadOperation {
+  _SourceLoadOperation(
+    this.future, {
+    Future<void> Function()? cancel,
+  }) : _cancel = cancel;
+
+  final Future<_LoadedModelBytes> future;
+  final Future<void> Function()? _cancel;
+
+  Future<void> cancel() => _cancel?.call() ?? Future<void>.value();
+}
+
+sealed class _SourceAcquisitionTerminal {
+  const _SourceAcquisitionTerminal();
+}
+
+final class _SourceAcquisitionSucceeded extends _SourceAcquisitionTerminal {
+  const _SourceAcquisitionSucceeded(this.value);
+
+  final _LoadedModelBytes value;
+}
+
+final class _SourceAcquisitionFailed extends _SourceAcquisitionTerminal {
+  const _SourceAcquisitionFailed(this.error);
+
+  final Object error;
+}
+
+final class _SourceAcquisitionCancelled extends _SourceAcquisitionTerminal {
+  const _SourceAcquisitionCancelled();
+}
+
+final class _SourceAcquisitionTimedOut extends _SourceAcquisitionTerminal {
+  const _SourceAcquisitionTimedOut();
+}
+
+final class _LoadScopedNetworkRequest {
+  _LoadScopedNetworkRequest({
+    required http.Client client,
+    required NetworkModelSource source,
+  })  : _client = client,
+        _source = source {
+    unawaited(_startSafely());
+  }
+
+  final http.Client _client;
+  final NetworkModelSource _source;
+  final Completer<_LoadedModelBytes> _result = Completer<_LoadedModelBytes>();
+  final Completer<void> _abortTrigger = Completer<void>();
+  // Retained across callbacks so load cancellation can close only this stream.
+  // ignore: cancel_subscriptions
+  StreamSubscription<List<int>>? _responseSubscription;
+  var _cancelled = false;
+
+  Future<_LoadedModelBytes> get result => _result.future;
+
+  Future<void> _startSafely() async {
+    try {
+      await _start();
+    } on Object catch (error, stackTrace) {
+      if (!_cancelled) {
+        _completeNetworkFailure(error, stackTrace);
+      }
+    }
+  }
+
+  Future<void> _start() async {
+    final uri = _source.uri;
+    final request = http.AbortableRequest(
+      'GET',
+      uri,
+      abortTrigger: _abortTrigger.future,
+    )..headers.addAll(_source.headers);
+    final http.StreamedResponse response;
+    try {
+      response = await _client.send(request);
+    } on Object catch (error, stackTrace) {
+      if (!_cancelled) {
+        _completeNetworkFailure(error, stackTrace);
+      }
+      return;
+    }
+    if (_cancelled) {
+      final lateSubscription = response.stream.listen(
+        (_) {},
+        onError: (Object _, StackTrace __) {},
+      );
+      await _cancelSubscriptionSafely(lateSubscription);
+      return;
+    }
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      final diagnostic = _ModelLoadFailure(
+        ViewerDiagnostic(
+          code: ViewerDiagnosticCode.networkFailure,
+          message: 'Network model request failed.',
+          details: <String, Object?>{
+            'url': uri.toString(),
+            'statusCode': response.statusCode,
+          },
+        ),
+      );
+      if (!_result.isCompleted) {
+        _result.completeError(diagnostic);
+      }
+      final rejectedSubscription = response.stream.listen(
+        (_) {},
+        onError: (Object _, StackTrace __) {},
+      );
+      await _cancelSubscriptionSafely(rejectedSubscription);
+      return;
+    }
+
+    final body = BytesBuilder(copy: false);
+    _responseSubscription = response.stream.listen(
+      (chunk) {
+        if (!_cancelled) {
+          body.add(chunk);
+        }
+      },
+      onError: (Object error, StackTrace stackTrace) {
+        if (!_cancelled) {
+          _completeNetworkFailure(error, stackTrace);
+        }
+        scheduleMicrotask(
+          () => unawaited(
+            _cancelSubscriptionSafely(_responseSubscription),
+          ),
+        );
+      },
+      onDone: () {
+        if (!_cancelled && !_result.isCompleted) {
+          _result.complete(
+            _LoadedModelBytes(
+              body.takeBytes(),
+              debugName: uri.toString(),
+            ),
+          );
+        }
+      },
+      cancelOnError: false,
+    );
+  }
+
+  void _completeNetworkFailure(Object error, StackTrace stackTrace) {
+    if (_result.isCompleted) {
+      return;
+    }
+    _result.completeError(
+      _ModelLoadFailure(
+        ViewerDiagnostic(
+          code: ViewerDiagnosticCode.networkFailure,
+          message: 'Network model request failed.',
+          details: <String, Object?>{
+            'url': _source.uri.toString(),
+            'error': error.toString(),
+          },
+        ),
+      ),
+      stackTrace,
+    );
+  }
+
+  Future<void> cancel() async {
+    if (_cancelled) {
+      return;
+    }
+    _cancelled = true;
+    if (!_abortTrigger.isCompleted) {
+      _abortTrigger.complete();
+    }
+    await _cancelSubscriptionSafely(_responseSubscription);
+  }
+
+  Future<void> _cancelSubscriptionSafely(
+    StreamSubscription<List<int>>? subscription,
+  ) async {
+    if (subscription == null) {
+      return;
+    }
+    try {
+      await subscription.cancel();
+    } on Object {
+      // Cleanup is best-effort and must not replace the load's typed terminal
+      // result or escape from this unawaited request lifecycle.
+    }
   }
 }
 
@@ -715,9 +1278,83 @@ ViewerDiagnostic? _nativeDecodeOutputAccountingDiagnostic(
   final hasBytes = result.bytes != null;
   final hasAccounting =
       result.outputAccounting != GlbNativeDecodeOutputAccounting.none;
-  if (hasBytes == hasAccounting) {
-    return null;
+  if (hasBytes != hasAccounting) {
+    return _nativeDecodeAccountingShapeDiagnostic(
+      result,
+      source,
+      requiredExtensions,
+      field: 'outputAccounting',
+      limit:
+          hasBytes ? 'opaqueFinalBytes or componentPayloadsAccounted' : 'none',
+      actual: result.outputAccounting.name,
+    );
   }
+  final hasTopology = result.topologyBytes != null;
+  final hasMipImages = result.decodedBasisuImages.isNotEmpty;
+  if (hasTopology && !hasMipImages) {
+    return _nativeDecodeAccountingShapeDiagnostic(
+      result,
+      source,
+      requiredExtensions,
+      field: 'decodedBasisuImages',
+      limit: 'non-empty when topologyBytes is present',
+      actual: 0,
+    );
+  }
+  if (hasMipImages && !hasTopology) {
+    return _nativeDecodeAccountingShapeDiagnostic(
+      result,
+      source,
+      requiredExtensions,
+      field: 'topologyBytes',
+      limit: 'retained importer topology for decoded authored mip images',
+      actual: 'missing',
+    );
+  }
+  final topologyAccounting = result.topologyOutputAccounting;
+  if (!hasTopology &&
+      topologyAccounting != GlbNativeDecodeOutputAccounting.none) {
+    return _nativeDecodeAccountingShapeDiagnostic(
+      result,
+      source,
+      requiredExtensions,
+      field: 'topologyOutputAccounting',
+      limit: 'none when topologyBytes is absent',
+      actual: topologyAccounting.name,
+    );
+  }
+  if (hasTopology &&
+      topologyAccounting == GlbNativeDecodeOutputAccounting.opaqueFinalBytes) {
+    return _nativeDecodeAccountingShapeDiagnostic(
+      result,
+      source,
+      requiredExtensions,
+      field: 'topologyOutputAccounting',
+      limit: 'none or componentPayloadsAccounted',
+      actual: topologyAccounting.name,
+    );
+  }
+  if (hasBytes && hasMipImages) {
+    return _nativeDecodeAccountingShapeDiagnostic(
+      result,
+      source,
+      requiredExtensions,
+      field: 'bytes',
+      limit: 'null when authored mip payloads travel out-of-band',
+      actual: 'present',
+    );
+  }
+  return null;
+}
+
+ViewerDiagnostic _nativeDecodeAccountingShapeDiagnostic(
+  GlbNativeDecodeResult result,
+  String? source,
+  Set<String> requiredExtensions, {
+  required String field,
+  required Object limit,
+  required Object actual,
+}) {
   final sortedExtensions = requiredExtensions.toList()..sort();
   return ViewerDiagnostic(
     code: ViewerDiagnosticCode.unsupportedModelFeature,
@@ -731,11 +1368,14 @@ ViewerDiagnostic? _nativeDecodeOutputAccountingDiagnostic(
       'limitation': 'nativeDecodeOutputAccounting',
       'status': 'malformedOutput',
       'stage': 'nativeDecodedGlbOutput',
-      'field': 'outputAccounting',
-      'limit':
-          hasBytes ? 'opaqueFinalBytes or componentPayloadsAccounted' : 'none',
-      'actual': result.outputAccounting.name,
-      'bytesPresent': hasBytes,
+      'field': field,
+      'limit': limit,
+      'actual': actual,
+      'bytesPresent': result.bytes != null,
+      'topologyBytesPresent': result.topologyBytes != null,
+      'decodedBasisuImageCount': result.decodedBasisuImages.length,
+      'outputAccounting': result.outputAccounting.name,
+      'topologyOutputAccounting': result.topologyOutputAccounting.name,
     },
   );
 }

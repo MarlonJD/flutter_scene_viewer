@@ -27,15 +27,31 @@ namespace draco {
 PointAttribute::PointAttribute()
     : num_unique_entries_(0), identity_mapping_(false) {}
 
+PointAttribute::PointAttribute(FsvDecodeControl *control)
+    : indices_map_(control),
+      num_unique_entries_(0),
+      identity_mapping_(false),
+      fsv_decode_control_(control) {}
+
 PointAttribute::PointAttribute(const GeometryAttribute &att)
     : GeometryAttribute(att),
       num_unique_entries_(0),
       identity_mapping_(false) {}
 
+PointAttribute::PointAttribute(const GeometryAttribute &att,
+                               FsvDecodeControl *control)
+    : GeometryAttribute(att),
+      indices_map_(control),
+      num_unique_entries_(0),
+      identity_mapping_(false),
+      fsv_decode_control_(control) {}
+
 void PointAttribute::Init(Type attribute_type, int8_t num_components,
                           DataType data_type, bool normalized,
                           size_t num_attribute_values) {
-  attribute_buffer_ = std::unique_ptr<DataBuffer>(new DataBuffer());
+  attribute_buffer_ =
+      std::unique_ptr<DataBuffer>(new (fsv_decode_control_)
+                                      DataBuffer(fsv_decode_control_));
   GeometryAttribute::Init(attribute_type, attribute_buffer_.get(),
                           num_components, data_type, normalized,
                           DataTypeLength(data_type) * num_components, 0);
@@ -46,7 +62,9 @@ void PointAttribute::Init(Type attribute_type, int8_t num_components,
 void PointAttribute::CopyFrom(const PointAttribute &src_att) {
   if (buffer() == nullptr) {
     // If the destination attribute doesn't have a valid buffer, create it.
-    attribute_buffer_ = std::unique_ptr<DataBuffer>(new DataBuffer());
+    attribute_buffer_ =
+        std::unique_ptr<DataBuffer>(new (fsv_decode_control_)
+                                        DataBuffer(fsv_decode_control_));
     ResetBuffer(attribute_buffer_.get(), 0, 0);
   }
   if (!GeometryAttribute::CopyFrom(src_att)) {
@@ -57,7 +75,9 @@ void PointAttribute::CopyFrom(const PointAttribute &src_att) {
   indices_map_ = src_att.indices_map_;
   if (src_att.attribute_transform_data_) {
     attribute_transform_data_ = std::unique_ptr<AttributeTransformData>(
-        new AttributeTransformData(*src_att.attribute_transform_data_));
+        new (fsv_decode_control_)
+            AttributeTransformData(*src_att.attribute_transform_data_,
+                                   fsv_decode_control_));
   } else {
     attribute_transform_data_ = nullptr;
   }
@@ -65,7 +85,9 @@ void PointAttribute::CopyFrom(const PointAttribute &src_att) {
 
 bool PointAttribute::Reset(size_t num_attribute_values) {
   if (attribute_buffer_ == nullptr) {
-    attribute_buffer_ = std::unique_ptr<DataBuffer>(new DataBuffer());
+    attribute_buffer_ =
+        std::unique_ptr<DataBuffer>(new (fsv_decode_control_)
+                                        DataBuffer(fsv_decode_control_));
   }
   const int64_t entry_size = DataTypeLength(data_type()) * num_components();
   if (!attribute_buffer_->Update(nullptr, num_attribute_values * entry_size)) {

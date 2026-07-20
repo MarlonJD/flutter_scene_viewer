@@ -29,7 +29,11 @@ class TraverserBase {
   typedef CornerTableT CornerTable;
   typedef TraversalObserverT TraversalObserver;
 
-  TraverserBase() : corner_table_(nullptr) {}
+  TraverserBase() : TraverserBase(nullptr) {}
+  explicit TraverserBase(FsvDecodeControl *control)
+      : corner_table_(nullptr),
+        is_face_visited_(FsvDecodeAllocator<bool>(control)),
+        is_vertex_visited_(FsvDecodeAllocator<bool>(control)) {}
   virtual ~TraverserBase() = default;
 
   virtual void Init(const CornerTable *corner_table,
@@ -78,8 +82,8 @@ class TraverserBase {
  private:
   const CornerTable *corner_table_;
   TraversalObserverT traversal_observer_;
-  std::vector<bool> is_face_visited_;
-  std::vector<bool> is_vertex_visited_;
+  FsvVector<bool> is_face_visited_;
+  FsvVector<bool> is_vertex_visited_;
 };
 
 }  // namespace draco

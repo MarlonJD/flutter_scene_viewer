@@ -31,7 +31,7 @@ bool SequentialIntegerAttributeDecoder::Init(PointCloudDecoder *decoder,
 }
 
 bool SequentialIntegerAttributeDecoder::TransformAttributeToOriginalFormat(
-    const std::vector<PointIndex> &point_ids) {
+    const FsvVector<PointIndex> &point_ids) {
 #ifdef DRACO_BACKWARDS_COMPATIBILITY_SUPPORTED
   if (decoder() &&
       decoder()->bitstream_version() < DRACO_BITSTREAM_VERSION(2, 0)) {
@@ -42,7 +42,7 @@ bool SequentialIntegerAttributeDecoder::TransformAttributeToOriginalFormat(
 }
 
 bool SequentialIntegerAttributeDecoder::DecodeValues(
-    const std::vector<PointIndex> &point_ids, DecoderBuffer *in_buffer) {
+    const FsvVector<PointIndex> &point_ids, DecoderBuffer *in_buffer) {
   // Decode prediction scheme.
   int8_t prediction_scheme_method;
   if (!in_buffer->Decode(&prediction_scheme_method)) {
@@ -104,7 +104,7 @@ SequentialIntegerAttributeDecoder::CreateIntPredictionScheme(
 }
 
 bool SequentialIntegerAttributeDecoder::DecodeIntegerValues(
-    const std::vector<PointIndex> &point_ids, DecoderBuffer *in_buffer) {
+    const FsvVector<PointIndex> &point_ids, DecoderBuffer *in_buffer) {
   const int num_components = GetNumValueComponents();
   if (num_components <= 0) {
     return false;
@@ -124,7 +124,8 @@ bool SequentialIntegerAttributeDecoder::DecodeIntegerValues(
     // Decode compressed values.
     if (!DecodeSymbols(static_cast<uint32_t>(num_values), num_components,
                        in_buffer,
-                       reinterpret_cast<uint32_t *>(portable_attribute_data))) {
+                       reinterpret_cast<uint32_t *>(portable_attribute_data),
+                       decoder()->fsv_decode_control())) {
       return false;
     }
   } else {
@@ -153,6 +154,11 @@ bool SequentialIntegerAttributeDecoder::DecodeIntegerValues(
         return false;
       }
       for (size_t i = 0; i < num_values; ++i) {
+        // FSV LOCAL MODIFICATION (Apache-2.0 section 4(b)).
+        if ((i & 255U) == 0U && decoder() != nullptr &&
+            decoder()->ShouldStopDecoding()) {
+          return false;
+        }
         if (!in_buffer->Decode(portable_attribute_data + i, num_bytes)) {
           return false;
         }
@@ -162,6 +168,9 @@ bool SequentialIntegerAttributeDecoder::DecodeIntegerValues(
 
   if (num_values > 0 && (prediction_scheme_ == nullptr ||
                          !prediction_scheme_->AreCorrectionsPositive())) {
+    if (decoder() != nullptr && decoder()->ShouldStopDecoding()) {
+      return false;
+    }
     // Convert the values back to the original signed format.
     ConvertSymbolsToSignedInts(
         reinterpret_cast<const uint32_t *>(portable_attribute_data),
@@ -170,6 +179,9 @@ bool SequentialIntegerAttributeDecoder::DecodeIntegerValues(
 
   // If the data was encoded with a prediction scheme, we must revert it.
   if (prediction_scheme_) {
+    if (decoder() != nullptr && decoder()->ShouldStopDecoding()) {
+      return false;
+    }
     if (!prediction_scheme_->DecodePredictionData(in_buffer)) {
       return false;
     }
@@ -215,8 +227,10 @@ template <typename AttributeTypeT>
 void SequentialIntegerAttributeDecoder::StoreTypedValues(uint32_t num_values) {
   const int num_components = attribute()->num_components();
   const int entry_size = sizeof(AttributeTypeT) * num_components;
-  const std::unique_ptr<AttributeTypeT[]> att_val(
-      new AttributeTypeT[num_components]);
+  FsvDecodeControl *const control = attribute()->fsv_decode_control();
+  FsvVector<AttributeTypeT> att_val(
+      num_components, AttributeTypeT(),
+      FsvDecodeAllocator<AttributeTypeT>(control));
   const int32_t *const portable_attribute_data = GetPortableAttributeData();
   int val_id = 0;
   int out_byte_pos = 0;
@@ -227,7 +241,7 @@ void SequentialIntegerAttributeDecoder::StoreTypedValues(uint32_t num_values) {
       att_val[c] = value;
     }
     // Store the integer value into the attribute buffer.
-    attribute()->buffer()->Write(out_byte_pos, att_val.get(), entry_size);
+    attribute()->buffer()->Write(out_byte_pos, att_val.data(), entry_size);
     out_byte_pos += entry_size;
   }
 }
@@ -237,7 +251,9 @@ void SequentialIntegerAttributeDecoder::PreparePortableAttribute(
   GeometryAttribute ga;
   ga.Init(attribute()->attribute_type(), nullptr, num_components, DT_INT32,
           false, num_components * DataTypeLength(DT_INT32), 0);
-  std::unique_ptr<PointAttribute> port_att(new PointAttribute(ga));
+  FsvDecodeControl *const control = decoder()->fsv_decode_control();
+  std::unique_ptr<PointAttribute> port_att(
+      new (control) PointAttribute(ga, control));
   port_att->SetIdentityMapping();
   port_att->Reset(num_entries);
   port_att->set_unique_id(attribute()->unique_id());

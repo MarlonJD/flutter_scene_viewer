@@ -34,9 +34,11 @@ class MeshPredictionSchemeTexCoordsPortablePredictor {
  public:
   static constexpr int kNumComponents = 2;
 
-  explicit MeshPredictionSchemeTexCoordsPortablePredictor(const MeshDataT &md)
+  explicit MeshPredictionSchemeTexCoordsPortablePredictor(
+      const MeshDataT &md, FsvDecodeControl *control = nullptr)
       : pos_attribute_(nullptr),
         entry_to_point_id_map_(nullptr),
+        orientations_(FsvDecodeAllocator<bool>(control)),
         mesh_data_(md) {}
   void SetPositionAttribute(const PointAttribute &position_attribute) {
     pos_attribute_ = &position_attribute;
@@ -81,7 +83,7 @@ class MeshPredictionSchemeTexCoordsPortablePredictor {
   // Encoded / decoded array of UV flips.
   // TODO(ostava): We should remove this and replace this with in-place encoding
   // and decoding to avoid unnecessary copy.
-  std::vector<bool> orientations_;
+  FsvVector<bool> orientations_;
   MeshDataT mesh_data_;
 };
 

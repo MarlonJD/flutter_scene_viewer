@@ -17162,6 +17162,10 @@ typedef enum {
 
 struct ZSTD_DCtx_s
 {
+    /* FSV LOCAL MODIFICATION: request-owned, never global/TLS. */
+    int (*fsvCheckpoint)(void* opaque, size_t producedBytes);
+    void* fsvCheckpointOpaque;
+    size_t fsvProducedBytes;
     const ZSTD_seqSymbol* LLTptr;
     const ZSTD_seqSymbol* MLTptr;
     const ZSTD_seqSymbol* OFTptr;
@@ -18656,6 +18660,14 @@ static size_t ZSTD_decompressFrame(ZSTD_DCtx* dctx,
         if (decodedSize) /* support dst = NULL,0 */ {
             op += decodedSize;
         }
+        /* FSV LOCAL MODIFICATION: bounded cancellation at the exact
+         * supercompression output interval, once per decoded Zstd block. */
+        dctx->fsvProducedBytes += decodedSize;
+        if (dctx->fsvCheckpoint != NULL &&
+            !dctx->fsvCheckpoint(dctx->fsvCheckpointOpaque,
+                                 dctx->fsvProducedBytes)) {
+            return ERROR(GENERIC);
+        }
         assert(ip != NULL);
         ip += cBlockSize;
         remainingSrcSize -= cBlockSize;
@@ -18835,6 +18847,78 @@ size_t ZSTD_decompress(void* dst, size_t dstCapacity, const void* src, size_t sr
     return ZSTD_decompressDCtx(&dctx, dst, dstCapacity, src, srcSize);
 #endif
 }
+
+/* FSV LOCAL MODIFICATION (BSD-3-Clause notice retained). A controlled decode
+ * supplies one request-owned, aligned workspace for a static ZSTD_DCtx. The
+ * caller owns and releases that workspace. A null workspace preserves the
+ * pinned heap-backed behavior for callers without request control. */
+typedef int (*ZSTD_fsv_checkpoint_fn)(void* opaque, size_t producedBytes);
+#if defined(__cplusplus)
+extern "C" {
+#endif
+ZSTDLIB_API size_t ZSTD_fsv_dctx_allocation_size(void)
+{
+#if defined(ZSTD_HEAPMODE) && (ZSTD_HEAPMODE>=1)
+    const size_t estimate = ZSTD_estimateDCtxSize();
+    const size_t alignment = 8;
+    if (estimate > SIZE_MAX - (alignment - 1)) return 0;
+    return (estimate + (alignment - 1)) & ~(alignment - 1);
+#else
+    return 0;
+#endif
+}
+
+ZSTDLIB_API size_t ZSTD_fsv_dctx_alignment(void)
+{
+    return 8;
+}
+
+ZSTDLIB_API size_t ZSTD_decompress_fsv(
+    void* dst, size_t dstCapacity, const void* src, size_t srcSize,
+    void* dctxWorkspace, size_t dctxWorkspaceSize,
+    ZSTD_fsv_checkpoint_fn checkpoint, void* opaque)
+{
+    size_t result;
+    if (checkpoint != NULL && !checkpoint(opaque, 0)) {
+        return ERROR(GENERIC);
+    }
+#if defined(ZSTD_HEAPMODE) && (ZSTD_HEAPMODE>=1)
+    if (dctxWorkspace != NULL) {
+        ZSTD_DCtx* const dctx =
+            ZSTD_initStaticDCtx(dctxWorkspace, dctxWorkspaceSize);
+        if (dctx == NULL) {
+            return ERROR(memory_allocation);
+        }
+        dctx->fsvCheckpoint = checkpoint;
+        dctx->fsvCheckpointOpaque = opaque;
+        dctx->fsvProducedBytes = 0;
+        result = ZSTD_decompressDCtx(dctx, dst, dstCapacity, src, srcSize);
+    } else {
+        ZSTD_DCtx* const dctx = ZSTD_createDCtx_internal(ZSTD_defaultCMem);
+        if (dctx == NULL) {
+            return ERROR(memory_allocation);
+        }
+        dctx->fsvCheckpoint = checkpoint;
+        dctx->fsvCheckpointOpaque = opaque;
+        dctx->fsvProducedBytes = 0;
+        result = ZSTD_decompressDCtx(dctx, dst, dstCapacity, src, srcSize);
+        ZSTD_freeDCtx(dctx);
+    }
+#else
+    {
+        ZSTD_DCtx dctx;
+        ZSTD_initDCtx_internal(&dctx);
+        dctx.fsvCheckpoint = checkpoint;
+        dctx.fsvCheckpointOpaque = opaque;
+        dctx.fsvProducedBytes = 0;
+        result = ZSTD_decompressDCtx(&dctx, dst, dstCapacity, src, srcSize);
+    }
+#endif
+    return result;
+}
+#if defined(__cplusplus)
+}
+#endif
 
 
 /*-**************************************

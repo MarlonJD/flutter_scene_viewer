@@ -10,6 +10,7 @@ enum ViewerDiagnosticCode {
   textureTooLarge,
   invalidModelUrl,
   modelLoadTimeout,
+  modelLoadCancelled,
   networkFailure,
   assetLoadFailure,
   environmentUnsupportedEncoding,

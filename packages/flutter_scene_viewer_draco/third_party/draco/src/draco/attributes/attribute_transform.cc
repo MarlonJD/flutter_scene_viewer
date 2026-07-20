@@ -17,8 +17,9 @@
 namespace draco {
 
 bool AttributeTransform::TransferToAttribute(PointAttribute *attribute) const {
+  FsvDecodeControl *const control = attribute->fsv_decode_control();
   std::unique_ptr<AttributeTransformData> transform_data(
-      new AttributeTransformData());
+      new (control) AttributeTransformData(control));
   this->CopyToAttributeTransformData(transform_data.get());
   attribute->SetAttributeTransformData(std::move(transform_data));
   return true;
@@ -31,7 +32,9 @@ std::unique_ptr<PointAttribute> AttributeTransform::InitTransformedAttribute(
   GeometryAttribute ga;
   ga.Init(src_attribute.attribute_type(), nullptr, num_components, dt, false,
           num_components * DataTypeLength(dt), 0);
-  std::unique_ptr<PointAttribute> transformed_attribute(new PointAttribute(ga));
+  FsvDecodeControl *const control = src_attribute.fsv_decode_control();
+  std::unique_ptr<PointAttribute> transformed_attribute(
+      new (control) PointAttribute(ga, control));
   transformed_attribute->Reset(num_entries);
   transformed_attribute->SetIdentityMapping();
   transformed_attribute->set_unique_id(src_attribute.unique_id());

@@ -28,7 +28,7 @@ class PointCloudDecoder;
 // matching AttributesEncoder. It provides only the basic interface
 // that is used by the PointCloudDecoder. The actual decoding must be
 // implemented in derived classes using the DecodeAttributes() method.
-class AttributesDecoderInterface {
+class AttributesDecoderInterface : public FsvDecodeAllocated {
  public:
   AttributesDecoderInterface() = default;
   virtual ~AttributesDecoderInterface() = default;

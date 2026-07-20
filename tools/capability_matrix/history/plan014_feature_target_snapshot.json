@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 2,
+  "id": "plan014-feature-target-closure",
+  "plan": "014_selected_gltf_extension_support",
+  "planPath": "docs/exec-plans/completed/014_selected_gltf_extension_support.md",
+  "originalPath": "tools/capability_matrix/plan014_selected_extension_capabilities.json",
+  "sourcePath": "tools/capability_matrix/history/plan014_selected_extension_capabilities.json",
+  "sourceSha256": "0ebe4e6c17919e3dca21dedf0e7d21ef1eef24431c1ab8c62d408ebfd52ac74d",
+  "featureCount": 9,
+  "targetCount": 4,
+  "featureTargetRowCount": 36,
+  "featureTargetRowsSha256": "9d9dd71db8768cf42d54319fa7996190bdc034d4270fdbe9fcc372864c19ba06",
+  "historicalContextSha256": "12f4205de76da66db7d89e391fc869500b5e0380f5fd88d55b1a003b2419adab",
+  "decoderControlBoundariesSha256": "18fff200d48518a65c8b98d2aa49ac9e3c530353f2aa7bd831731cce7e41e453",
+  "liveTargetRowDifferences": [
+    {
+      "feature": "KHR_materials_clearcoat",
+      "target": "ios_simulator",
+      "field": "blocker",
+      "historicalValue": "current Plan 014 target run is absent; renderer-native integration is deferred to Plan 015",
+      "liveValue": "durable current target run is absent; renderer-native integration was completed separately by Plan 015"
+    },
+    {
+      "feature": "KHR_materials_transmission",
+      "target": "ios_simulator",
+      "field": "blocker",
+      "historicalValue": "current Plan 014 target run is absent; renderer-native glass is deferred to Plan 016",
+      "liveValue": "durable current target run is absent; renderer-native glass was completed separately by Plan 016"
+    },
+    {
+      "feature": "KHR_materials_volume",
+      "target": "ios_simulator",
+      "field": "blocker",
+      "historicalValue": "current Plan 014 target run is absent; full volume transport is deferred to Plan 016",
+      "liveValue": "durable current target run is absent; full volume transport was completed separately by Plan 016"
+    },
+    {
+      "feature": "KHR_texture_basisu",
+      "target": "ios_simulator",
+      "field": "blocker",
+      "historicalValue": "no current Plan 014 iOS Simulator transcode/import/render or packaging run",
+      "liveValue": "no durable iOS Simulator transcode/import/render or packaging run"
+    }
+  ],
+  "liveTargetRowDifferencesSha256": "7ac7b800fd80c6f6fc9e6e462014f7a3746d652af47567a263ffca86c84ef636",
+  "scope": "Fingerprint of every Plan 014 feature-target row and its retained historical context at migration. The stable live source preserves those rows initially and may advance only through matching durable target evidence."
+}

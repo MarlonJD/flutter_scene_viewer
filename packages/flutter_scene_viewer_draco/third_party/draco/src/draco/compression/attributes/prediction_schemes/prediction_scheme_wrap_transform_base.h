@@ -41,12 +41,15 @@ template <typename DataTypeT>
 class PredictionSchemeWrapTransformBase {
  public:
   PredictionSchemeWrapTransformBase()
+      : PredictionSchemeWrapTransformBase(nullptr) {}
+  explicit PredictionSchemeWrapTransformBase(FsvDecodeControl *control)
       : num_components_(0),
         min_value_(0),
         max_value_(0),
         max_dif_(0),
         max_correction_(0),
-        min_correction_(0) {}
+        min_correction_(0),
+        clamped_value_(FsvDecodeAllocator<DataTypeT>(control)) {}
 
   static constexpr PredictionSchemeTransformType GetType() {
     return PREDICTION_TRANSFORM_WRAP;
@@ -112,7 +115,7 @@ class PredictionSchemeWrapTransformBase {
   DataTypeT max_correction_;
   DataTypeT min_correction_;
   // This is in fact just a tmp variable to avoid reallocation.
-  mutable std::vector<DataTypeT> clamped_value_;
+  mutable FsvVector<DataTypeT> clamped_value_;
 };
 
 }  // namespace draco

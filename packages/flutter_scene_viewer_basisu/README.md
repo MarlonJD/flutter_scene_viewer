@@ -8,10 +8,12 @@ requirements.
 
 Current status: optional native transcoder. The plugin vendors the Basis
 Universal transcoder plus bundled Zstd decoder sources, accepts GLB-embedded
-KTX2 image payloads over the `flutter_scene_viewer/basisu` MethodChannel,
-transcodes supported ETC1S/UASTC KTX2 level 0 payloads to RGBA32, encodes the
-result as PNG, and returns `decodedImages` for the root Dart package to rewrite
-into ordinary GLB image bufferViews.
+KTX2 image payloads over the `flutter_scene_viewer/basisu` MethodChannel, and
+transcodes supported ETC1S/UASTC mip chains to ordered raw RGBA8888 levels.
+Each level retains its exact dimensions, bytes, content role, image identity,
+and consuming texture sampler intents for the root package's repo-local
+authored-mip binding seam. The bounded single-level PNG path remains a separate
+compatibility route; multi-level output is never flattened to level 0.
 
 The plugin is disabled by default. When disabled, unregistered, unlinked, or
 unable to decode an image, `flutter_scene_viewer` reports typed diagnostics
@@ -29,6 +31,20 @@ Boundaries:
   build tooling unless the app opts into this sibling plugin.
 - External `.ktx2` URIs are still resolver work; the current native bridge
   consumes KTX2 bytes supplied by the root GLB pipeline.
+
+Each decode carries a unique request id. `cancelDecode`, background request
+ownership, cooperative pinned BasisU/Zstd checkpoints, and exactly-once
+terminal delivery prevent cancelled output from escaping. Retained decoded
+levels, the maximum live Zstd Level Index buffer, and the heap-backed Zstd
+context are request-budgeted. Broader transcoder container allocation
+interception is still `blocked`, so this is not a complete bounded-allocator
+claim.
+
+The tracked [Plan 017 decoder/mip evidence contract](../../tools/decoder_mip_acceptance/README.md)
+keeps `color`, `data`, and `normal` content roles distinct from native `color`
+and `nonColor` storage, and retains exact material slots and samplers. Current
+package/runtime evidence is `not run`, Android capture is `blocked` by the
+unavailable device/build environment, and release remains `release pending`.
 
 Third-party notices for the vendored Basis Universal and Zstd sources are kept
 under `third_party/basis_universal/`.

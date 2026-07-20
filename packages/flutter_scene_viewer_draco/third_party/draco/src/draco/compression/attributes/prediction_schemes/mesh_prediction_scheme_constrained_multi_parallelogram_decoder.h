@@ -46,10 +46,14 @@ class MeshPredictionSchemeConstrainedMultiParallelogramDecoder
         selected_mode_(Mode::OPTIMAL_MULTI_PARALLELOGRAM) {}
   MeshPredictionSchemeConstrainedMultiParallelogramDecoder(
       const PointAttribute *attribute, const TransformT &transform,
-      const MeshDataT &mesh_data)
+      const MeshDataT &mesh_data, FsvDecodeControl *control = nullptr)
       : MeshPredictionSchemeDecoder<DataTypeT, TransformT, MeshDataT>(
-            attribute, transform, mesh_data),
-        selected_mode_(Mode::OPTIMAL_MULTI_PARALLELOGRAM) {}
+            attribute, transform, mesh_data, control),
+        selected_mode_(Mode::OPTIMAL_MULTI_PARALLELOGRAM) {
+    for (auto &flags : is_crease_edge_) {
+      flags = FsvVector<bool>(FsvDecodeAllocator<bool>(control));
+    }
+  }
 
   bool ComputeOriginalValues(const CorrType *in_corr, DataTypeT *out_data,
                              int size, int num_components,
@@ -74,7 +78,7 @@ class MeshPredictionSchemeConstrainedMultiParallelogramDecoder
   // the edges are processed. For better compression, the flags are stored in
   // in separate contexts based on the number of available parallelograms at a
   // given vertex.
-  std::vector<bool> is_crease_edge_[kMaxNumParallelograms];
+  FsvVector<bool> is_crease_edge_[kMaxNumParallelograms];
   Mode selected_mode_;
 };
 
@@ -88,22 +92,28 @@ bool MeshPredictionSchemeConstrainedMultiParallelogramDecoder<
 
   // Predicted values for all simple parallelograms encountered at any given
   // vertex.
-  std::vector<DataTypeT> pred_vals[kMaxNumParallelograms];
+  FsvVector<DataTypeT> pred_vals[kMaxNumParallelograms];
   for (int i = 0; i < kMaxNumParallelograms; ++i) {
+    pred_vals[i] = FsvVector<DataTypeT>(
+        FsvDecodeAllocator<DataTypeT>(this->fsv_decode_control()));
     pred_vals[i].resize(num_components, 0);
   }
   this->transform().ComputeOriginalValue(pred_vals[0].data(), in_corr,
                                          out_data);
 
   const CornerTable *const table = this->mesh_data().corner_table();
-  const std::vector<int32_t> *const vertex_to_data_map =
+  const auto *const vertex_to_data_map =
       this->mesh_data().vertex_to_data_map();
 
   // Current position in the |is_crease_edge_| array for each context.
-  std::vector<int> is_crease_edge_pos(kMaxNumParallelograms, 0);
+  FsvVector<int> is_crease_edge_pos(
+      kMaxNumParallelograms, 0,
+      FsvDecodeAllocator<int>(this->fsv_decode_control()));
 
   // Used to store predicted value for multi-parallelogram prediction.
-  std::vector<DataTypeT> multi_pred_vals(num_components);
+  FsvVector<DataTypeT> multi_pred_vals(
+      num_components, DataTypeT(),
+      FsvDecodeAllocator<DataTypeT>(this->fsv_decode_control()));
 
   const int corner_map_size =
       static_cast<int>(this->mesh_data().data_to_corner_map()->size());

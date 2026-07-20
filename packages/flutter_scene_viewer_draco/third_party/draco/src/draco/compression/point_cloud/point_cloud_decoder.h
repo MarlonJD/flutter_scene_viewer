@@ -23,22 +23,30 @@
 
 namespace draco {
 
+class FsvDecodeControl;
+
 // Abstract base class for all point cloud and mesh decoders. It provides a
 // basic functionality that is shared between different decoders.
-class PointCloudDecoder {
+class PointCloudDecoder : public FsvDecodeAllocated {
  public:
   PointCloudDecoder();
+  explicit PointCloudDecoder(FsvDecodeControl *control);
   virtual ~PointCloudDecoder() = default;
 
   virtual EncodedGeometryType GetGeometryType() const { return POINT_CLOUD; }
 
   // Decodes a Draco header int other provided |out_header|.
   // Returns false on error.
-  static Status DecodeHeader(DecoderBuffer *buffer, DracoHeader *out_header);
+  static Status DecodeHeader(DecoderBuffer *buffer, DracoHeader *out_header,
+                             FsvDecodeControl *control = nullptr);
 
   // The main entry point for point cloud decoding.
   Status Decode(const DecoderOptions &options, DecoderBuffer *in_buffer,
-                PointCloud *out_point_cloud);
+                PointCloud *out_point_cloud,
+                FsvDecodeControl *control = nullptr);
+
+  bool ShouldStopDecoding() const;
+  FsvDecodeControl *fsv_decode_control() const { return fsv_decode_control_; }
 
   bool SetAttributesDecoder(
       int att_decoder_id, std::unique_ptr<AttributesDecoderInterface> decoder) {
@@ -98,10 +106,12 @@ class PointCloudDecoder {
   // Point cloud that is being filled in by the decoder.
   PointCloud *point_cloud_;
 
-  std::vector<std::unique_ptr<AttributesDecoderInterface>> attributes_decoders_;
+  std::vector<std::unique_ptr<AttributesDecoderInterface>,
+              FsvDecodeAllocator<std::unique_ptr<AttributesDecoderInterface>>>
+      attributes_decoders_;
 
   // Map between attribute id and decoder id.
-  std::vector<int32_t> attribute_to_decoder_map_;
+  std::vector<int32_t, FsvDecodeAllocator<int32_t>> attribute_to_decoder_map_;
 
   // Input buffer holding the encoded data.
   DecoderBuffer *buffer_;
@@ -111,6 +121,7 @@ class PointCloudDecoder {
   uint8_t version_minor_;
 
   const DecoderOptions *options_;
+  FsvDecodeControl *fsv_decode_control_;
 };
 
 }  // namespace draco

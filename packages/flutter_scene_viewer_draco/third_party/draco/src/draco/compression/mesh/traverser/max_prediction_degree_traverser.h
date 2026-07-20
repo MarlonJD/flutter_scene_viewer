@@ -52,7 +52,13 @@ class MaxPredictionDegreeTraverser
   typedef TraversalObserverT TraversalObserver;
   typedef TraverserBase<CornerTable, TraversalObserver> Base;
 
-  MaxPredictionDegreeTraverser() {}
+  MaxPredictionDegreeTraverser() : MaxPredictionDegreeTraverser(nullptr) {}
+  explicit MaxPredictionDegreeTraverser(FsvDecodeControl *control)
+      : Base(control), prediction_degree_(control) {
+    for (auto &stack : traversal_stacks_) {
+      stack = FsvVector<CornerIndex>(FsvDecodeAllocator<CornerIndex>(control));
+    }
+  }
 
   // Called before any traversing starts.
   void OnTraversalStart() {
@@ -211,7 +217,7 @@ class MaxPredictionDegreeTraverser
   // where each buckets represent a stack of available corners for a given
   // priority. Corners with the highest priority are always processed first.
   static constexpr int kMaxPriority = 3;
-  std::vector<CornerIndex> traversal_stacks_[kMaxPriority];
+  FsvVector<CornerIndex> traversal_stacks_[kMaxPriority];
 
   // Keep the track of the best available priority to improve the performance
   // of PopNextCornerToTraverse() method.

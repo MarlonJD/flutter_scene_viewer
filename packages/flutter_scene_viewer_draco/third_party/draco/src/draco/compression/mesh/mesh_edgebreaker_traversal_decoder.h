@@ -30,7 +30,10 @@ typedef RAnsBitDecoder BinaryDecoder;
 class MeshEdgebreakerTraversalDecoder {
  public:
   MeshEdgebreakerTraversalDecoder()
-      : attribute_connectivity_decoders_(nullptr),
+      : MeshEdgebreakerTraversalDecoder(nullptr) {}
+  explicit MeshEdgebreakerTraversalDecoder(FsvDecodeControl *control)
+      : attribute_connectivity_decoders_(
+            FsvDecodeAllocator<BinaryDecoder>(control)),
         num_attribute_data_(0),
         decoder_impl_(nullptr) {}
   void Init(MeshEdgebreakerDecoderImplInterface *decoder) {
@@ -174,8 +177,7 @@ class MeshEdgebreakerTraversalDecoder {
   bool DecodeAttributeSeams() {
     // Prepare attribute decoding.
     if (num_attribute_data_ > 0) {
-      attribute_connectivity_decoders_ = std::unique_ptr<BinaryDecoder[]>(
-          new BinaryDecoder[num_attribute_data_]);
+      attribute_connectivity_decoders_.resize(num_attribute_data_);
       for (int i = 0; i < num_attribute_data_; ++i) {
         if (!attribute_connectivity_decoders_[i].StartDecoding(&buffer_)) {
           return false;
@@ -191,7 +193,7 @@ class MeshEdgebreakerTraversalDecoder {
   DecoderBuffer symbol_buffer_;
   BinaryDecoder start_face_decoder_;
   DecoderBuffer start_face_buffer_;
-  std::unique_ptr<BinaryDecoder[]> attribute_connectivity_decoders_;
+  FsvVector<BinaryDecoder> attribute_connectivity_decoders_;
   int num_attribute_data_;
   const MeshEdgebreakerDecoderImplInterface *decoder_impl_;
 };

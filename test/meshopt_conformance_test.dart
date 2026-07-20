@@ -8,7 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 const _fixtureRoot = 'test/fixtures/meshopt/MeshoptCubeTest';
 
 void main() {
-  test('decodes every officially covered claimed mode and filter', () {
+  test('decodes every officially covered claimed mode and filter', () async {
     final fixture = _readJson('$_fixtureRoot/glTF/MeshoptCubeTest.gltf');
     final buffers = _maps(fixture['buffers']);
     final bufferBytes = <int, Uint8List>{
@@ -66,7 +66,7 @@ void main() {
             .putIfAbsent(filterName, () => <int>{})
             .add(version);
       }
-      final decoded = decodeMeshoptGltfBuffer(
+      final decoded = await decodeMeshoptGltfBuffer(
         encoded,
         count: compression['count'] as int,
         byteStride: compression['byteStride'] as int,

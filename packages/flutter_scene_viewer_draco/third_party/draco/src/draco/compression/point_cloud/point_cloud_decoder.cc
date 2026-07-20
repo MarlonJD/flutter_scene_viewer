@@ -14,6 +14,7 @@
 //
 #include "draco/compression/point_cloud/point_cloud_decoder.h"
 
+#include "draco/compression/decode.h"
 #include "draco/metadata/metadata_decoder.h"
 
 namespace draco {
@@ -23,59 +24,88 @@ PointCloudDecoder::PointCloudDecoder()
       buffer_(nullptr),
       version_major_(0),
       version_minor_(0),
-      options_(nullptr) {}
+      options_(nullptr),
+      fsv_decode_control_(nullptr) {}
+
+PointCloudDecoder::PointCloudDecoder(FsvDecodeControl *control)
+    : point_cloud_(nullptr),
+      attributes_decoders_(
+          FsvDecodeAllocator<std::unique_ptr<AttributesDecoderInterface>>(
+              control)),
+      attribute_to_decoder_map_(FsvDecodeAllocator<int32_t>(control)),
+      buffer_(nullptr),
+      version_major_(0),
+      version_minor_(0),
+      options_(nullptr),
+      fsv_decode_control_(control) {}
+
+bool PointCloudDecoder::ShouldStopDecoding() const {
+  return fsv_decode_control_ != nullptr &&
+         fsv_decode_control_->ShouldStopDecoding();
+}
 
 Status PointCloudDecoder::DecodeHeader(DecoderBuffer *buffer,
-                                       DracoHeader *out_header) {
+                                       DracoHeader *out_header,
+                                       FsvDecodeControl *control) {
   constexpr char kIoErrorMsg[] = "Failed to parse Draco header.";
   if (!buffer->Decode(out_header->draco_string, 5)) {
-    return Status(Status::IO_ERROR, kIoErrorMsg);
+    return Status(Status::IO_ERROR, kIoErrorMsg, control);
   }
   if (memcmp(out_header->draco_string, "DRACO", 5) != 0) {
-    return Status(Status::DRACO_ERROR, "Not a Draco file.");
+    return Status(Status::DRACO_ERROR, "Not a Draco file.", control);
   }
   if (!buffer->Decode(&(out_header->version_major))) {
-    return Status(Status::IO_ERROR, kIoErrorMsg);
+    return Status(Status::IO_ERROR, kIoErrorMsg, control);
   }
   if (!buffer->Decode(&(out_header->version_minor))) {
-    return Status(Status::IO_ERROR, kIoErrorMsg);
+    return Status(Status::IO_ERROR, kIoErrorMsg, control);
   }
   if (!buffer->Decode(&(out_header->encoder_type))) {
-    return Status(Status::IO_ERROR, kIoErrorMsg);
+    return Status(Status::IO_ERROR, kIoErrorMsg, control);
   }
   if (!buffer->Decode(&(out_header->encoder_method))) {
-    return Status(Status::IO_ERROR, kIoErrorMsg);
+    return Status(Status::IO_ERROR, kIoErrorMsg, control);
   }
   if (!buffer->Decode(&(out_header->flags))) {
-    return Status(Status::IO_ERROR, kIoErrorMsg);
+    return Status(Status::IO_ERROR, kIoErrorMsg, control);
   }
-  return OkStatus();
+  return OkStatus(control);
 }
 
 Status PointCloudDecoder::DecodeMetadata() {
   std::unique_ptr<GeometryMetadata> metadata =
-      std::unique_ptr<GeometryMetadata>(new GeometryMetadata());
-  MetadataDecoder metadata_decoder;
+      std::unique_ptr<GeometryMetadata>(new (fsv_decode_control_)
+                                            GeometryMetadata(
+                                                fsv_decode_control_));
+  MetadataDecoder metadata_decoder(fsv_decode_control_);
   if (!metadata_decoder.DecodeGeometryMetadata(buffer_, metadata.get())) {
-    return Status(Status::DRACO_ERROR, "Failed to decode metadata.");
+    return Status(Status::DRACO_ERROR, "Failed to decode metadata.",
+                  fsv_decode_control_);
   }
   point_cloud_->AddMetadata(std::move(metadata));
-  return OkStatus();
+  return OkStatus(fsv_decode_control_);
 }
 
 Status PointCloudDecoder::Decode(const DecoderOptions &options,
                                  DecoderBuffer *in_buffer,
-                                 PointCloud *out_point_cloud) {
+                                 PointCloud *out_point_cloud,
+                                 FsvDecodeControl *control) {
+  // FSV LOCAL MODIFICATION (Apache-2.0 section 4(b)).
+  fsv_decode_control_ = control;
+  if (ShouldStopDecoding()) {
+    return Status(Status::DRACO_ERROR, "Decode cancelled.", control);
+  }
   options_ = &options;
   buffer_ = in_buffer;
   point_cloud_ = out_point_cloud;
   DracoHeader header;
-  DRACO_RETURN_IF_ERROR(DecodeHeader(buffer_, &header))
+  DRACO_RETURN_IF_ERROR(DecodeHeader(buffer_, &header, control))
   // Sanity check that we are really using the right decoder (mostly for cases
   // where the Decode method was called manually outside of our main API.
   if (header.encoder_type != GetGeometryType()) {
     return Status(Status::DRACO_ERROR,
-                  "Using incompatible decoder for the input geometry.");
+                  "Using incompatible decoder for the input geometry.",
+                  control);
   }
   // TODO(ostava): We should check the method as well, but currently decoders
   // don't expose the decoding method id.
@@ -92,18 +122,20 @@ Status PointCloudDecoder::Decode(const DecoderOptions &options,
   // Check for version compatibility.
 #ifdef DRACO_BACKWARDS_COMPATIBILITY_SUPPORTED
   if (version_major_ < 1 || version_major_ > max_supported_major_version) {
-    return Status(Status::UNKNOWN_VERSION, "Unknown major version.");
+    return Status(Status::UNKNOWN_VERSION, "Unknown major version.", control);
   }
   if (version_major_ == max_supported_major_version &&
       version_minor_ > max_supported_minor_version) {
-    return Status(Status::UNKNOWN_VERSION, "Unknown minor version.");
+    return Status(Status::UNKNOWN_VERSION, "Unknown minor version.", control);
   }
 #else
   if (version_major_ != max_supported_major_version) {
-    return Status(Status::UNKNOWN_VERSION, "Unsupported major version.");
+    return Status(Status::UNKNOWN_VERSION, "Unsupported major version.",
+                  control);
   }
   if (version_minor_ != max_supported_minor_version) {
-    return Status(Status::UNKNOWN_VERSION, "Unsupported minor version.");
+    return Status(Status::UNKNOWN_VERSION, "Unsupported minor version.",
+                  control);
   }
 #endif
   buffer_->set_bitstream_version(
@@ -114,15 +146,24 @@ Status PointCloudDecoder::Decode(const DecoderOptions &options,
     DRACO_RETURN_IF_ERROR(DecodeMetadata())
   }
   if (!InitializeDecoder()) {
-    return Status(Status::DRACO_ERROR, "Failed to initialize the decoder.");
+    return Status(Status::DRACO_ERROR, "Failed to initialize the decoder.",
+                  control);
+  }
+  if (ShouldStopDecoding()) {
+    return Status(Status::DRACO_ERROR, "Decode cancelled.", control);
   }
   if (!DecodeGeometryData()) {
-    return Status(Status::DRACO_ERROR, "Failed to decode geometry data.");
+    return Status(Status::DRACO_ERROR, "Failed to decode geometry data.",
+                  control);
+  }
+  if (ShouldStopDecoding()) {
+    return Status(Status::DRACO_ERROR, "Decode cancelled.", control);
   }
   if (!DecodePointAttributes()) {
-    return Status(Status::DRACO_ERROR, "Failed to decode point attributes.");
+    return Status(Status::DRACO_ERROR, "Failed to decode point attributes.",
+                  control);
   }
-  return OkStatus();
+  return OkStatus(control);
 }
 
 bool PointCloudDecoder::DecodePointAttributes() {
@@ -134,6 +175,9 @@ bool PointCloudDecoder::DecodePointAttributes() {
   // derived classes can use any data encoded in the
   // PointCloudEncoder::EncodeAttributesEncoderIdentifier() call.
   for (int i = 0; i < num_attributes_decoders; ++i) {
+    if (ShouldStopDecoding()) {
+      return false;
+    }
     if (!CreateAttributesDecoder(i)) {
       return false;
     }
@@ -141,6 +185,9 @@ bool PointCloudDecoder::DecodePointAttributes() {
 
   // Initialize all attributes decoders. No data is decoded here.
   for (auto &att_dec : attributes_decoders_) {
+    if (ShouldStopDecoding()) {
+      return false;
+    }
     if (!att_dec->Init(this, point_cloud_)) {
       return false;
     }
@@ -148,6 +195,9 @@ bool PointCloudDecoder::DecodePointAttributes() {
 
   // Decode any data needed by the attribute decoders.
   for (int i = 0; i < num_attributes_decoders; ++i) {
+    if (ShouldStopDecoding()) {
+      return false;
+    }
     if (!attributes_decoders_[i]->DecodeAttributesDecoderData(buffer_)) {
       return false;
     }
@@ -178,6 +228,9 @@ bool PointCloudDecoder::DecodePointAttributes() {
 
 bool PointCloudDecoder::DecodeAllAttributes() {
   for (auto &att_dec : attributes_decoders_) {
+    if (ShouldStopDecoding()) {
+      return false;
+    }
     if (!att_dec->DecodeAttributes(buffer_)) {
       return false;
     }

@@ -264,8 +264,25 @@ namespace basist
 		friend class bitwise_decoder;
 
 	public:
-		huffman_decoding_table()
+		explicit huffman_decoding_table(basisu::fsv_vector_allocator* allocator = nullptr) :
+			m_code_sizes(allocator), m_lookup(allocator), m_tree(allocator) { }
+
+		void set_fsv_vector_allocator(basisu::fsv_vector_allocator* allocator) noexcept
 		{
+			if (m_code_sizes.fsv_allocator() == allocator)
+				return;
+			clear();
+			m_code_sizes.~vector<uint8_t>();
+			new ((void*)&m_code_sizes) basisu::uint8_vec(allocator);
+			m_lookup.~vector<int>();
+			new ((void*)&m_lookup) basisu::int_vec(allocator);
+			m_tree.~vector<int16_t>();
+			new ((void*)&m_tree) basisu::int16_vec(allocator);
+		}
+
+		basisu::fsv_vector_allocator* fsv_allocator() const noexcept
+		{
+			return m_code_sizes.fsv_allocator();
 		}
 
 		void clear()
@@ -283,16 +300,18 @@ namespace basist
 				return true;
 			}
 
-			m_code_sizes.resize(total_syms);
+			if (!m_code_sizes.try_resize(total_syms))
+				return false;
 			memcpy(&m_code_sizes[0], pCode_sizes, total_syms);
 
 			const uint32_t huffman_fast_lookup_size = 1 << fast_lookup_bits;
 
-			m_lookup.resize(0);
-			m_lookup.resize(huffman_fast_lookup_size);
+			if (!m_lookup.try_resize(0) ||
+				!m_lookup.try_resize(huffman_fast_lookup_size))
+				return false;
 
-			m_tree.resize(0);
-			m_tree.resize(total_syms * 2);
+			if (!m_tree.try_resize(0) || !m_tree.try_resize(total_syms * 2))
+				return false;
 
 			uint32_t syms_using_codesize[basisu::cHuffmanMaxSupportedInternalCodeSize + 1];
 			basisu::clear_obj(syms_using_codesize);
@@ -375,7 +394,8 @@ namespace basist
 					if (idx < 0)
 						return false;
 					else if (idx >= (int)m_tree.size())
-						m_tree.resize(idx + 1);
+						if (!m_tree.try_resize(idx + 1))
+							return false;
 										
 					if (!m_tree[idx])
 					{
@@ -400,7 +420,8 @@ namespace basist
 				if (idx < 0)
 					return false;
 				else if (idx >= (int)m_tree.size())
-					m_tree.resize(idx + 1);
+					if (!m_tree.try_resize(idx + 1))
+						return false;
 
 				if (m_tree[idx] != 0)
 				{
@@ -654,14 +675,16 @@ namespace basist
 			for (uint32_t i = 0; i < num_codelength_codes; i++)
 				code_length_code_sizes[basisu::g_huffman_sorted_codelength_codes[i]] = static_cast<uint8_t>(get_bits(3));
 
-			huffman_decoding_table code_length_table;
+			huffman_decoding_table code_length_table(ct.fsv_allocator());
 			if (!code_length_table.init(basisu::cHuffmanTotalCodelengthCodes, code_length_code_sizes))
 				return false;
 
 			if (!code_length_table.is_valid())
 				return false;
 
-			basisu::uint8_vec code_sizes(total_used_syms);
+			basisu::uint8_vec code_sizes(ct.fsv_allocator());
+			if (!code_sizes.try_resize(total_used_syms))
+				return false;
 
 			uint32_t cur = 0;
 			while (cur < total_used_syms)
@@ -832,15 +855,15 @@ namespace basist
 	class approx_move_to_front
 	{
 	public:
-		approx_move_to_front(uint32_t n)
-		{
-			init(n);
-		}
+		explicit approx_move_to_front(basisu::fsv_vector_allocator* allocator = nullptr) :
+			m_values(allocator), m_rover(0) { }
 
-		void init(uint32_t n)
+		bool init(uint32_t n)
 		{
-			m_values.resize(n);
+			if (!m_values.try_resize(n))
+				return false;
 			m_rover = n / 2;
+			return true;
 		}
 
 		const basisu::int_vec& get_values() const { return m_values; }
@@ -885,7 +908,8 @@ namespace basist
 
 			m_values.clear();
 
-			init(n);
+			if (!init(n))
+				basisu::container_abort("approx_move_to_front::reset allocation failed\n");
 		}
 
 	private:
@@ -1759,7 +1783,7 @@ namespace basist
 					return (int)std::round(d / (float)L);
 				}
 
-				// L = quant step, alpha in [0,1.2] (typical 0.7–0.85)
+				// L = quant step, alpha in [0,1.2] (typical 0.7-0.85)
 				if (L <= 0) 
 					return 0;
 
@@ -3259,6 +3283,5 @@ namespace basist
 	};
 
 } // namespace basist
-
 
 

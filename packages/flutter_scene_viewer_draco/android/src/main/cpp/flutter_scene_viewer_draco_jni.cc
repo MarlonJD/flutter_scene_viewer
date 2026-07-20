@@ -1,6 +1,9 @@
 #include <jni.h>
 
+#include <limits>
+
 #include "fsv_draco_bridge.h"
+#include "fsv_draco_platform_serialization.h"
 
 namespace {
 constexpr const char* kDracoExtension = "KHR_draco_mesh_compression";
@@ -8,150 +11,323 @@ constexpr const char* kInfoPlistKey = "FlutterSceneViewerDracoEnabled";
 constexpr const char* kAndroidManifestKey =
     "flutter_scene_viewer_draco_enabled";
 
-jclass FindClass(JNIEnv* env, const char* name) {
-  return env->FindClass(name);
+bool ClearPendingJniException(JNIEnv* env) {
+  if (env->ExceptionCheck() != JNI_TRUE) {
+    return false;
+  }
+  env->ExceptionClear();
+  return true;
 }
 
-jobject NewString(JNIEnv* env, const std::string& value) {
-  return env->NewStringUTF(value.c_str());
+// JNI locals are per-call resources, including values returned while a Java
+// exception is pending.  Keep ownership explicit: the input conversion path
+// can visit an unbounded number of primitive and attribute entries.
+class JniLocalRef final {
+ public:
+  JniLocalRef(JNIEnv* env, jobject value) : env_(env), value_(value) {}
+  ~JniLocalRef() {
+    if (value_ != nullptr) env_->DeleteLocalRef(value_);
+  }
+
+  JniLocalRef(const JniLocalRef&) = delete;
+  JniLocalRef& operator=(const JniLocalRef&) = delete;
+
+  jobject get() const { return value_; }
+  jobject release() {
+    jobject value = value_;
+    value_ = nullptr;
+    return value;
+  }
+
+ private:
+  JNIEnv* env_;
+  jobject value_;
+};
+
+jmethodID GetMethodID(JNIEnv* env,
+                       jclass clazz,
+                       const char* name,
+                       const char* signature) {
+  if (clazz == nullptr) return nullptr;
+  jmethodID method = env->GetMethodID(clazz, name, signature);
+  return ClearPendingJniException(env) ? nullptr : method;
+}
+
+jclass FindClass(JNIEnv* env, const char* name) {
+  jclass result = env->FindClass(name);
+  if (!ClearPendingJniException(env)) return result;
+  if (result != nullptr) env->DeleteLocalRef(result);
+  return nullptr;
+}
+
+template <typename String>
+jobject NewString(JNIEnv* env, const String& value) {
+  jobject result = env->NewStringUTF(value.c_str());
+  if (!ClearPendingJniException(env)) return result;
+  if (result != nullptr) env->DeleteLocalRef(result);
+  return nullptr;
 }
 
 jobject NewString(JNIEnv* env, const char* value) {
-  return env->NewStringUTF(value);
+  jobject result = env->NewStringUTF(value);
+  if (!ClearPendingJniException(env)) return result;
+  if (result != nullptr) env->DeleteLocalRef(result);
+  return nullptr;
 }
 
 jobject NewInteger(JNIEnv* env, int value) {
   jclass integer_class = FindClass(env, "java/lang/Integer");
+  if (integer_class == nullptr) return nullptr;
   jmethodID constructor =
       env->GetMethodID(integer_class, "<init>", "(I)V");
-  return env->NewObject(integer_class, constructor, value);
+  if (ClearPendingJniException(env) || constructor == nullptr) {
+    env->DeleteLocalRef(integer_class);
+    return nullptr;
+  }
+  jobject result = env->NewObject(integer_class, constructor, value);
+  const bool failed = ClearPendingJniException(env);
+  env->DeleteLocalRef(integer_class);
+  if (failed && result != nullptr) env->DeleteLocalRef(result);
+  return failed ? nullptr : result;
 }
 
 jobject NewLong(JNIEnv* env, int64_t value) {
   jclass long_class = FindClass(env, "java/lang/Long");
+  if (long_class == nullptr) return nullptr;
   jmethodID constructor = env->GetMethodID(long_class, "<init>", "(J)V");
-  return env->NewObject(long_class, constructor, static_cast<jlong>(value));
+  if (ClearPendingJniException(env) || constructor == nullptr) {
+    env->DeleteLocalRef(long_class);
+    return nullptr;
+  }
+  jobject result =
+      env->NewObject(long_class, constructor, static_cast<jlong>(value));
+  const bool failed = ClearPendingJniException(env);
+  env->DeleteLocalRef(long_class);
+  if (failed && result != nullptr) env->DeleteLocalRef(result);
+  return failed ? nullptr : result;
 }
 
 jobject NewBoolean(JNIEnv* env, bool value) {
   jclass boolean_class = FindClass(env, "java/lang/Boolean");
+  if (boolean_class == nullptr) return nullptr;
   jmethodID constructor =
       env->GetMethodID(boolean_class, "<init>", "(Z)V");
-  return env->NewObject(boolean_class, constructor, value ? JNI_TRUE
-                                                         : JNI_FALSE);
+  if (ClearPendingJniException(env) || constructor == nullptr) {
+    env->DeleteLocalRef(boolean_class);
+    return nullptr;
+  }
+  jobject result = env->NewObject(boolean_class, constructor,
+                                  value ? JNI_TRUE : JNI_FALSE);
+  const bool failed = ClearPendingJniException(env);
+  env->DeleteLocalRef(boolean_class);
+  if (failed && result != nullptr) env->DeleteLocalRef(result);
+  return failed ? nullptr : result;
 }
 
 jobject NewHashMap(JNIEnv* env) {
   jclass map_class = FindClass(env, "java/util/HashMap");
+  if (map_class == nullptr) return nullptr;
   jmethodID constructor = env->GetMethodID(map_class, "<init>", "()V");
-  return env->NewObject(map_class, constructor);
+  if (ClearPendingJniException(env) || constructor == nullptr) {
+    env->DeleteLocalRef(map_class);
+    return nullptr;
+  }
+  jobject result = env->NewObject(map_class, constructor);
+  const bool failed = ClearPendingJniException(env);
+  env->DeleteLocalRef(map_class);
+  if (failed && result != nullptr) env->DeleteLocalRef(result);
+  return failed ? nullptr : result;
 }
 
 jobject NewArrayList(JNIEnv* env) {
   jclass list_class = FindClass(env, "java/util/ArrayList");
+  if (list_class == nullptr) return nullptr;
   jmethodID constructor = env->GetMethodID(list_class, "<init>", "()V");
-  return env->NewObject(list_class, constructor);
+  if (ClearPendingJniException(env) || constructor == nullptr) {
+    env->DeleteLocalRef(list_class);
+    return nullptr;
+  }
+  jobject result = env->NewObject(list_class, constructor);
+  const bool failed = ClearPendingJniException(env);
+  env->DeleteLocalRef(list_class);
+  if (failed && result != nullptr) env->DeleteLocalRef(result);
+  return failed ? nullptr : result;
 }
 
-void MapPutObject(JNIEnv* env, jobject map, const char* key, jobject value) {
+bool MapPutObject(JNIEnv* env, jobject map, const char* key, jobject value) {
+  if (map == nullptr || value == nullptr) return false;
   jclass map_class = FindClass(env, "java/util/Map");
+  if (map_class == nullptr) return false;
   jmethodID put =
       env->GetMethodID(map_class, "put",
                        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;");
-  env->CallObjectMethod(map, put, NewString(env, key), value);
+  if (ClearPendingJniException(env) || put == nullptr) {
+    env->DeleteLocalRef(map_class);
+    return false;
+  }
+  jobject key_value = NewString(env, key);
+  if (key_value == nullptr) {
+    env->DeleteLocalRef(map_class);
+    return false;
+  }
+  jobject previous = env->CallObjectMethod(map, put, key_value, value);
+  const bool failed = ClearPendingJniException(env);
+  if (previous != nullptr) env->DeleteLocalRef(previous);
+  env->DeleteLocalRef(key_value);
+  env->DeleteLocalRef(map_class);
+  return !failed;
 }
 
-void MapPutString(JNIEnv* env, jobject map, const char* key, const char* value) {
-  MapPutObject(env, map, key, NewString(env, value));
+bool MapPutString(JNIEnv* env, jobject map, const char* key, const char* value) {
+  jobject object = NewString(env, value);
+  if (object == nullptr) return false;
+  const bool result = MapPutObject(env, map, key, object);
+  env->DeleteLocalRef(object);
+  return result;
 }
 
-void MapPutString(JNIEnv* env,
+template <typename String>
+bool MapPutString(JNIEnv* env,
                   jobject map,
                   const char* key,
-                  const std::string& value) {
-  MapPutObject(env, map, key, NewString(env, value));
+                  const String& value) {
+  jobject object = NewString(env, value);
+  if (object == nullptr) return false;
+  const bool result = MapPutObject(env, map, key, object);
+  env->DeleteLocalRef(object);
+  return result;
 }
 
-void MapPutInt(JNIEnv* env, jobject map, const char* key, int value) {
-  MapPutObject(env, map, key, NewInteger(env, value));
+bool MapPutInt(JNIEnv* env, jobject map, const char* key, int value) {
+  jobject object = NewInteger(env, value);
+  if (object == nullptr) return false;
+  const bool result = MapPutObject(env, map, key, object);
+  env->DeleteLocalRef(object);
+  return result;
 }
 
-void MapPutLong(JNIEnv* env, jobject map, const char* key, uint64_t value) {
-  MapPutObject(env, map, key, NewLong(env, static_cast<int64_t>(value)));
+bool MapPutLong(JNIEnv* env, jobject map, const char* key, uint64_t value) {
+  jobject object = NewLong(env, static_cast<int64_t>(value));
+  if (object == nullptr) return false;
+  const bool result = MapPutObject(env, map, key, object);
+  env->DeleteLocalRef(object);
+  return result;
 }
 
-void MapPutBool(JNIEnv* env, jobject map, const char* key, bool value) {
-  MapPutObject(env, map, key, NewBoolean(env, value));
+bool MapPutBool(JNIEnv* env, jobject map, const char* key, bool value) {
+  jobject object = NewBoolean(env, value);
+  if (object == nullptr) return false;
+  const bool result = MapPutObject(env, map, key, object);
+  env->DeleteLocalRef(object);
+  return result;
 }
 
 jobject MapGet(JNIEnv* env, jobject map, const char* key) {
   if (map == nullptr) {
     return nullptr;
   }
-  jclass map_class = FindClass(env, "java/util/Map");
-  jmethodID get =
-      env->GetMethodID(map_class, "get",
-                       "(Ljava/lang/Object;)Ljava/lang/Object;");
-  return env->CallObjectMethod(map, get, NewString(env, key));
+  JniLocalRef map_class(env, FindClass(env, "java/util/Map"));
+  jmethodID get = GetMethodID(
+      env, static_cast<jclass>(map_class.get()), "get",
+      "(Ljava/lang/Object;)Ljava/lang/Object;");
+  if (get == nullptr) return nullptr;
+  JniLocalRef key_value(env, NewString(env, key));
+  if (key_value.get() == nullptr) return nullptr;
+  jobject result = env->CallObjectMethod(map, get, key_value.get());
+  if (ClearPendingJniException(env)) {
+    if (result != nullptr) env->DeleteLocalRef(result);
+    return nullptr;
+  }
+  return result;
 }
 
-void ListAdd(JNIEnv* env, jobject list, jobject value) {
+bool ListAdd(JNIEnv* env, jobject list, jobject value) {
+  if (list == nullptr || value == nullptr) return false;
   jclass list_class = FindClass(env, "java/util/List");
+  if (list_class == nullptr) return false;
   jmethodID add =
       env->GetMethodID(list_class, "add", "(Ljava/lang/Object;)Z");
-  env->CallBooleanMethod(list, add, value);
+  if (ClearPendingJniException(env) || add == nullptr) {
+    env->DeleteLocalRef(list_class);
+    return false;
+  }
+  const jboolean added = env->CallBooleanMethod(list, add, value);
+  const bool failed = ClearPendingJniException(env);
+  env->DeleteLocalRef(list_class);
+  return !failed && added == JNI_TRUE;
 }
 
 int ListSize(JNIEnv* env, jobject list) {
   if (list == nullptr) {
     return 0;
   }
-  jclass list_class = FindClass(env, "java/util/List");
-  jmethodID size = env->GetMethodID(list_class, "size", "()I");
-  return env->CallIntMethod(list, size);
+  JniLocalRef list_class(env, FindClass(env, "java/util/List"));
+  jmethodID size = GetMethodID(env, static_cast<jclass>(list_class.get()),
+                               "size", "()I");
+  if (size == nullptr) return 0;
+  const jint result = env->CallIntMethod(list, size);
+  return ClearPendingJniException(env) ? 0 : result;
 }
 
 jobject ListGet(JNIEnv* env, jobject list, int index) {
-  jclass list_class = FindClass(env, "java/util/List");
-  jmethodID get = env->GetMethodID(list_class, "get", "(I)Ljava/lang/Object;");
-  return env->CallObjectMethod(list, get, index);
+  if (list == nullptr) return nullptr;
+  JniLocalRef list_class(env, FindClass(env, "java/util/List"));
+  jmethodID get = GetMethodID(env, static_cast<jclass>(list_class.get()),
+                              "get", "(I)Ljava/lang/Object;");
+  if (get == nullptr) return nullptr;
+  jobject result = env->CallObjectMethod(list, get, index);
+  if (ClearPendingJniException(env)) {
+    if (result != nullptr) env->DeleteLocalRef(result);
+    return nullptr;
+  }
+  return result;
 }
 
 bool IsInstance(JNIEnv* env, jobject value, const char* class_name) {
   if (value == nullptr) {
     return false;
   }
-  return env->IsInstanceOf(value, FindClass(env, class_name)) == JNI_TRUE;
+  JniLocalRef clazz(env, FindClass(env, class_name));
+  if (clazz.get() == nullptr) return false;
+  const jboolean result =
+      env->IsInstanceOf(value, static_cast<jclass>(clazz.get()));
+  return !ClearPendingJniException(env) && result == JNI_TRUE;
 }
 
 int IntValue(JNIEnv* env, jobject value) {
   if (value == nullptr) {
     return 0;
   }
-  jclass number_class = FindClass(env, "java/lang/Number");
-  jmethodID int_value = env->GetMethodID(number_class, "intValue", "()I");
-  return env->CallIntMethod(value, int_value);
+  JniLocalRef number_class(env, FindClass(env, "java/lang/Number"));
+  jmethodID int_value = GetMethodID(
+      env, static_cast<jclass>(number_class.get()), "intValue", "()I");
+  if (int_value == nullptr) return 0;
+  const jint result = env->CallIntMethod(value, int_value);
+  return ClearPendingJniException(env) ? 0 : result;
 }
 
 int64_t LongValue(JNIEnv* env, jobject value) {
   if (value == nullptr) {
     return 0;
   }
-  jclass number_class = FindClass(env, "java/lang/Number");
-  jmethodID long_value = env->GetMethodID(number_class, "longValue", "()J");
-  return static_cast<int64_t>(env->CallLongMethod(value, long_value));
+  JniLocalRef number_class(env, FindClass(env, "java/lang/Number"));
+  jmethodID long_value = GetMethodID(
+      env, static_cast<jclass>(number_class.get()), "longValue", "()J");
+  if (long_value == nullptr) return 0;
+  const jlong result = env->CallLongMethod(value, long_value);
+  return ClearPendingJniException(env) ? 0 : static_cast<int64_t>(result);
 }
 
 FsvDracoBudgetNumber BudgetNumber(JNIEnv* env, jobject map, const char* key) {
-  jobject value = MapGet(env, map, key);
-  if (value == nullptr) {
+  JniLocalRef value(env, MapGet(env, map, key));
+  if (value.get() == nullptr) {
     return FsvDracoBudgetNumber();
   }
-  if (!IsInstance(env, value, "java/lang/Integer") &&
-      !IsInstance(env, value, "java/lang/Long")) {
+  if (!IsInstance(env, value.get(), "java/lang/Integer") &&
+      !IsInstance(env, value.get(), "java/lang/Long")) {
     return FsvDracoBudgetNumber::Invalid();
   }
-  return FsvDracoBudgetNumber::Integer(LongValue(env, value));
+  return FsvDracoBudgetNumber::Integer(LongValue(env, value.get()));
 }
 
 int64_t IntegralLongValueOr(JNIEnv* env, jobject value, int64_t fallback) {
@@ -194,129 +370,241 @@ bool BoolValue(JNIEnv* env, jobject value) {
   if (value == nullptr) {
     return false;
   }
-  jclass boolean_class = FindClass(env, "java/lang/Boolean");
-  jmethodID bool_value =
-      env->GetMethodID(boolean_class, "booleanValue", "()Z");
-  return env->CallBooleanMethod(value, bool_value) == JNI_TRUE;
+  JniLocalRef boolean_class(env, FindClass(env, "java/lang/Boolean"));
+  jmethodID bool_value = GetMethodID(
+      env, static_cast<jclass>(boolean_class.get()), "booleanValue", "()Z");
+  if (bool_value == nullptr) return false;
+  const jboolean result = env->CallBooleanMethod(value, bool_value);
+  return !ClearPendingJniException(env) && result == JNI_TRUE;
 }
 
-std::string StringValue(JNIEnv* env, jobject value) {
+FsvDracoString StringValue(JNIEnv* env,
+                           jobject value,
+                           fsv_draco::FsvDecodeControl* control) {
+  FsvDracoString result{FsvDracoAllocator<char>(control)};
   if (value == nullptr) {
-    return {};
+    return result;
   }
   const char* chars = env->GetStringUTFChars(static_cast<jstring>(value),
                                              nullptr);
-  if (chars == nullptr) {
-    return {};
+  if (ClearPendingJniException(env) || chars == nullptr) {
+    if (chars != nullptr) {
+      env->ReleaseStringUTFChars(static_cast<jstring>(value), chars);
+    }
+    return result;
   }
-  std::string result(chars);
-  env->ReleaseStringUTFChars(static_cast<jstring>(value), chars);
+  struct UtfCharsRelease final {
+    JNIEnv* env;
+    jstring value;
+    const char* chars;
+    ~UtfCharsRelease() { env->ReleaseStringUTFChars(value, chars); }
+  } release{env, static_cast<jstring>(value), chars};
+  result.assign(chars);
   return result;
 }
 
-std::vector<uint8_t> ByteVector(JNIEnv* env, jobject value) {
+FsvDracoByteVector ByteVector(JNIEnv* env,
+                              jobject value,
+                              fsv_draco::FsvDecodeControl* control) {
+  FsvDracoByteVector bytes{FsvDracoAllocator<uint8_t>(control)};
   if (value == nullptr) {
-    return {};
+    return bytes;
   }
   auto array = static_cast<jbyteArray>(value);
   const jsize length = env->GetArrayLength(array);
-  std::vector<uint8_t> bytes(length);
+  if (ClearPendingJniException(env) || length < 0) return bytes;
+  bytes.resize(static_cast<size_t>(length));
   if (length > 0) {
     env->GetByteArrayRegion(array, 0, length,
                             reinterpret_cast<jbyte*>(bytes.data()));
+    if (ClearPendingJniException(env)) bytes.clear();
   }
   return bytes;
 }
 
-jbyteArray ByteArray(JNIEnv* env, const std::vector<uint8_t>& bytes) {
-  jbyteArray array = env->NewByteArray(static_cast<jsize>(bytes.size()));
-  if (!bytes.empty()) {
-    env->SetByteArrayRegion(
-        array, 0, static_cast<jsize>(bytes.size()),
-        reinterpret_cast<const jbyte*>(bytes.data()));
+struct JniByteArrayCopyContext {
+  JNIEnv* env = nullptr;
+};
+
+bool AllocateJniByteArray(void* raw_context, uint64_t bytes,
+                          void** destination) noexcept {
+  auto* context = static_cast<JniByteArrayCopyContext*>(raw_context);
+  jbyteArray array =
+      context->env->NewByteArray(static_cast<jsize>(bytes));
+  const bool failed = ClearPendingJniException(context->env);
+  if (failed || array == nullptr) {
+    if (array != nullptr) context->env->DeleteLocalRef(array);
+    return false;
   }
-  return array;
+  *destination = array;
+  return true;
 }
 
-FsvDracoAccessorSchema AccessorSchema(JNIEnv* env, jobject value) {
-  FsvDracoAccessorSchema schema;
+bool CopyJniByteArray(void* raw_context, void* destination,
+                      const uint8_t* source, uint64_t bytes) noexcept {
+  auto* context = static_cast<JniByteArrayCopyContext*>(raw_context);
+  if (bytes != 0) {
+    context->env->SetByteArrayRegion(
+        static_cast<jbyteArray>(destination), 0, static_cast<jsize>(bytes),
+        reinterpret_cast<const jbyte*>(source));
+    if (ClearPendingJniException(context->env)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+void ReleaseJniByteArray(void* raw_context, void* destination) noexcept {
+  auto* context = static_cast<JniByteArrayCopyContext*>(raw_context);
+  context->env->DeleteLocalRef(static_cast<jbyteArray>(destination));
+}
+
+template <typename ByteAllocator>
+jbyteArray ByteArray(JNIEnv* env,
+                     const std::vector<uint8_t, ByteAllocator>& bytes,
+                     fsv_draco::FsvDecodeControl* control,
+                     FsvDracoPlatformCopyOutcome* outcome) {
+  JniByteArrayCopyContext context{env};
+  FsvDracoPlatformCopyCallbacks callbacks;
+  callbacks.context = &context;
+  callbacks.allocate = AllocateJniByteArray;
+  callbacks.copy = CopyJniByteArray;
+  callbacks.release = ReleaseJniByteArray;
+  void* destination = nullptr;
+  *outcome = FsvDracoCopyBytesToPlatform(
+      bytes.data(), static_cast<uint64_t>(bytes.size()),
+      static_cast<uint64_t>(std::numeric_limits<jsize>::max()), control,
+      callbacks, &destination);
+  return static_cast<jbyteArray>(destination);
+}
+
+FsvDracoAccessorSchema AccessorSchema(
+    JNIEnv* env,
+    jobject value,
+    fsv_draco::FsvDecodeControl* control) {
+  FsvDracoAccessorSchema schema(control);
   if (!IsInstance(env, value, "java/util/Map")) {
     return schema;
   }
-  schema.accessor_index =
-      IntegralLongValueOr(env, MapGet(env, value, "accessorIndex"), -1);
+  JniLocalRef accessor_index(env, MapGet(env, value, "accessorIndex"));
+  schema.accessor_index = IntegralLongValueOr(env, accessor_index.get(), -1);
   schema.component_type = BudgetNumber(env, value, "componentType");
-  schema.type = StringValue(env, MapGet(env, value, "type"));
-  schema.count = IntegralLongValueOr(env, MapGet(env, value, "count"), -1);
-  schema.normalized = BoolValue(env, MapGet(env, value, "normalized"));
+  JniLocalRef type_value(env, MapGet(env, value, "type"));
+  const FsvDracoString type = StringValue(env, type_value.get(), control);
+  schema.type.assign(type.data(), type.size());
+  JniLocalRef count(env, MapGet(env, value, "count"));
+  schema.count = IntegralLongValueOr(env, count.get(), -1);
+  JniLocalRef normalized(env, MapGet(env, value, "normalized"));
+  schema.normalized = BoolValue(env, normalized.get());
   return schema;
 }
 
-std::vector<std::pair<std::string, jobject>> MapEntries(JNIEnv* env,
-                                                        jobject map) {
-  std::vector<std::pair<std::string, jobject>> entries;
-  if (!IsInstance(env, map, "java/util/Map")) {
-    return entries;
+template <typename Callback>
+bool ForEachMapEntry(JNIEnv* env, jobject map, Callback callback) {
+  if (map == nullptr) return true;
+  if (!IsInstance(env, map, "java/util/Map")) return true;
+  JniLocalRef map_class(env, FindClass(env, "java/util/Map"));
+  jmethodID entry_set = GetMethodID(
+      env, static_cast<jclass>(map_class.get()), "entrySet",
+      "()Ljava/util/Set;");
+  if (entry_set == nullptr) return false;
+  JniLocalRef set(env, env->CallObjectMethod(map, entry_set));
+  if (ClearPendingJniException(env) || set.get() == nullptr) return false;
+  JniLocalRef set_class(env, FindClass(env, "java/util/Set"));
+  jmethodID iterator_method = GetMethodID(
+      env, static_cast<jclass>(set_class.get()), "iterator",
+      "()Ljava/util/Iterator;");
+  if (iterator_method == nullptr) return false;
+  JniLocalRef iterator(
+      env, env->CallObjectMethod(set.get(), iterator_method));
+  if (ClearPendingJniException(env) || iterator.get() == nullptr) return false;
+  JniLocalRef iterator_class(env, FindClass(env, "java/util/Iterator"));
+  jmethodID has_next = GetMethodID(
+      env, static_cast<jclass>(iterator_class.get()), "hasNext", "()Z");
+  jmethodID next = GetMethodID(
+      env, static_cast<jclass>(iterator_class.get()), "next",
+      "()Ljava/lang/Object;");
+  if (has_next == nullptr || next == nullptr) return false;
+  JniLocalRef entry_class(env, FindClass(env, "java/util/Map$Entry"));
+  jmethodID get_key = GetMethodID(
+      env, static_cast<jclass>(entry_class.get()), "getKey",
+      "()Ljava/lang/Object;");
+  jmethodID get_value = GetMethodID(
+      env, static_cast<jclass>(entry_class.get()), "getValue",
+      "()Ljava/lang/Object;");
+  if (get_key == nullptr || get_value == nullptr) return false;
+  while (true) {
+    const jboolean has_entry =
+        env->CallBooleanMethod(iterator.get(), has_next);
+    if (ClearPendingJniException(env)) return false;
+    if (has_entry != JNI_TRUE) return true;
+    JniLocalRef entry(env, env->CallObjectMethod(iterator.get(), next));
+    if (ClearPendingJniException(env) || entry.get() == nullptr) return false;
+    JniLocalRef key(env, env->CallObjectMethod(entry.get(), get_key));
+    if (ClearPendingJniException(env)) return false;
+    JniLocalRef value(env, env->CallObjectMethod(entry.get(), get_value));
+    if (ClearPendingJniException(env)) {
+      return false;
+    }
+    if (!callback(key.get(), value.get())) return false;
   }
-  jclass map_class = FindClass(env, "java/util/Map");
-  jmethodID entry_set =
-      env->GetMethodID(map_class, "entrySet", "()Ljava/util/Set;");
-  jobject set = env->CallObjectMethod(map, entry_set);
-  jclass set_class = FindClass(env, "java/util/Set");
-  jmethodID iterator_method =
-      env->GetMethodID(set_class, "iterator", "()Ljava/util/Iterator;");
-  jobject iterator = env->CallObjectMethod(set, iterator_method);
-  jclass iterator_class = FindClass(env, "java/util/Iterator");
-  jmethodID has_next =
-      env->GetMethodID(iterator_class, "hasNext", "()Z");
-  jmethodID next =
-      env->GetMethodID(iterator_class, "next", "()Ljava/lang/Object;");
-  jclass entry_class = FindClass(env, "java/util/Map$Entry");
-  jmethodID get_key =
-      env->GetMethodID(entry_class, "getKey", "()Ljava/lang/Object;");
-  jmethodID get_value =
-      env->GetMethodID(entry_class, "getValue", "()Ljava/lang/Object;");
-  while (env->CallBooleanMethod(iterator, has_next) == JNI_TRUE) {
-    jobject entry = env->CallObjectMethod(iterator, next);
-    entries.emplace_back(
-        StringValue(env, env->CallObjectMethod(entry, get_key)),
-        env->CallObjectMethod(entry, get_value));
-  }
-  return entries;
 }
 
-std::vector<FsvDracoPrimitiveRequest> PrimitiveRequests(JNIEnv* env,
-                                                        jobject raw_primitives) {
-  std::vector<FsvDracoPrimitiveRequest> requests;
+FsvDracoPrimitiveRequests PrimitiveRequests(
+    JNIEnv* env,
+    jobject raw_primitives,
+    fsv_draco::FsvDecodeControl* control) {
+  FsvDracoPrimitiveRequests requests{
+      FsvDracoAllocator<FsvDracoPrimitiveRequest>(control)};
   if (!IsInstance(env, raw_primitives, "java/util/List")) {
     return requests;
   }
   const int count = ListSize(env, raw_primitives);
   for (int index = 0; index < count; index += 1) {
-    jobject raw = ListGet(env, raw_primitives, index);
-    if (!IsInstance(env, raw, "java/util/Map")) {
+    JniLocalRef raw(env, ListGet(env, raw_primitives, index));
+    if (!IsInstance(env, raw.get(), "java/util/Map")) {
       continue;
     }
-    FsvDracoPrimitiveRequest request;
-    request.mesh_index = IntValue(env, MapGet(env, raw, "meshIndex"));
-    request.primitive_index = IntValue(env, MapGet(env, raw, "primitiveIndex"));
-    request.compressed_bytes = ByteVector(env, MapGet(env, raw, "compressedBytes"));
-    request.vertex_accessor_index = IntegralLongValueOr(
-        env, MapGet(env, raw, "vertexAccessorIndex"), -1);
+    FsvDracoPrimitiveRequest request(control);
+    JniLocalRef mesh_index(env, MapGet(env, raw.get(), "meshIndex"));
+    request.mesh_index = IntValue(env, mesh_index.get());
+    JniLocalRef primitive_index(env, MapGet(env, raw.get(), "primitiveIndex"));
+    request.primitive_index = IntValue(env, primitive_index.get());
+    JniLocalRef compressed_bytes(env, MapGet(env, raw.get(), "compressedBytes"));
+    request.compressed_bytes = ByteVector(env, compressed_bytes.get(), control);
+    JniLocalRef vertex_accessor_index(
+        env, MapGet(env, raw.get(), "vertexAccessorIndex"));
+    request.vertex_accessor_index =
+        IntegralLongValueOr(env, vertex_accessor_index.get(), -1);
 
-    for (const auto& entry : MapEntries(env, MapGet(env, raw, "attributes"))) {
-      request.attributes[entry.first] =
-          IntegralLongValueOr(env, entry.second, -1);
+    JniLocalRef attributes(env, MapGet(env, raw.get(), "attributes"));
+    if (!ForEachMapEntry(env, attributes.get(),
+                    [&](jobject raw_key, jobject raw_value) {
+      request.attributes.emplace(StringValue(env, raw_key, control),
+                                 IntegralLongValueOr(env, raw_value, -1));
+      return true;
+    })) {
+      return FsvDracoPrimitiveRequests{
+          FsvDracoAllocator<FsvDracoPrimitiveRequest>(control)};
     }
-    for (const auto& entry :
-         MapEntries(env, MapGet(env, raw, "attributeAccessors"))) {
-      request.attribute_accessors[entry.first] =
-          AccessorSchema(env, entry.second);
+    JniLocalRef attribute_accessors(
+        env, MapGet(env, raw.get(), "attributeAccessors"));
+    if (!ForEachMapEntry(env, attribute_accessors.get(),
+                    [&](jobject raw_key, jobject raw_value) {
+      request.attribute_accessors.emplace(
+          StringValue(env, raw_key, control),
+          AccessorSchema(env, raw_value, control));
+      return true;
+    })) {
+      return FsvDracoPrimitiveRequests{
+          FsvDracoAllocator<FsvDracoPrimitiveRequest>(control)};
     }
-    jobject indices_accessor = MapGet(env, raw, "indicesAccessor");
-    if (IsInstance(env, indices_accessor, "java/util/Map")) {
+    JniLocalRef indices_accessor(
+        env, MapGet(env, raw.get(), "indicesAccessor"));
+    if (IsInstance(env, indices_accessor.get(), "java/util/Map")) {
       request.has_indices_accessor = true;
-      request.indices_accessor = AccessorSchema(env, indices_accessor);
+      request.indices_accessor =
+          AccessorSchema(env, indices_accessor.get(), control);
     }
     requests.push_back(std::move(request));
   }
@@ -327,41 +615,112 @@ jobject Diagnostic(JNIEnv* env,
                    const FsvDracoDiagnostic& diagnostic,
                    jstring source) {
   jobject details = NewHashMap(env);
-  MapPutString(env, details, "extension", kDracoExtension);
-  MapPutString(env, details, "decoder", "draco");
-  MapPutBool(env, details, "required", true);
-  MapPutString(env, details, "status", diagnostic.status);
+  bool valid = details != nullptr &&
+               MapPutString(env, details, "extension", kDracoExtension) &&
+               MapPutString(env, details, "decoder", "draco") &&
+               MapPutBool(env, details, "required", true) &&
+               MapPutString(env, details, "status", diagnostic.status);
   if (!diagnostic.stage.empty()) {
-    MapPutString(env, details, "stage", diagnostic.stage);
+    valid = valid && MapPutString(env, details, "stage", diagnostic.stage);
   }
   if (!diagnostic.field.empty()) {
-    MapPutString(env, details, "field", diagnostic.field);
-    MapPutString(env, details, "limitation",
-                 diagnostic.status == "budgetExceeded" ? "decodeBudget"
-                                                        : "dracoNativeBoundary");
+    valid = valid && MapPutString(env, details, "field", diagnostic.field) &&
+            MapPutString(env, details, "limitation",
+                         diagnostic.status == "budgetExceeded"
+                             ? "decodeBudget"
+                             : "dracoNativeBoundary");
   }
   if (diagnostic.has_limit) {
-    MapPutLong(env, details, "limit", diagnostic.limit);
+    valid = valid && MapPutLong(env, details, "limit", diagnostic.limit);
   }
   if (diagnostic.has_actual) {
-    MapPutLong(env, details, "actual", diagnostic.actual);
+    valid = valid && MapPutLong(env, details, "actual", diagnostic.actual);
   }
-  MapPutString(env, details, "pluginPackage", "flutter_scene_viewer_draco");
-  MapPutString(env, details, "configurationKey", kInfoPlistKey);
-  MapPutString(env, details, "androidManifestKey", kAndroidManifestKey);
-  MapPutInt(env, details, "meshIndex", diagnostic.mesh_index);
-  MapPutInt(env, details, "primitiveIndex", diagnostic.primitive_index);
+  valid = valid &&
+          MapPutString(env, details, "pluginPackage",
+                       "flutter_scene_viewer_draco") &&
+          MapPutString(env, details, "configurationKey", kInfoPlistKey) &&
+          MapPutString(env, details, "androidManifestKey", kAndroidManifestKey) &&
+          MapPutInt(env, details, "meshIndex", diagnostic.mesh_index) &&
+          MapPutInt(env, details, "primitiveIndex",
+                    diagnostic.primitive_index);
   if (!diagnostic.attribute.empty()) {
-    MapPutString(env, details, "attribute", diagnostic.attribute);
+    valid = valid &&
+            MapPutString(env, details, "attribute", diagnostic.attribute);
   }
   if (source != nullptr) {
-    MapPutObject(env, details, "source", source);
+    valid = valid && MapPutObject(env, details, "source", source);
+  }
+  if (!valid) {
+    if (details != nullptr) env->DeleteLocalRef(details);
+    return nullptr;
   }
 
   jobject result = NewHashMap(env);
-  MapPutString(env, result, "code", "unsupportedModelFeature");
-  MapPutString(env, result, "message", diagnostic.message);
-  MapPutObject(env, result, "details", details);
+  valid = result != nullptr &&
+          MapPutString(env, result, "code", "unsupportedModelFeature") &&
+          MapPutString(env, result, "message", diagnostic.message) &&
+          MapPutObject(env, result, "details", details);
+  env->DeleteLocalRef(details);
+  if (!valid) {
+    if (result != nullptr) env->DeleteLocalRef(result);
+    return nullptr;
+  }
+  return result;
+}
+
+jobject TerminalDiagnostic(JNIEnv* env,
+                           const FsvDracoTerminalOutcome& terminal,
+                           jstring source) {
+  const bool budget_exceeded =
+      terminal.kind == FsvDracoTerminalOutcomeKind::kBudgetExceeded;
+  if (!budget_exceeded &&
+      terminal.kind != FsvDracoTerminalOutcomeKind::kAllocationFailed) {
+    return nullptr;
+  }
+  jobject details = NewHashMap(env);
+  bool valid = details != nullptr &&
+               MapPutString(env, details, "extension", kDracoExtension) &&
+               MapPutString(env, details, "decoder", "draco") &&
+               MapPutBool(env, details, "required", true) &&
+               MapPutString(env, details, "status",
+                            budget_exceeded ? "budgetExceeded"
+                                            : "allocationFailed") &&
+               MapPutString(env, details, "stage",
+                            "dracoWorkingAllocation") &&
+               MapPutString(env, details, "field", "nativeWorkingBytes") &&
+               MapPutString(env, details, "limitation",
+                            budget_exceeded ? "decodeBudget"
+                                            : "dracoNativeBoundary") &&
+               MapPutString(env, details, "pluginPackage",
+                            "flutter_scene_viewer_draco") &&
+               MapPutString(env, details, "configurationKey", kInfoPlistKey) &&
+               MapPutString(env, details, "androidManifestKey",
+                            kAndroidManifestKey) &&
+               MapPutInt(env, details, "meshIndex", terminal.mesh_index) &&
+               MapPutInt(env, details, "primitiveIndex",
+                         terminal.primitive_index);
+  if (source != nullptr) {
+    valid = valid && MapPutObject(env, details, "source", source);
+  }
+  if (!valid) {
+    if (details != nullptr) env->DeleteLocalRef(details);
+    return nullptr;
+  }
+  jobject result = NewHashMap(env);
+  valid = result != nullptr &&
+          MapPutString(env, result, "code", "unsupportedModelFeature") &&
+          MapPutString(
+              env, result, "message",
+              budget_exceeded
+                  ? "Native Draco decode exceeded maxNativeWorkingBytes."
+                  : "Native Draco decode allocation failed.") &&
+          MapPutObject(env, result, "details", details);
+  env->DeleteLocalRef(details);
+  if (!valid) {
+    if (result != nullptr) env->DeleteLocalRef(result);
+    return nullptr;
+  }
   return result;
 }
 
@@ -369,32 +728,82 @@ jobject BridgeDiagnostics(JNIEnv* env,
                           const FsvDracoDecodeResult& decode_result,
                           jstring source) {
   jobject diagnostics = NewArrayList(env);
+  if (diagnostics == nullptr) return nullptr;
   for (const FsvDracoDiagnostic& diagnostic : decode_result.diagnostics) {
-    ListAdd(env, diagnostics, Diagnostic(env, diagnostic, source));
+    jobject mapped = Diagnostic(env, diagnostic, source);
+    if (mapped == nullptr || !ListAdd(env, diagnostics, mapped)) {
+      if (mapped != nullptr) env->DeleteLocalRef(mapped);
+      env->DeleteLocalRef(diagnostics);
+      return nullptr;
+    }
+    env->DeleteLocalRef(mapped);
   }
+  const bool needs_terminal =
+      decode_result.terminal_outcome.kind ==
+          FsvDracoTerminalOutcomeKind::kBudgetExceeded ||
+      decode_result.terminal_outcome.kind ==
+          FsvDracoTerminalOutcomeKind::kAllocationFailed;
+  jobject terminal =
+      TerminalDiagnostic(env, decode_result.terminal_outcome, source);
+  if (needs_terminal &&
+      (terminal == nullptr || !ListAdd(env, diagnostics, terminal))) {
+    if (terminal != nullptr) env->DeleteLocalRef(terminal);
+    env->DeleteLocalRef(diagnostics);
+    return nullptr;
+  }
+  if (terminal != nullptr) env->DeleteLocalRef(terminal);
   return diagnostics;
 }
 
 jobject DecodedPrimitives(JNIEnv* env,
-                          const FsvDracoDecodeResult& decode_result) {
+                          const FsvDracoDecodeResult& decode_result,
+                          fsv_draco::FsvDecodeControl* control) {
   jobject decoded = NewArrayList(env);
+  if (decoded == nullptr) return nullptr;
   for (const FsvDracoDecodedPrimitive& primitive :
        decode_result.decoded_primitives) {
+    if (control != nullptr && control->IsCancelled()) return nullptr;
     jobject attributes = NewHashMap(env);
+    if (attributes == nullptr) return nullptr;
     for (const auto& entry : primitive.attributes) {
-      MapPutObject(env, attributes, entry.first.c_str(),
-                   ByteArray(env, entry.second));
+      FsvDracoPlatformCopyOutcome outcome;
+      jbyteArray array = ByteArray(env, entry.second, control, &outcome);
+      if (outcome != FsvDracoPlatformCopyOutcome::kSuccess || array == nullptr ||
+          !MapPutObject(env, attributes, entry.first.c_str(), array)) {
+        if (array != nullptr) env->DeleteLocalRef(array);
+        return nullptr;  // Atomic platform-copy failure.
+      }
+      env->DeleteLocalRef(array);
     }
 
     jobject map = NewHashMap(env);
-    MapPutInt(env, map, "meshIndex", primitive.mesh_index);
-    MapPutInt(env, map, "primitiveIndex", primitive.primitive_index);
-    MapPutObject(env, map, "attributes", attributes);
-    if (primitive.has_indices) {
-      MapPutObject(env, map, "indices", ByteArray(env, primitive.indices));
+    if (map == nullptr ||
+        !MapPutInt(env, map, "meshIndex", primitive.mesh_index) ||
+        !MapPutInt(env, map, "primitiveIndex", primitive.primitive_index) ||
+        !MapPutObject(env, map, "attributes", attributes)) {
+      if (map != nullptr) env->DeleteLocalRef(map);
+      env->DeleteLocalRef(attributes);
+      return nullptr;
     }
-    ListAdd(env, decoded, map);
+    if (primitive.has_indices) {
+      FsvDracoPlatformCopyOutcome outcome;
+      jbyteArray array = ByteArray(env, primitive.indices, control, &outcome);
+      if (outcome != FsvDracoPlatformCopyOutcome::kSuccess || array == nullptr ||
+          !MapPutObject(env, map, "indices", array)) {
+        if (array != nullptr) env->DeleteLocalRef(array);
+        return nullptr;  // Atomic platform-copy failure.
+      }
+      env->DeleteLocalRef(array);
+    }
+    if (!ListAdd(env, decoded, map)) {
+      env->DeleteLocalRef(attributes);
+      env->DeleteLocalRef(map);
+      return nullptr;
+    }
+    env->DeleteLocalRef(attributes);
+    env->DeleteLocalRef(map);
   }
+  if (control != nullptr && control->IsCancelled()) return nullptr;
   return decoded;
 }
 }  // namespace
@@ -411,6 +820,34 @@ Java_com_marlonjd_flutter_1scene_1viewer_1draco_FlutterSceneViewerDracoPlugin_na
   return FsvDracoPrimitiveDecodeAvailable() ? JNI_TRUE : JNI_FALSE;
 }
 
+extern "C" JNIEXPORT jlong JNICALL
+Java_com_marlonjd_flutter_1scene_1viewer_1draco_FlutterSceneViewerDracoPlugin_nativeCreateDecodeControl(
+    JNIEnv* env, jclass clazz, jlong working_byte_limit) {
+  (void)env;
+  (void)clazz;
+  const uint64_t limit = working_byte_limit < 0
+                             ? 0
+                             : static_cast<uint64_t>(working_byte_limit);
+  return reinterpret_cast<jlong>(new fsv_draco::FsvDecodeControl(limit));
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_marlonjd_flutter_1scene_1viewer_1draco_FlutterSceneViewerDracoPlugin_nativeCancelDecodeControl(
+    JNIEnv* env, jclass clazz, jlong handle) {
+  (void)env;
+  (void)clazz;
+  auto* control = reinterpret_cast<fsv_draco::FsvDecodeControl*>(handle);
+  return control != nullptr && control->Cancel() ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_marlonjd_flutter_1scene_1viewer_1draco_FlutterSceneViewerDracoPlugin_nativeDestroyDecodeControl(
+    JNIEnv* env, jclass clazz, jlong handle) {
+  (void)env;
+  (void)clazz;
+  delete reinterpret_cast<fsv_draco::FsvDecodeControl*>(handle);
+}
+
 extern "C" JNIEXPORT jobject JNICALL
 Java_com_marlonjd_flutter_1scene_1viewer_1draco_FlutterSceneViewerDracoPlugin_nativeDecodePrimitives(
     JNIEnv* env,
@@ -418,15 +855,36 @@ Java_com_marlonjd_flutter_1scene_1viewer_1draco_FlutterSceneViewerDracoPlugin_na
     jobject raw_primitives,
     jobject raw_budget,
     jobject raw_budget_state,
-    jstring source) {
-  FsvDracoDecodeResult decode_result =
-      FsvDracoDecodePrimitives(PrimitiveRequests(env, raw_primitives),
-                               DecodeBudget(env, raw_budget),
-                               DecodeBudgetState(env, raw_budget_state));
+    jstring source,
+    jlong control_handle) {
+  auto* control =
+      reinterpret_cast<fsv_draco::FsvDecodeControl*>(control_handle);
+  FsvDracoDecodeResult decode_result(control);
+  try {
+    FsvDracoPrimitiveRequests requests =
+        PrimitiveRequests(env, raw_primitives, control);
+    decode_result = FsvDracoDecodePrimitives(
+        requests, DecodeBudget(env, raw_budget),
+        DecodeBudgetState(env, raw_budget_state), nullptr, control);
+  } catch (const fsv_draco::FsvDecodeStopped&) {
+    FsvDracoRecordTerminalOutcome(&decode_result, control);
+  } catch (const fsv_draco::FsvDecodeBudgetExceeded&) {
+    FsvDracoRecordTerminalOutcome(&decode_result, control);
+  } catch (const std::bad_alloc&) {
+    FsvDracoRecordTerminalOutcome(&decode_result, control);
+  }
+  if (control != nullptr && control->IsCancelled()) return nullptr;
+  jobject decoded = DecodedPrimitives(env, decode_result, control);
+  if (decoded == nullptr) return nullptr;
+  jobject diagnostics = BridgeDiagnostics(env, decode_result, source);
+  if (diagnostics == nullptr || ClearPendingJniException(env)) return nullptr;
   jobject response = NewHashMap(env);
-  MapPutObject(env, response, "decodedPrimitives",
-               DecodedPrimitives(env, decode_result));
-  MapPutObject(env, response, "diagnostics",
-               BridgeDiagnostics(env, decode_result, source));
+  if (response == nullptr || !MapPutObject(env, response, "decodedPrimitives", decoded) ||
+      !MapPutObject(env, response, "diagnostics", diagnostics) ||
+      (control != nullptr && control->IsCancelled())) {
+    return nullptr;  // Atomic platform-copy failure.
+  }
+  env->DeleteLocalRef(decoded);
+  env->DeleteLocalRef(diagnostics);
   return response;
 }

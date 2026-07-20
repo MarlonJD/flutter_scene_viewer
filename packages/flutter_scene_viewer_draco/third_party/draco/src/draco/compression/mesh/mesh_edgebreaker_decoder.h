@@ -25,6 +25,7 @@ namespace draco {
 class MeshEdgebreakerDecoder : public MeshDecoder {
  public:
   MeshEdgebreakerDecoder();
+  explicit MeshEdgebreakerDecoder(FsvDecodeControl *control);
 
   const CornerTable *GetCornerTable() const override {
     return impl_->GetCornerTable();

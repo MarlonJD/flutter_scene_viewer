@@ -1,11 +1,18 @@
 #import "FlutterSceneViewerDracoPlugin.h"
 
 #import "fsv_draco_bridge.h"
+#import "fsv_draco_platform_serialization.h"
+#import "fsv_draco_request_registry.h"
+
+#include <cstring>
+#include <limits>
+#include <memory>
 
 namespace {
 NSString *const kChannelName = @"flutter_scene_viewer/draco";
 NSString *const kMethodGetDecoderAvailability = @"getDecoderAvailability";
 NSString *const kMethodDecodeGlb = @"decodeGlb";
+NSString *const kMethodCancelDecode = @"cancelDecode";
 NSString *const kDracoExtension = @"KHR_draco_mesh_compression";
 NSString *const kInfoPlistKey = @"FlutterSceneViewerDracoEnabled";
 NSString *const kAndroidManifestKey = @"flutter_scene_viewer_draco_enabled";
@@ -37,7 +44,8 @@ FlutterStandardTypedData *Bytes(id arguments) {
   return [bytes isKindOfClass:[FlutterStandardTypedData class]] ? bytes : nil;
 }
 
-NSString *StringFromStd(const std::string &value) {
+template <typename String>
+NSString *StringFromStd(const String &value) {
   return [NSString stringWithUTF8String:value.c_str()];
 }
 
@@ -69,8 +77,10 @@ NSDictionary *Diagnostic(NSString *status,
 
 FsvDracoBudgetNumber BudgetNumber(id value);
 
-FsvDracoAccessorSchema AccessorSchema(id value) {
-  FsvDracoAccessorSchema schema;
+FsvDracoAccessorSchema AccessorSchema(
+    id value,
+    fsv_draco::FsvDecodeControl *control) {
+  FsvDracoAccessorSchema schema(control);
   if (![value isKindOfClass:[NSDictionary class]]) {
     return schema;
   }
@@ -85,7 +95,7 @@ FsvDracoAccessorSchema AccessorSchema(id value) {
   }
   schema.component_type = BudgetNumber(dictionary[@"componentType"]);
   if ([type isKindOfClass:[NSString class]]) {
-    schema.type = [type UTF8String];
+    schema.type.assign([type UTF8String]);
   }
   if ([count isKindOfClass:[NSNumber class]] &&
       CFGetTypeID((__bridge CFTypeRef)count) != CFBooleanGetTypeID() &&
@@ -146,33 +156,41 @@ FsvDracoDecodeBudgetState DecodeBudgetState(id arguments) {
   return state;
 }
 
-std::vector<uint8_t> BytesVector(id value) {
+FsvDracoByteVector BytesVector(
+    id value,
+    fsv_draco::FsvDecodeControl *control) {
+  FsvDracoByteVector result{FsvDracoAllocator<uint8_t>(control)};
   if (![value isKindOfClass:[FlutterStandardTypedData class]]) {
-    return {};
+    return result;
   }
   NSData *data = [value data];
   const auto *bytes = static_cast<const uint8_t *>(data.bytes);
-  return std::vector<uint8_t>(bytes, bytes + data.length);
+  result.assign(bytes, bytes + data.length);
+  return result;
 }
 
-std::vector<FsvDracoPrimitiveRequest> DracoPrimitiveRequests(id arguments) {
+FsvDracoPrimitiveRequests DracoPrimitiveRequests(
+    id arguments,
+    fsv_draco::FsvDecodeControl *control) {
+  FsvDracoPrimitiveRequests requests{
+      FsvDracoAllocator<FsvDracoPrimitiveRequest>(control)};
   if (![arguments isKindOfClass:[NSDictionary class]]) {
-    return {};
+    return requests;
   }
   NSArray *rawPrimitives = arguments[@"dracoPrimitives"];
   if (![rawPrimitives isKindOfClass:[NSArray class]]) {
-    return {};
+    return requests;
   }
-  std::vector<FsvDracoPrimitiveRequest> requests;
   for (id rawPrimitive in rawPrimitives) {
     if (![rawPrimitive isKindOfClass:[NSDictionary class]]) {
       continue;
     }
     NSDictionary *dictionary = rawPrimitive;
-    FsvDracoPrimitiveRequest request;
+    FsvDracoPrimitiveRequest request(control);
     request.mesh_index = [dictionary[@"meshIndex"] intValue];
     request.primitive_index = [dictionary[@"primitiveIndex"] intValue];
-    request.compressed_bytes = BytesVector(dictionary[@"compressedBytes"]);
+    request.compressed_bytes =
+        BytesVector(dictionary[@"compressedBytes"], control);
     id vertexAccessorIndex = dictionary[@"vertexAccessorIndex"];
     if ([vertexAccessorIndex isKindOfClass:[NSNumber class]] &&
         CFGetTypeID((__bridge CFTypeRef)vertexAccessorIndex) !=
@@ -191,7 +209,10 @@ std::vector<FsvDracoPrimitiveRequest> DracoPrimitiveRequests(id arguments) {
         if ([value isKindOfClass:[NSNumber class]] &&
             CFGetTypeID((__bridge CFTypeRef)value) != CFBooleanGetTypeID() &&
             !CFNumberIsFloatType((__bridge CFNumberRef)value)) {
-          request.attributes[[key UTF8String]] = [value longLongValue];
+          request.attributes.emplace(
+              FsvDracoString([key UTF8String],
+                             FsvDracoAllocator<char>(control)),
+              [value longLongValue]);
         }
       }
     }
@@ -202,34 +223,110 @@ std::vector<FsvDracoPrimitiveRequest> DracoPrimitiveRequests(id arguments) {
         if (![key isKindOfClass:[NSString class]]) {
           continue;
         }
-        request.attribute_accessors[[key UTF8String]] =
-            AccessorSchema(attributeAccessors[key]);
+        request.attribute_accessors.emplace(
+            FsvDracoString([key UTF8String],
+                           FsvDracoAllocator<char>(control)),
+            AccessorSchema(attributeAccessors[key], control));
       }
     }
 
     id indicesAccessor = dictionary[@"indicesAccessor"];
     if ([indicesAccessor isKindOfClass:[NSDictionary class]]) {
       request.has_indices_accessor = true;
-      request.indices_accessor = AccessorSchema(indicesAccessor);
+      request.indices_accessor = AccessorSchema(indicesAccessor, control);
     }
     requests.push_back(std::move(request));
   }
   return requests;
 }
 
-FlutterStandardTypedData *TypedDataFromBytes(
-    const std::vector<uint8_t> &bytes) {
-  NSData *data = [NSData dataWithBytes:bytes.data() length:bytes.size()];
-  return [FlutterStandardTypedData typedDataWithBytes:data];
+struct ObjCByteCopyContext {
+  __strong NSMutableData *data = nil;
+  __strong FlutterStandardTypedData *typedData = nil;
+};
+
+bool AllocateObjCBytes(void *rawContext,
+                       uint64_t bytes,
+                       void **destination) noexcept {
+  auto *context = static_cast<ObjCByteCopyContext *>(rawContext);
+  @try {
+    context->data = [NSMutableData dataWithLength:(NSUInteger)bytes];
+  } @catch (NSException *exception) {
+    (void)exception;
+    context->data = nil;
+  }
+  if (context->data == nil) {
+    return false;
+  }
+  *destination = (__bridge void *)context->data;
+  return true;
 }
 
-NSArray *DecodedPrimitives(const FsvDracoDecodeResult &decodeResult) {
+bool CopyObjCBytes(void *rawContext,
+                   void *destination,
+                   const uint8_t *source,
+                   uint64_t bytes) noexcept {
+  auto *context = static_cast<ObjCByteCopyContext *>(rawContext);
+  if ((__bridge void *)context->data != destination) {
+    return false;
+  }
+  @try {
+    if (bytes != 0) {
+      std::memcpy(context->data.mutableBytes, source, (size_t)bytes);
+    }
+    context->typedData =
+        [FlutterStandardTypedData typedDataWithBytes:context->data];
+  } @catch (NSException *exception) {
+    (void)exception;
+    context->typedData = nil;
+  }
+  return context->typedData != nil;
+}
+
+void ReleaseObjCBytes(void *rawContext, void *) noexcept {
+  auto *context = static_cast<ObjCByteCopyContext *>(rawContext);
+  context->typedData = nil;
+  context->data = nil;
+}
+
+template <typename ByteAllocator>
+FlutterStandardTypedData *TypedDataFromBytes(
+    const std::vector<uint8_t, ByteAllocator> &bytes,
+    fsv_draco::FsvDecodeControl *control,
+    FsvDracoPlatformCopyOutcome *outcome) {
+  ObjCByteCopyContext context;
+  FsvDracoPlatformCopyCallbacks callbacks;
+  callbacks.context = &context;
+  callbacks.allocate = AllocateObjCBytes;
+  callbacks.copy = CopyObjCBytes;
+  callbacks.release = ReleaseObjCBytes;
+  void *destination = nullptr;
+  *outcome = FsvDracoCopyBytesToPlatform(
+      bytes.data(), (uint64_t)bytes.size(),
+      (uint64_t)std::numeric_limits<NSInteger>::max(), control, callbacks,
+      &destination);
+  return *outcome == FsvDracoPlatformCopyOutcome::kSuccess
+             ? context.typedData
+             : nil;
+}
+
+NSArray *DecodedPrimitives(const FsvDracoDecodeResult &decodeResult,
+                           fsv_draco::FsvDecodeControl *control) {
   NSMutableArray *decoded = [NSMutableArray array];
   for (const FsvDracoDecodedPrimitive &primitive :
        decodeResult.decoded_primitives) {
+    if (control != nullptr && control->IsCancelled()) {
+      return nil;
+    }
     NSMutableDictionary *attributes = [NSMutableDictionary dictionary];
     for (const auto &entry : primitive.attributes) {
-      attributes[StringFromStd(entry.first)] = TypedDataFromBytes(entry.second);
+      FsvDracoPlatformCopyOutcome outcome;
+      FlutterStandardTypedData *bytes =
+          TypedDataFromBytes(entry.second, control, &outcome);
+      if (outcome != FsvDracoPlatformCopyOutcome::kSuccess || bytes == nil) {
+        return nil;  // Atomic platform-copy failure.
+      }
+      attributes[StringFromStd(entry.first)] = bytes;
     }
     NSMutableDictionary *dictionary = [@{
       @"meshIndex" : @(primitive.mesh_index),
@@ -237,9 +334,18 @@ NSArray *DecodedPrimitives(const FsvDracoDecodeResult &decodeResult) {
       @"attributes" : attributes,
     } mutableCopy];
     if (primitive.has_indices) {
-      dictionary[@"indices"] = TypedDataFromBytes(primitive.indices);
+      FsvDracoPlatformCopyOutcome outcome;
+      FlutterStandardTypedData *bytes =
+          TypedDataFromBytes(primitive.indices, control, &outcome);
+      if (outcome != FsvDracoPlatformCopyOutcome::kSuccess || bytes == nil) {
+        return nil;  // Atomic platform-copy failure.
+      }
+      dictionary[@"indices"] = bytes;
     }
     [decoded addObject:dictionary];
+  }
+  if (control != nullptr && control->IsCancelled()) {
+    return nil;
   }
   return decoded;
 }
@@ -275,9 +381,93 @@ NSArray *BridgeDiagnostics(const FsvDracoDecodeResult &decodeResult,
                                       source,
                                       details)];
   }
+  const bool budgetExceeded =
+      decodeResult.terminal_outcome.kind ==
+      FsvDracoTerminalOutcomeKind::kBudgetExceeded;
+  if (budgetExceeded ||
+      decodeResult.terminal_outcome.kind ==
+          FsvDracoTerminalOutcomeKind::kAllocationFailed) {
+    NSDictionary *details = @{
+      @"meshIndex" : @(decodeResult.terminal_outcome.mesh_index),
+      @"primitiveIndex" : @(decodeResult.terminal_outcome.primitive_index),
+      @"stage" : @"dracoWorkingAllocation",
+      @"field" : @"nativeWorkingBytes",
+      @"limitation" : budgetExceeded ? @"decodeBudget"
+                                      : @"dracoNativeBoundary",
+    };
+    [diagnostics
+        addObject:Diagnostic(
+                      budgetExceeded ? @"budgetExceeded" : @"allocationFailed",
+                      budgetExceeded
+                          ? @"Native Draco decode exceeded maxNativeWorkingBytes."
+                          : @"Native Draco decode allocation failed.",
+                      source,
+                      details)];
+  }
   return diagnostics;
 }
+
+NSDictionary *BuildManagedDecodeResponse(
+    NSMutableArray *diagnostics,
+    const FsvDracoDecodeResult &decodeResult,
+    NSString *source,
+    fsv_draco::FsvDecodeControl *control) {
+  @try {
+    [diagnostics addObjectsFromArray:BridgeDiagnostics(decodeResult, source)];
+    NSArray *decodedPrimitives = DecodedPrimitives(decodeResult, control);
+    if (decodedPrimitives == nil) {
+      return nil;  // Atomic platform-copy failure.
+    }
+    NSDictionary *response = @{
+      @"decodedPrimitives" : decodedPrimitives,
+      @"diagnostics" : diagnostics,
+    };
+    if (control != nullptr && control->IsCancelled()) {
+      return nil;
+    }
+    return response;
+  } @catch (NSException *exception) {
+    (void)exception;
+    return nil;  // Atomic managed response construction failure.
+  }
+}
+
+void DeliverDecodeCompletion(
+    FlutterResult result,
+    fsv_draco::FsvFinishDisposition disposition,
+    NSDictionary *response,
+    fsv_draco::FsvDecodeStopReason stopReason) {
+  if (disposition == fsv_draco::FsvFinishDisposition::kDetached) {
+    return;
+  }
+  if (stopReason == fsv_draco::FsvDecodeStopReason::kDeadline) {
+    result([FlutterError errorWithCode:@"timeout"
+                               message:@"Native Draco decode timed out."
+                               details:nil]);
+    return;
+  }
+  if (stopReason == fsv_draco::FsvDecodeStopReason::kCallerCancelled ||
+      disposition == fsv_draco::FsvFinishDisposition::kCancelled) {
+    result([FlutterError errorWithCode:@"cancelled"
+                               message:@"Native Draco decode was cancelled."
+                               details:nil]);
+    return;
+  }
+  if (response == nil) {
+    result([FlutterError errorWithCode:@"platformSerializationFailed"
+                               message:@"Native Draco response serialization failed."
+                               details:nil]);
+    return;
+  }
+  result(response);
+}
 }  // namespace
+
+@interface FlutterSceneViewerDracoPlugin () {
+  dispatch_queue_t _decodeQueue;
+  std::unique_ptr<fsv_draco::FsvDecodeRequestRegistry> _requestRegistry;
+}
+@end
 
 @implementation FlutterSceneViewerDracoPlugin
 + (void)registerWithRegistrar:(NSObject<FlutterPluginRegistrar> *)registrar {
@@ -289,7 +479,34 @@ NSArray *BridgeDiagnostics(const FsvDracoDecodeResult &decodeResult,
   [registrar addMethodCallDelegate:instance channel:channel];
 }
 
+- (instancetype)init {
+  self = [super init];
+  if (self != nil) {
+    _decodeQueue = dispatch_queue_create(
+        "com.marlonjd.flutter_scene_viewer_draco.decode",
+        DISPATCH_QUEUE_SERIAL);
+    _requestRegistry =
+        std::make_unique<fsv_draco::FsvDecodeRequestRegistry>();
+  }
+  return self;
+}
+
+- (void)detachFromEngineForRegistrar:
+    (NSObject<FlutterPluginRegistrar> *)registrar {
+  _requestRegistry->BeginDetach();
+  dispatch_sync(_decodeQueue, ^{});
+  _requestRegistry->DrainAfterWorkers();
+}
+
 - (void)handleMethodCall:(FlutterMethodCall *)call result:(FlutterResult)result {
+  if ([call.method isEqualToString:kMethodCancelDecode]) {
+    [self cancelDecode:call result:result];
+    return;
+  }
+  if ([call.method isEqualToString:kMethodDecodeGlb]) {
+    [self startDecode:call result:result];
+    return;
+  }
   if (![call.method isEqualToString:kMethodGetDecoderAvailability] &&
       ![call.method isEqualToString:kMethodDecodeGlb]) {
     result(FlutterMethodNotImplemented);
@@ -321,50 +538,6 @@ NSArray *BridgeDiagnostics(const FsvDracoDecodeResult &decodeResult,
                                source)];
   }
 
-  if ([call.method isEqualToString:kMethodDecodeGlb]) {
-    if (!requiresDraco) {
-      FlutterStandardTypedData *bytes = Bytes(call.arguments);
-      result(@{
-        @"bytes" : bytes ?: [FlutterStandardTypedData typedDataWithBytes:[NSData data]],
-        @"diagnostics" : diagnostics,
-      });
-      return;
-    }
-    if (requiresDraco && enabled && linked && primitiveDecodeAvailable) {
-      std::vector<FsvDracoPrimitiveRequest> requests =
-          DracoPrimitiveRequests(call.arguments);
-      if (requests.empty()) {
-        [diagnostics addObject:Diagnostic(
-                                   @"decodeFailed",
-                                   @"Native Draco decoder did not receive Draco primitive payloads.",
-                                   source)];
-        result(@{
-          @"diagnostics" : diagnostics,
-        });
-        return;
-      }
-      FsvDracoDecodeResult decodeResult = FsvDracoDecodePrimitives(
-          requests, DecodeBudget(call.arguments),
-          DecodeBudgetState(call.arguments));
-      [diagnostics addObjectsFromArray:BridgeDiagnostics(decodeResult, source)];
-      if (diagnostics.count > 0) {
-        result(@{
-          @"diagnostics" : diagnostics,
-        });
-        return;
-      }
-      result(@{
-        @"decodedPrimitives" : DecodedPrimitives(decodeResult),
-        @"diagnostics" : diagnostics,
-      });
-      return;
-    }
-    result(@{
-      @"diagnostics" : diagnostics,
-    });
-    return;
-  }
-
   result(@{
     @"capabilities" : @{
       @"dracoMeshCompression" : @(enabled && linked && primitiveDecodeAvailable),
@@ -373,5 +546,148 @@ NSArray *BridgeDiagnostics(const FsvDracoDecodeResult &decodeResult,
     },
     @"diagnostics" : diagnostics,
   });
+}
+
+- (uint64_t)workingByteLimit:(id)arguments {
+  if (![arguments isKindOfClass:[NSDictionary class]]) {
+    return UINT64_MAX;
+  }
+  id budget = arguments[@"decodeBudget"];
+  id value = [budget isKindOfClass:[NSDictionary class]]
+                 ? budget[@"maxNativeWorkingBytes"]
+                 : nil;
+  return [value isKindOfClass:[NSNumber class]] ? [value unsignedLongLongValue]
+                                                 : UINT64_MAX;
+}
+
+- (NSDictionary *)decodeResponse:(FlutterMethodCall *)call
+                          control:(fsv_draco::FsvDecodeControl *)control {
+  const BOOL requiresDraco = RequiresDraco(call.arguments);
+  const BOOL enabled =
+      [[[NSBundle mainBundle] objectForInfoDictionaryKey:kInfoPlistKey] boolValue];
+  const BOOL linked = FsvDracoDecoderLinked();
+  const BOOL available = FsvDracoPrimitiveDecodeAvailable();
+  NSMutableArray *diagnostics = [NSMutableArray array];
+  NSString *source = Source(call.arguments);
+  if (!requiresDraco) {
+    FlutterStandardTypedData *bytes = Bytes(call.arguments);
+    return @{
+      @"bytes" : bytes ?: [FlutterStandardTypedData typedDataWithBytes:[NSData data]],
+      @"diagnostics" : diagnostics,
+    };
+  }
+  if (!enabled || !linked || !available) {
+    if (!enabled) {
+      [diagnostics addObject:Diagnostic(
+                                 @"disabled",
+                                 @"Native Draco decoder is installed but disabled.",
+                                 source)];
+    } else if (!linked) {
+      [diagnostics addObject:Diagnostic(
+                                 @"nativeLibraryUnavailable",
+                                 @"Native Draco decoder is enabled but the C++ decoder is not linked.",
+                                 source)];
+    } else {
+      [diagnostics addObject:Diagnostic(
+                                 @"decodeUnavailable",
+                                 @"Native Draco decoder is linked but primitive decode is not implemented.",
+                                 source)];
+    }
+    return @{ @"diagnostics" : diagnostics };
+  }
+  FsvDracoPrimitiveRequests requests{
+      FsvDracoAllocator<FsvDracoPrimitiveRequest>(control)};
+  FsvDracoDecodeResult decodeResult(control);
+  try {
+    requests = DracoPrimitiveRequests(call.arguments, control);
+  } catch (const fsv_draco::FsvDecodeStopped &) {
+    FsvDracoRecordTerminalOutcome(&decodeResult, control);
+  } catch (const fsv_draco::FsvDecodeBudgetExceeded &) {
+    FsvDracoRecordTerminalOutcome(&decodeResult, control);
+  } catch (const std::bad_alloc &) {
+    FsvDracoRecordTerminalOutcome(&decodeResult, control);
+  }
+  if (decodeResult.terminal_outcome.kind !=
+      FsvDracoTerminalOutcomeKind::kNone) {
+    if (control->IsCancelled()) {
+      return nil;
+    }
+    @try {
+      [diagnostics addObjectsFromArray:BridgeDiagnostics(decodeResult, source)];
+      return @{ @"diagnostics" : diagnostics };
+    } @catch (NSException *exception) {
+      (void)exception;
+      return nil;  // Atomic managed response construction failure.
+    }
+  }
+  if (requests.empty()) {
+    [diagnostics addObject:Diagnostic(
+                               @"decodeFailed",
+                               @"Native Draco decoder did not receive Draco primitive payloads.",
+                               source)];
+    return @{ @"diagnostics" : diagnostics };
+  }
+  decodeResult = FsvDracoDecodePrimitives(
+      requests, DecodeBudget(call.arguments), DecodeBudgetState(call.arguments),
+      nullptr, control);
+  if (control->IsCancelled()) {
+    return nil;
+  }
+  return BuildManagedDecodeResponse(diagnostics, decodeResult, source, control);
+}
+
+- (void)startDecode:(FlutterMethodCall *)call result:(FlutterResult)result {
+  NSString *requestId = [call.arguments isKindOfClass:[NSDictionary class]]
+                            ? call.arguments[@"requestId"]
+                            : nil;
+  if (![requestId isKindOfClass:[NSString class]] || requestId.length == 0) {
+    result([FlutterError errorWithCode:@"invalidRequest"
+                               message:@"decodeGlb requires a unique requestId."
+                               details:nil]);
+    return;
+  }
+  std::string requestKey([requestId UTF8String]);
+  auto request = _requestRegistry->Register(
+      requestKey, [self workingByteLimit:call.arguments]);
+  if (request == nullptr) {
+    result([FlutterError errorWithCode:@"duplicateRequest"
+                               message:@"requestId is already active."
+                               details:nil]);
+    return;
+  }
+  dispatch_async(_decodeQueue, ^{
+    NSDictionary *response = _requestRegistry->ShouldStart(request)
+                                 ? [self decodeResponse:call
+                                               control:request->control.get()]
+                                 : nil;
+    if (request->control != nullptr && request->control->IsCancelled()) {
+      response = nil;
+    }
+    const auto stopReason = request->control != nullptr
+                                ? request->control->stop_reason()
+                                : fsv_draco::FsvDecodeStopReason::kNone;
+    const auto disposition = _requestRegistry->Finish(requestKey, request);
+    dispatch_async(dispatch_get_main_queue(), ^{
+      if (_requestRegistry->ClaimDelivery(request)) {
+        DeliverDecodeCompletion(result, disposition, response, stopReason);
+      }
+    });
+  });
+}
+
+- (void)cancelDecode:(FlutterMethodCall *)call result:(FlutterResult)result {
+  NSString *requestId = [call.arguments isKindOfClass:[NSDictionary class]]
+                            ? call.arguments[@"requestId"]
+                            : nil;
+  auto cancelStatus = requestId == nil
+                          ? fsv_draco::FsvCancelStatus::kUnknownRequest
+                          : _requestRegistry->Cancel([requestId UTF8String]);
+  NSString *status = cancelStatus == fsv_draco::FsvCancelStatus::kCancelled
+                         ? @"cancelled"
+                         : cancelStatus ==
+                                   fsv_draco::FsvCancelStatus::kAlreadyFinished
+                               ? @"alreadyFinished"
+                               : @"unknownRequest";
+  result(@{ @"status" : status });
 }
 @end

@@ -9,6 +9,55 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test(
+      'multi-level raw BasisU output requires the mip-aware importer atomically',
+      () {
+    final source = _basisuGlb();
+    final before = Uint8List.fromList(source);
+    final tracker = GlbDecodeBudgetTracker(const GlbDecodeBudget())
+      ..reserveNativeOutputBytes(2, stage: 'priorDecoder');
+
+    final result = rewriteBasisuTexturesInGlb(
+      source,
+      decodedImages: <GlbDecodedBasisuImage>[
+        GlbDecodedBasisuImage(
+          imageIndex: 0,
+          contentRole: 'color',
+          levels: <GlbDecodedBasisuMipLevel>[
+            GlbDecodedBasisuMipLevel(
+              level: 0,
+              width: 4,
+              height: 4,
+              rgbaBytes: Uint8List(4 * 4 * 4),
+            ),
+            GlbDecodedBasisuMipLevel(
+              level: 1,
+              width: 2,
+              height: 2,
+              rgbaBytes: Uint8List(2 * 2 * 4),
+            ),
+          ],
+        ),
+      ],
+      budgetTracker: tracker,
+    );
+
+    expect(result.bytes, isNull);
+    expect(result.diagnostics, hasLength(1));
+    expect(
+      result.diagnostics.single.details,
+      containsPair('status', 'mipAwareImporterRequired'),
+    );
+    expect(
+      result.diagnostics.single.details,
+      containsPair('field', 'decodedImages[0].levels'),
+    );
+    expect(source, before);
+    expect(tracker.nativeOutputBytes, 2);
+    expect(tracker.totalDecodedBytes, 2);
+    expect(tracker.texturePixels, 0);
+  });
+
+  test(
       'reserves exact texture pixels and rejects a PNG IHDR mismatch atomically',
       () {
     final exactBudget = GlbDecodeBudgetTracker(

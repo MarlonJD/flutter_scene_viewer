@@ -30,9 +30,10 @@ namespace draco {
 // PointCloud is a collection of n-dimensional points that are described by a
 // set of PointAttributes that can represent data such as positions or colors
 // of individual points (see point_attribute.h).
-class PointCloud {
+class PointCloud : public FsvDecodeAllocated {
  public:
   PointCloud();
+  explicit PointCloud(FsvDecodeControl *control);
   virtual ~PointCloud() = default;
 
 #ifdef DRACO_TRANSCODER_SUPPORTED
@@ -75,6 +76,7 @@ class PointCloud {
   int32_t num_attributes() const {
     return static_cast<int32_t>(attributes_.size());
   }
+  FsvDecodeControl *fsv_decode_control() const { return fsv_decode_control_; }
   const PointAttribute *attribute(int32_t att_id) const {
     DRACO_DCHECK_LE(0, att_id);
     DRACO_DCHECK_LT(att_id, static_cast<int32_t>(attributes_.size()));
@@ -139,6 +141,11 @@ class PointCloud {
 
   // Add metadata.
   void AddMetadata(std::unique_ptr<GeometryMetadata> metadata) {
+    if (metadata != nullptr &&
+        metadata->fsv_decode_control() != fsv_decode_control_) {
+      metadata.reset(new (fsv_decode_control_)
+                         GeometryMetadata(*metadata, fsv_decode_control_));
+    }
     metadata_ = std::move(metadata);
   }
 
@@ -146,7 +153,8 @@ class PointCloud {
   void AddAttributeMetadata(int32_t att_id,
                             std::unique_ptr<AttributeMetadata> metadata) {
     if (!metadata_) {
-      metadata_ = std::unique_ptr<GeometryMetadata>(new GeometryMetadata());
+      metadata_ = std::unique_ptr<GeometryMetadata>(
+          new (fsv_decode_control_) GeometryMetadata(fsv_decode_control_));
     }
     const int32_t att_unique_id = attribute(att_id)->unique_id();
     metadata->set_att_unique_id(att_unique_id);
@@ -235,15 +243,18 @@ class PointCloud {
   std::unique_ptr<GeometryMetadata> metadata_;
 
   // Attributes describing the point cloud.
-  std::vector<std::unique_ptr<PointAttribute>> attributes_;
+  std::vector<std::unique_ptr<PointAttribute>,
+              FsvDecodeAllocator<std::unique_ptr<PointAttribute>>>
+      attributes_;
 
   // Ids of named attributes of the given type.
-  std::vector<int32_t>
+  std::vector<int32_t, FsvDecodeAllocator<int32_t>>
       named_attribute_index_[GeometryAttribute::NAMED_ATTRIBUTES_COUNT];
 
   // The number of n-dimensional points. All point attribute values are stored
   // in corresponding PointAttribute instances in the |attributes_| array.
   PointIndex::ValueType num_points_;
+  FsvDecodeControl *fsv_decode_control_ = nullptr;
 
 #ifdef DRACO_TRANSCODER_SUPPORTED
   // Compression options for this geometry.

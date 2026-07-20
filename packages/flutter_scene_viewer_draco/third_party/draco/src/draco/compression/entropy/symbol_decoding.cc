@@ -23,14 +23,16 @@ namespace draco {
 
 template <template <int> class SymbolDecoderT>
 bool DecodeTaggedSymbols(uint32_t num_values, int num_components,
-                         DecoderBuffer *src_buffer, uint32_t *out_values);
+                         DecoderBuffer *src_buffer, uint32_t *out_values,
+                         FsvDecodeControl *control);
 
 template <template <int> class SymbolDecoderT>
 bool DecodeRawSymbols(uint32_t num_values, DecoderBuffer *src_buffer,
-                      uint32_t *out_values);
+                      uint32_t *out_values, FsvDecodeControl *control);
 
 bool DecodeSymbols(uint32_t num_values, int num_components,
-                   DecoderBuffer *src_buffer, uint32_t *out_values) {
+                   DecoderBuffer *src_buffer, uint32_t *out_values,
+                   FsvDecodeControl *control) {
   if (num_values == 0) {
     return true;
   }
@@ -41,19 +43,21 @@ bool DecodeSymbols(uint32_t num_values, int num_components,
   }
   if (scheme == SYMBOL_CODING_TAGGED) {
     return DecodeTaggedSymbols<RAnsSymbolDecoder>(num_values, num_components,
-                                                  src_buffer, out_values);
+                                                  src_buffer, out_values,
+                                                  control);
   } else if (scheme == SYMBOL_CODING_RAW) {
     return DecodeRawSymbols<RAnsSymbolDecoder>(num_values, src_buffer,
-                                               out_values);
+                                               out_values, control);
   }
   return false;
 }
 
 template <template <int> class SymbolDecoderT>
 bool DecodeTaggedSymbols(uint32_t num_values, int num_components,
-                         DecoderBuffer *src_buffer, uint32_t *out_values) {
+                         DecoderBuffer *src_buffer, uint32_t *out_values,
+                         FsvDecodeControl *control) {
   // Decode the encoded data.
-  SymbolDecoderT<5> tag_decoder;
+  SymbolDecoderT<5> tag_decoder(control);
   if (!tag_decoder.Create(src_buffer)) {
     return false;
   }
@@ -89,8 +93,9 @@ bool DecodeTaggedSymbols(uint32_t num_values, int num_components,
 
 template <class SymbolDecoderT>
 bool DecodeRawSymbolsInternal(uint32_t num_values, DecoderBuffer *src_buffer,
-                              uint32_t *out_values) {
-  SymbolDecoderT decoder;
+                              uint32_t *out_values,
+                              FsvDecodeControl *control) {
+  SymbolDecoderT decoder(control);
   if (!decoder.Create(src_buffer)) {
     return false;
   }
@@ -113,66 +118,66 @@ bool DecodeRawSymbolsInternal(uint32_t num_values, DecoderBuffer *src_buffer,
 
 template <template <int> class SymbolDecoderT>
 bool DecodeRawSymbols(uint32_t num_values, DecoderBuffer *src_buffer,
-                      uint32_t *out_values) {
+                      uint32_t *out_values, FsvDecodeControl *control) {
   uint8_t max_bit_length;
   if (!src_buffer->Decode(&max_bit_length)) {
     return false;
   }
   switch (max_bit_length) {
     case 1:
-      return DecodeRawSymbolsInternal<SymbolDecoderT<1>>(num_values, src_buffer,
-                                                         out_values);
+      return DecodeRawSymbolsInternal<SymbolDecoderT<1>>(
+          num_values, src_buffer, out_values, control);
     case 2:
-      return DecodeRawSymbolsInternal<SymbolDecoderT<2>>(num_values, src_buffer,
-                                                         out_values);
+      return DecodeRawSymbolsInternal<SymbolDecoderT<2>>(
+          num_values, src_buffer, out_values, control);
     case 3:
-      return DecodeRawSymbolsInternal<SymbolDecoderT<3>>(num_values, src_buffer,
-                                                         out_values);
+      return DecodeRawSymbolsInternal<SymbolDecoderT<3>>(
+          num_values, src_buffer, out_values, control);
     case 4:
-      return DecodeRawSymbolsInternal<SymbolDecoderT<4>>(num_values, src_buffer,
-                                                         out_values);
+      return DecodeRawSymbolsInternal<SymbolDecoderT<4>>(
+          num_values, src_buffer, out_values, control);
     case 5:
-      return DecodeRawSymbolsInternal<SymbolDecoderT<5>>(num_values, src_buffer,
-                                                         out_values);
+      return DecodeRawSymbolsInternal<SymbolDecoderT<5>>(
+          num_values, src_buffer, out_values, control);
     case 6:
-      return DecodeRawSymbolsInternal<SymbolDecoderT<6>>(num_values, src_buffer,
-                                                         out_values);
+      return DecodeRawSymbolsInternal<SymbolDecoderT<6>>(
+          num_values, src_buffer, out_values, control);
     case 7:
-      return DecodeRawSymbolsInternal<SymbolDecoderT<7>>(num_values, src_buffer,
-                                                         out_values);
+      return DecodeRawSymbolsInternal<SymbolDecoderT<7>>(
+          num_values, src_buffer, out_values, control);
     case 8:
-      return DecodeRawSymbolsInternal<SymbolDecoderT<8>>(num_values, src_buffer,
-                                                         out_values);
+      return DecodeRawSymbolsInternal<SymbolDecoderT<8>>(
+          num_values, src_buffer, out_values, control);
     case 9:
-      return DecodeRawSymbolsInternal<SymbolDecoderT<9>>(num_values, src_buffer,
-                                                         out_values);
+      return DecodeRawSymbolsInternal<SymbolDecoderT<9>>(
+          num_values, src_buffer, out_values, control);
     case 10:
       return DecodeRawSymbolsInternal<SymbolDecoderT<10>>(
-          num_values, src_buffer, out_values);
+          num_values, src_buffer, out_values, control);
     case 11:
       return DecodeRawSymbolsInternal<SymbolDecoderT<11>>(
-          num_values, src_buffer, out_values);
+          num_values, src_buffer, out_values, control);
     case 12:
       return DecodeRawSymbolsInternal<SymbolDecoderT<12>>(
-          num_values, src_buffer, out_values);
+          num_values, src_buffer, out_values, control);
     case 13:
       return DecodeRawSymbolsInternal<SymbolDecoderT<13>>(
-          num_values, src_buffer, out_values);
+          num_values, src_buffer, out_values, control);
     case 14:
       return DecodeRawSymbolsInternal<SymbolDecoderT<14>>(
-          num_values, src_buffer, out_values);
+          num_values, src_buffer, out_values, control);
     case 15:
       return DecodeRawSymbolsInternal<SymbolDecoderT<15>>(
-          num_values, src_buffer, out_values);
+          num_values, src_buffer, out_values, control);
     case 16:
       return DecodeRawSymbolsInternal<SymbolDecoderT<16>>(
-          num_values, src_buffer, out_values);
+          num_values, src_buffer, out_values, control);
     case 17:
       return DecodeRawSymbolsInternal<SymbolDecoderT<17>>(
-          num_values, src_buffer, out_values);
+          num_values, src_buffer, out_values, control);
     case 18:
       return DecodeRawSymbolsInternal<SymbolDecoderT<18>>(
-          num_values, src_buffer, out_values);
+          num_values, src_buffer, out_values, control);
     default:
       return false;
   }

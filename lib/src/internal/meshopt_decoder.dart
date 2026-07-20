@@ -1,6 +1,8 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import '../model_load_cancellation.dart';
+
 enum MeshoptCompressionMode {
   attributes,
   triangles,
@@ -42,10 +44,22 @@ final class MeshoptDecodeException implements Exception {
   String toString() => message;
 }
 
-/// Cooperative deadline control for the synchronous pure-Dart Meshopt path.
+enum MeshoptDecodeStopKind { timeout, cancelled }
+
+final class MeshoptDecodeStopped implements Exception {
+  const MeshoptDecodeStopped(this.kind, this.stage);
+
+  final MeshoptDecodeStopKind kind;
+  final String stage;
+}
+
+/// Cooperative deadline and cancellation control for pure-Dart Meshopt.
 ///
 /// [checkInterval] is interpreted as approximate decoded output bytes between
-/// elapsed-time reads. It is not an external cancellation signal.
+/// yield/check points. Decoder loops partition work at the next interval
+/// boundary; when an interval is smaller than one indivisible Meshopt
+/// primitive, that primitive is the hard lower bound (12 bytes for one
+/// triangle, 8 for one filter element, and 4 for one attribute/index element).
 final class MeshoptDecodeControl {
   MeshoptDecodeControl({
     required this.timeout,
@@ -81,10 +95,13 @@ final class MeshoptDecodeControl {
   final Duration Function() _elapsed;
   int _workSinceCheck = 0;
 
-  void checkpoint({
+  int get bytesUntilCheckpoint => checkInterval - _workSinceCheck;
+
+  Future<void>? checkpoint({
     required String stage,
     int decodedBytes = 0,
     bool force = false,
+    ModelLoadCancellationToken? cancellationToken,
   }) {
     if (decodedBytes < 0) {
       throw ArgumentError.value(
@@ -93,29 +110,43 @@ final class MeshoptDecodeControl {
         'must not be negative',
       );
     }
-    if (!force && decodedBytes < checkInterval - _workSinceCheck) {
-      _workSinceCheck += decodedBytes;
-      return;
+    if (force) {
+      _throwIfStopped(stage, cancellationToken);
+      return null;
     }
-    _workSinceCheck = 0;
+    final accumulatedWork = _workSinceCheck + decodedBytes;
+    if (accumulatedWork < checkInterval) {
+      _workSinceCheck = accumulatedWork;
+      return null;
+    }
+    // Decoder callers partition work so one call represents at most one
+    // configured interval, except for an indivisible codec primitive (at most
+    // one triangle, index, filter element, or four-byte attribute element).
+    // Retain the true remainder, but never manufacture multiple empty yields
+    // before one synchronous primitive.
+    _workSinceCheck = accumulatedWork % checkInterval;
+    return _yieldAndCheck(stage, cancellationToken);
+  }
+
+  Future<void> _yieldAndCheck(
+    String stage,
+    ModelLoadCancellationToken? cancellationToken,
+  ) async {
+    await Future<void>.delayed(Duration.zero);
+    _throwIfStopped(stage, cancellationToken);
+  }
+
+  void _throwIfStopped(
+    String stage,
+    ModelLoadCancellationToken? cancellationToken,
+  ) {
+    if (cancellationToken?.isCancelled == true) {
+      throw MeshoptDecodeStopped(MeshoptDecodeStopKind.cancelled, stage);
+    }
     if (_elapsed() >= timeout) {
-      throw MeshoptDecodeDeadlineExceeded(stage: stage, timeout: timeout);
+      throw MeshoptDecodeStopped(MeshoptDecodeStopKind.timeout, stage);
     }
   }
-}
-
-final class MeshoptDecodeDeadlineExceeded implements Exception {
-  const MeshoptDecodeDeadlineExceeded({
-    required this.stage,
-    required this.timeout,
-  });
-
-  final String stage;
-  final Duration timeout;
-
-  @override
-  String toString() =>
-      'Meshopt decode exceeded ${timeout.inMicroseconds} us at $stage.';
 }
 
 const int _vertexHeader = 0xa0;
@@ -131,55 +162,75 @@ const int _tailMinSizeV1 = 24;
 const List<int> _bitsV0 = <int>[0, 2, 4, 8];
 const List<int> _bitsV1 = <int>[0, 1, 2, 4, 8];
 
-Uint8List decodeMeshoptGltfBuffer(
+Future<Uint8List> decodeMeshoptGltfBuffer(
   Uint8List source, {
   required int count,
   required int byteStride,
   required MeshoptCompressionMode mode,
   required MeshoptCompressionFilter filter,
   MeshoptDecodeControl? control,
-}) {
+  ModelLoadCancellationToken? cancellationToken,
+}) async {
   if (count < 0 || byteStride <= 0) {
     throw const MeshoptDecodeException('Invalid meshopt count or byteStride.');
   }
-  control?.checkpoint(stage: 'meshoptDecodeStart', force: true);
+  final startCheckpoint = control?.checkpoint(
+    stage: 'meshoptDecodeStart',
+    force: true,
+    cancellationToken: cancellationToken,
+  );
+  if (startCheckpoint != null) {
+    await startCheckpoint;
+  }
   final decoded = switch (mode) {
-    MeshoptCompressionMode.attributes => _decodeVertexBuffer(
+    MeshoptCompressionMode.attributes => await _decodeVertexBuffer(
         source,
         vertexCount: count,
         vertexSize: byteStride,
         control: control,
+        cancellationToken: cancellationToken,
       ),
-    MeshoptCompressionMode.triangles => _decodeIndexBuffer(
+    MeshoptCompressionMode.triangles => await _decodeIndexBuffer(
         source,
         indexCount: count,
         indexSize: byteStride,
         control: control,
+        cancellationToken: cancellationToken,
       ),
-    MeshoptCompressionMode.indices => _decodeIndexSequence(
+    MeshoptCompressionMode.indices => await _decodeIndexSequence(
         source,
         indexCount: count,
         indexSize: byteStride,
         control: control,
+        cancellationToken: cancellationToken,
       ),
   };
-  _applyFilter(
+  await _applyFilter(
     decoded,
     count: count,
     byteStride: byteStride,
     filter: filter,
     control: control,
+    cancellationToken: cancellationToken,
   );
-  control?.checkpoint(stage: 'meshoptDecodeComplete', force: true);
+  final completeCheckpoint = control?.checkpoint(
+    stage: 'meshoptDecodeComplete',
+    force: true,
+    cancellationToken: cancellationToken,
+  );
+  if (completeCheckpoint != null) {
+    await completeCheckpoint;
+  }
   return decoded;
 }
 
-Uint8List _decodeVertexBuffer(
+Future<Uint8List> _decodeVertexBuffer(
   Uint8List source, {
   required int vertexCount,
   required int vertexSize,
   required MeshoptDecodeControl? control,
-}) {
+  required ModelLoadCancellationToken? cancellationToken,
+}) async {
   if (vertexSize <= 0 || vertexSize > 256 || vertexSize % 4 != 0) {
     throw const MeshoptDecodeException(
       'ATTRIBUTES byteStride must be a positive multiple of 4 up to 256.',
@@ -221,11 +272,7 @@ Uint8List _decodeVertexBuffer(
       vertexOffset < vertexCount;
       vertexOffset += blockSize) {
     final blockVertexCount = math.min(blockSize, vertexCount - vertexOffset);
-    control?.checkpoint(
-      stage: 'meshoptAttributes',
-      decodedBytes: blockVertexCount * vertexSize,
-    );
-    dataOffset = _decodeVertexBlock(
+    dataOffset = await _decodeVertexBlock(
       source,
       dataOffset: dataOffset,
       dataEnd: dataEnd,
@@ -236,6 +283,8 @@ Uint8List _decodeVertexBuffer(
       lastVertex: lastVertex,
       channels: channels,
       version: version,
+      control: control,
+      cancellationToken: cancellationToken,
     );
   }
   if (dataOffset != dataEnd) {
@@ -246,7 +295,7 @@ Uint8List _decodeVertexBuffer(
   return target;
 }
 
-int _decodeVertexBlock(
+Future<int> _decodeVertexBlock(
   Uint8List source, {
   required int dataOffset,
   required int dataEnd,
@@ -257,7 +306,9 @@ int _decodeVertexBlock(
   required Uint8List lastVertex,
   required Uint8List? channels,
   required int version,
-}) {
+  required MeshoptDecodeControl? control,
+  required ModelLoadCancellationToken? cancellationToken,
+}) async {
   final vertexCountAligned = _align(vertexCount, _byteGroupSize);
   final buffer = Uint8List(vertexCountAligned * 4);
   final controlSize = version == 0 ? 0 : vertexSize ~/ 4;
@@ -265,11 +316,11 @@ int _decodeVertexBlock(
     throw const MeshoptDecodeException(
         'ATTRIBUTES block control is truncated.');
   }
-  final control = source.sublist(dataOffset, dataOffset + controlSize);
+  final blockControl = source.sublist(dataOffset, dataOffset + controlSize);
   dataOffset += controlSize;
 
   for (var k = 0; k < vertexSize; k += 4) {
-    final controlByte = version == 0 ? 0 : control[k ~/ 4];
+    final controlByte = version == 0 ? 0 : blockControl[k ~/ 4];
     for (var j = 0; j < 4; j += 1) {
       final ctrl = (controlByte >> (j * 2)) & 3;
       final bufferOffset = j * vertexCount;
@@ -305,7 +356,7 @@ int _decodeVertexBlock(
     }
 
     final channel = version == 0 ? 0 : channels![k ~/ 4];
-    _decodeDeltas(
+    await _decodeDeltas(
       buffer,
       target,
       targetOffset: targetOffset + k,
@@ -314,6 +365,8 @@ int _decodeVertexBlock(
       lastVertex: lastVertex,
       lastVertexOffset: k,
       channel: channel,
+      control: control,
+      cancellationToken: cancellationToken,
     );
   }
 
@@ -424,7 +477,7 @@ int _decodeBytesGroup(
   return variableOffset;
 }
 
-void _decodeDeltas(
+Future<void> _decodeDeltas(
   Uint8List buffer,
   Uint8List target, {
   required int targetOffset,
@@ -433,10 +486,12 @@ void _decodeDeltas(
   required Uint8List lastVertex,
   required int lastVertexOffset,
   required int channel,
-}) {
+  required MeshoptDecodeControl? control,
+  required ModelLoadCancellationToken? cancellationToken,
+}) async {
   switch (channel & 3) {
     case 0:
-      _decodeDeltaElements(
+      await _decodeDeltaElements(
         buffer,
         target,
         targetOffset: targetOffset,
@@ -447,9 +502,11 @@ void _decodeDeltas(
         elementSize: 1,
         xor: false,
         rotateBits: 0,
+        control: control,
+        cancellationToken: cancellationToken,
       );
     case 1:
-      _decodeDeltaElements(
+      await _decodeDeltaElements(
         buffer,
         target,
         targetOffset: targetOffset,
@@ -460,9 +517,11 @@ void _decodeDeltas(
         elementSize: 2,
         xor: false,
         rotateBits: 0,
+        control: control,
+        cancellationToken: cancellationToken,
       );
     case 2:
-      _decodeDeltaElements(
+      await _decodeDeltaElements(
         buffer,
         target,
         targetOffset: targetOffset,
@@ -473,6 +532,8 @@ void _decodeDeltas(
         elementSize: 4,
         xor: true,
         rotateBits: (32 - (channel >> 4)) & 31,
+        control: control,
+        cancellationToken: cancellationToken,
       );
     default:
       throw const MeshoptDecodeException(
@@ -481,7 +542,7 @@ void _decodeDeltas(
   }
 }
 
-void _decodeDeltaElements(
+Future<void> _decodeDeltaElements(
   Uint8List buffer,
   Uint8List target, {
   required int targetOffset,
@@ -492,7 +553,9 @@ void _decodeDeltaElements(
   required int elementSize,
   required bool xor,
   required int rotateBits,
-}) {
+  required MeshoptDecodeControl? control,
+  required ModelLoadCancellationToken? cancellationToken,
+}) async {
   final mask = elementSize == 4 ? 0xffffffff : (1 << (elementSize * 8)) - 1;
   for (var elementOffset = 0; elementOffset < 4; elementOffset += elementSize) {
     var previous = _readLittleEndian(
@@ -501,32 +564,61 @@ void _decodeDeltaElements(
       elementSize,
     );
     final base = elementOffset * vertexCount;
-    for (var vertex = 0; vertex < vertexCount; vertex += 1) {
-      var value = 0;
-      for (var byteIndex = 0; byteIndex < elementSize; byteIndex += 1) {
-        value |=
-            buffer[base + vertex + vertexCount * byteIndex] << (byteIndex * 8);
+    var vertex = 0;
+    while (vertex < vertexCount) {
+      final chunkStart = vertex;
+      final remainingVertices = vertexCount - vertex;
+      // Process up to the next real interval boundary. This splits an 8192-byte
+      // ATTRIBUTES block across awaited work chunks without yielding per
+      // vertex under normal production intervals.
+      final verticesUntilCheckpoint = control == null
+          ? remainingVertices
+          : math.max(1, control.bytesUntilCheckpoint ~/ elementSize).toInt();
+      final chunkEnd = vertex +
+          math
+              .min(
+                remainingVertices,
+                verticesUntilCheckpoint,
+              )
+              .toInt();
+      for (; vertex < chunkEnd; vertex += 1) {
+        var value = 0;
+        for (var byteIndex = 0; byteIndex < elementSize; byteIndex += 1) {
+          value |= buffer[base + vertex + vertexCount * byteIndex] <<
+              (byteIndex * 8);
+        }
+        if (xor) {
+          value = (_rotate32(value, rotateBits) ^ previous) & mask;
+        } else {
+          value = (_unzigzag(value) + previous) & mask;
+        }
+        for (var byteIndex = 0; byteIndex < elementSize; byteIndex += 1) {
+          target[targetOffset +
+              vertex * vertexSize +
+              elementOffset +
+              byteIndex] = (value >> (byteIndex * 8)) & 0xff;
+        }
+        previous = value;
       }
-      if (xor) {
-        value = (_rotate32(value, rotateBits) ^ previous) & mask;
-      } else {
-        value = (_unzigzag(value) + previous) & mask;
+      final checkpoint = control?.checkpoint(
+        stage: 'meshoptAttributes',
+        decodedBytes: (chunkEnd - chunkStart) * elementSize,
+        cancellationToken: cancellationToken,
+      );
+      if (checkpoint != null) {
+        await checkpoint;
       }
-      for (var byteIndex = 0; byteIndex < elementSize; byteIndex += 1) {
-        target[targetOffset + vertex * vertexSize + elementOffset + byteIndex] =
-            (value >> (byteIndex * 8)) & 0xff;
-      }
-      previous = value;
     }
   }
 }
 
-Uint8List _decodeIndexBuffer(
+Future<Uint8List> _decodeIndexBuffer(
   Uint8List source, {
   required int indexCount,
   required int indexSize,
   required MeshoptDecodeControl? control,
-}) {
+  required ModelLoadCancellationToken? cancellationToken,
+}) async {
   if (indexCount % 3 != 0 || (indexSize != 2 && indexSize != 4)) {
     throw const MeshoptDecodeException(
       'TRIANGLES count must be divisible by 3 and byteStride must be 2 or 4.',
@@ -580,10 +672,6 @@ Uint8List _decodeIndexBuffer(
   }
 
   for (var index = 0; index < indexCount; index += 3) {
-    control?.checkpoint(
-      stage: 'meshoptTriangles',
-      decodedBytes: 3 * indexSize,
-    );
     if (dataOffset > dataSafeEnd) {
       throw const MeshoptDecodeException('TRIANGLES stream is malformed.');
     }
@@ -680,6 +768,14 @@ Uint8List _decodeIndexBuffer(
       pushEdge(c, b);
       pushEdge(a, c);
     }
+    final checkpoint = control?.checkpoint(
+      stage: 'meshoptTriangles',
+      decodedBytes: 3 * indexSize,
+      cancellationToken: cancellationToken,
+    );
+    if (checkpoint != null) {
+      await checkpoint;
+    }
   }
   if (dataOffset != dataSafeEnd) {
     throw const MeshoptDecodeException(
@@ -689,12 +785,13 @@ Uint8List _decodeIndexBuffer(
   return output;
 }
 
-Uint8List _decodeIndexSequence(
+Future<Uint8List> _decodeIndexSequence(
   Uint8List source, {
   required int indexCount,
   required int indexSize,
   required MeshoptDecodeControl? control,
-}) {
+  required ModelLoadCancellationToken? cancellationToken,
+}) async {
   if (indexSize != 2 && indexSize != 4) {
     throw const MeshoptDecodeException('INDICES byteStride must be 2 or 4.');
   }
@@ -715,10 +812,6 @@ Uint8List _decodeIndexSequence(
   var dataOffset = 1;
   final dataSafeEnd = source.lengthInBytes - 4;
   for (var index = 0; index < indexCount; index += 1) {
-    control?.checkpoint(
-      stage: 'meshoptIndices',
-      decodedBytes: indexSize,
-    );
     if (dataOffset >= dataSafeEnd) {
       throw const MeshoptDecodeException('INDICES stream is malformed.');
     }
@@ -731,6 +824,14 @@ Uint8List _decodeIndexSequence(
     final decoded = (last[current] + delta) & 0xffffffff;
     last[current] = decoded;
     _writeIndex(output, index, indexSize, decoded);
+    final checkpoint = control?.checkpoint(
+      stage: 'meshoptIndices',
+      decodedBytes: indexSize,
+      cancellationToken: cancellationToken,
+    );
+    if (checkpoint != null) {
+      await checkpoint;
+    }
   }
   if (dataOffset != dataSafeEnd) {
     throw const MeshoptDecodeException(
@@ -740,46 +841,51 @@ Uint8List _decodeIndexSequence(
   return output;
 }
 
-void _applyFilter(
+Future<void> _applyFilter(
   Uint8List data, {
   required int count,
   required int byteStride,
   required MeshoptCompressionFilter filter,
   required MeshoptDecodeControl? control,
-}) {
+  required ModelLoadCancellationToken? cancellationToken,
+}) async {
   switch (filter) {
     case MeshoptCompressionFilter.none:
       return;
     case MeshoptCompressionFilter.octahedral:
-      _decodeFilterOct(
+      await _decodeFilterOct(
         data,
         count: count,
         stride: byteStride,
         control: control,
+        cancellationToken: cancellationToken,
       );
     case MeshoptCompressionFilter.quaternion:
-      _decodeFilterQuat(
+      await _decodeFilterQuat(
         data,
         count: count,
         stride: byteStride,
         control: control,
+        cancellationToken: cancellationToken,
       );
     case MeshoptCompressionFilter.exponential:
-      _decodeFilterExp(
+      await _decodeFilterExp(
         data,
         count: count,
         stride: byteStride,
         control: control,
+        cancellationToken: cancellationToken,
       );
   }
 }
 
-void _decodeFilterOct(
+Future<void> _decodeFilterOct(
   Uint8List data, {
   required int count,
   required int stride,
   required MeshoptDecodeControl? control,
-}) {
+  required ModelLoadCancellationToken? cancellationToken,
+}) async {
   if (stride != 4 && stride != 8) {
     throw const MeshoptDecodeException(
       'OCTAHEDRAL filter requires byteStride 4 or 8.',
@@ -788,10 +894,6 @@ void _decodeFilterOct(
   final componentSize = stride ~/ 4;
   final max = componentSize == 1 ? 127.0 : 32767.0;
   for (var index = 0; index < count; index += 1) {
-    control?.checkpoint(
-      stage: 'meshoptOctahedralFilter',
-      decodedBytes: stride,
-    );
     final offset = index * stride;
     final xRaw = _readSignedComponent(data, offset, componentSize);
     final yRaw =
@@ -808,42 +910,51 @@ void _decodeFilterOct(
     x += x >= 0 ? t : -t;
     y += y >= 0 ? t : -t;
     final length = math.sqrt(x * x + y * y + z * z);
-    if (length == 0) {
-      continue;
+    if (length != 0) {
+      final scale = max / length;
+      _writeSignedComponent(
+        data,
+        offset,
+        componentSize,
+        _roundSigned(x * scale),
+      );
+      _writeSignedComponent(
+        data,
+        offset + componentSize,
+        componentSize,
+        _roundSigned(y * scale),
+      );
+      _writeSignedComponent(
+        data,
+        offset + componentSize * 2,
+        componentSize,
+        _roundSigned(z * scale),
+      );
     }
-    final scale = max / length;
-    _writeSignedComponent(data, offset, componentSize, _roundSigned(x * scale));
-    _writeSignedComponent(
-      data,
-      offset + componentSize,
-      componentSize,
-      _roundSigned(y * scale),
+    final checkpoint = control?.checkpoint(
+      stage: 'meshoptOctahedralFilter',
+      decodedBytes: stride,
+      cancellationToken: cancellationToken,
     );
-    _writeSignedComponent(
-      data,
-      offset + componentSize * 2,
-      componentSize,
-      _roundSigned(z * scale),
-    );
+    if (checkpoint != null) {
+      await checkpoint;
+    }
   }
 }
 
-void _decodeFilterQuat(
+Future<void> _decodeFilterQuat(
   Uint8List data, {
   required int count,
   required int stride,
   required MeshoptDecodeControl? control,
-}) {
+  required ModelLoadCancellationToken? cancellationToken,
+}) async {
   if (stride != 8) {
     throw const MeshoptDecodeException(
         'QUATERNION filter requires byteStride 8.');
   }
   final scale = 32767.0 / math.sqrt2;
   for (var index = 0; index < count; index += 1) {
-    control?.checkpoint(
-      stage: 'meshoptQuaternionFilter',
-      decodedBytes: stride,
-    );
     final offset = index * stride;
     final x = _readSignedComponent(data, offset, 2).toDouble();
     final y = _readSignedComponent(data, offset + 2, 2).toDouble();
@@ -868,15 +979,24 @@ void _decodeFilterQuat(
         values[component],
       );
     }
+    final checkpoint = control?.checkpoint(
+      stage: 'meshoptQuaternionFilter',
+      decodedBytes: stride,
+      cancellationToken: cancellationToken,
+    );
+    if (checkpoint != null) {
+      await checkpoint;
+    }
   }
 }
 
-void _decodeFilterExp(
+Future<void> _decodeFilterExp(
   Uint8List data, {
   required int count,
   required int stride,
   required MeshoptDecodeControl? control,
-}) {
+  required ModelLoadCancellationToken? cancellationToken,
+}) async {
   if (stride <= 0 || stride % 4 != 0) {
     throw const MeshoptDecodeException(
       'EXPONENTIAL filter requires byteStride divisible by 4.',
@@ -885,10 +1005,6 @@ void _decodeFilterExp(
   final words = count * (stride ~/ 4);
   final view = ByteData.sublistView(data);
   for (var index = 0; index < words; index += 1) {
-    control?.checkpoint(
-      stage: 'meshoptExponentialFilter',
-      decodedBytes: 4,
-    );
     final value = view.getUint32(index * 4, Endian.little);
     final exponent = _signExtend(value >> 24, 8);
     final mantissa = _signExtend(value & 0x00ffffff, 24);
@@ -897,6 +1013,14 @@ void _decodeFilterExp(
       math.pow(2.0, exponent).toDouble() * mantissa,
       Endian.little,
     );
+    final checkpoint = control?.checkpoint(
+      stage: 'meshoptExponentialFilter',
+      decodedBytes: 4,
+      cancellationToken: cancellationToken,
+    );
+    if (checkpoint != null) {
+      await checkpoint;
+    }
   }
 }
 

@@ -24,10 +24,10 @@ namespace draco {
 
 // TODO(draco-eng) consolidate Vertex/next/previous queries to one call
 // (performance).
-template <class CornerTableT>
+template <class CornerTableT, class VertexToDataMapT>
 inline void GetParallelogramEntries(
     const CornerIndex ci, const CornerTableT *table,
-    const std::vector<int32_t> &vertex_to_data_map, int *opp_entry,
+    const VertexToDataMapT &vertex_to_data_map, int *opp_entry,
     int *next_entry, int *prev_entry) {
   // One vertex of the input |table| correspond to exactly one attribute value
   // entry. The |table| can be either CornerTable for per-vertex attributes,
@@ -41,10 +41,10 @@ inline void GetParallelogramEntries(
 // The prediction is stored in |out_prediction|.
 // Function returns false when the prediction couldn't be computed, e.g. because
 // not all entry points were available.
-template <class CornerTableT, typename DataTypeT>
+template <class CornerTableT, typename DataTypeT, class VertexToDataMapT>
 inline bool ComputeParallelogramPrediction(
     int data_entry_id, const CornerIndex ci, const CornerTableT *table,
-    const std::vector<int32_t> &vertex_to_data_map, const DataTypeT *in_data,
+    const VertexToDataMapT &vertex_to_data_map, const DataTypeT *in_data,
     int num_components, DataTypeT *out_prediction) {
   const CornerIndex oci = table->Opposite(ci);
   if (oci == kInvalidCornerIndex) {

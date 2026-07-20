@@ -4,6 +4,8 @@ export 'src/material_extension_policy.dart';
 export 'src/material_override_store.dart';
 export 'src/material_patch.dart';
 export 'src/material_shading_mode.dart';
+export 'src/model_load_cancellation.dart'
+    show ModelLoadCancellationController, ModelLoadCancellationToken;
 export 'src/model_source.dart';
 export 'src/part_address.dart';
 export 'src/part_registry.dart' show PartNode, PartRecord, PartTree;

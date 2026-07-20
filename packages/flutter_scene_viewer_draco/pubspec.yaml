@@ -17,6 +17,10 @@ dev_dependencies:
   lints: ^5.0.0
 
 flutter:
+  assets:
+    - third_party/draco/LICENSE
+    - third_party/draco/FSV_LOCAL_MODIFICATIONS.md
+    - third_party/draco/FSV_CODEC_CONTROL_PROVENANCE.sha256
   plugin:
     platforms:
       android:

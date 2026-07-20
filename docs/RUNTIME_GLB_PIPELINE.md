@@ -18,6 +18,19 @@ Viewer applies initial overrides
 Scene is rendered through SceneView
 ```
 
+`ModelLoadCancellationToken` is checked before source acquisition and is
+atomically accepted or rejected at the adapter's one live-publication commit.
+Cancellation before that commit returns one `modelLoadCancelled` diagnostic
+without publishing the new controller state or requesting a render frame. Once
+the adapter accepts publication, `cancel` returns `false` and the accepted
+load finishes its authored and initial material application. Asset futures are
+raced against cancellation and their late values or errors are ignored. HTTP
+uses one `AbortableRequest` per load and cancels that response-stream
+subscription without closing the shared client. The first observed source
+result, cancellation, or timeout wins. Native decoder requests carry a unique
+request id, and caller cancellation or the shared decode deadline sends one
+`cancelDecode` message for the active codec stage. Late output is discarded.
+
 ## What the viewer must not do
 
 - no tessellation of STEP/DWG/IGES/CAD;
@@ -64,21 +77,27 @@ Network models can be hostile or simply too large. MVP should support:
 - texture dimension limit;
 - memory-budget-aware texture cache.
 
-Meshopt timeout is cooperatively enforced inside the synchronous Dart decoder.
-One monotonic deadline spans all compressed bufferViews, with checks before
-decode allocation and at approximate decoded-byte intervals across every
-claimed mode and filter. Timeout returns a typed diagnostic, returns no partial
-GLB, and commits no caller tracker state. Temporary Dart buffers become
+Meshopt timeout and caller cancellation are cooperatively enforced inside the
+yieldable Dart decoder. One monotonic deadline spans all compressed
+bufferViews, with checks before decode allocation and at approximate
+decoded-byte intervals across every claimed mode and filter. Timeout and
+external cancellation return distinct typed diagnostics, return no partial
+GLB, and commit no caller tracker state. Temporary Dart buffers become
 garbage-collectible after stack unwind; deterministic collection is not
-guaranteed. Meshopt still has no external cancellation signal.
+guaranteed.
 
-Native decoder timeout is enforced only at the Dart MethodChannel result
-boundary in the completed Plan 014 implementation. A late Draco or BasisU response is discarded
-without GLB rewrite, tracker commit, or adapter import. This does not stop the
-synchronous native codec call or guarantee native resource release. The pinned
-Draco and BasisU entrypoints plus their one-shot MethodChannel bridges expose no
-cooperative deadline, cancellation callback, or allocator budget. The exact
-source-backed boundaries are recorded in the
+Native decoder timeout and caller cancellation now use one active MethodChannel
+request id. Android runs bounded background workers; iOS uses a serial decode
+queue. Each plugin owns a synchronized request registry, and `cancelDecode`
+sets one request-owned atomic stop reason. Bridge checks bracket the synchronous
+Draco or BasisU codec call, platform completion is delivered at most once, and
+detach cancels then drains owned work. A late response is discarded without
+GLB rewrite, tracker commit, or adapter import. The pinned repo-local codec
+paths now expose request-owned cooperative checkpoints and scoped reservation
+accounting. Exact interception of every Draco codec-internal STL/direct-`new`
+allocation and broader BasisU container allocation coverage are not yet
+established, and no packaged target capture proves the resulting stop/resource
+behavior. The exact source-backed boundaries are recorded in the
 [decoder control blockers](generated/capability_matrix.md#decoder-control-blockers)
 table. This blocker does not promote host conformance into target runtime or
 release evidence.
@@ -339,15 +358,19 @@ The package-local glass and clearcoat paths remain `candidate-only`; their iOS
 Simulator evidence is separately labeled `verified locally`. Physical iOS,
 Android material rendering, and Web material rendering remain `not run`.
 
-The [generated capability matrix](generated/capability_matrix.md) is the
-completed Plan 014 feature/target closure snapshot. Plan 014 iOS Simulator evidence is `verified locally` for `KHR_texture_transform`,
-`KHR_materials_specular`, opaque `KHR_materials_ior`, and the A1B32 Draco load;
-physical iOS, Android, and Web remain `not run`. Other historical runs remain
-context, and host decoder, rewrite, validator, or reference-renderer results
-remain separate from target runtime and release maturity. Completed Plans 015
-and 016 add separate renderer-native clearcoat and transmission/volume target
-evidence. Plan 017 owns decoder lifecycle, authored-mip, physical-target,
-packaging, and aggregate release-evidence follow-up.
+The [generated capability matrix](generated/capability_matrix.md) is generated
+from the stable live capability source. Completed Plan 014 rows are retained
+as fingerprinted historical context. Plan 014 iOS Simulator evidence is
+`verified locally` for `KHR_texture_transform`, `KHR_materials_specular`, opaque
+`KHR_materials_ior`, and the A1B32 Draco load, while physical iOS, Android,
+and Web remain `not run`. Host decoder, rewrite, validator, simulator, build-
+only, and reference-renderer results remain separate from exact target runtime
+and release maturity. Plan 017's tracked
+[decoder/mip evidence contract](../tools/decoder_mip_acceptance/README.md)
+enforces that boundary and stores generated artifacts only below ignored
+`tools/out/`. Device discovery is not runtime or packaging evidence; Android
+capture is currently `blocked`, all new target claims remain `not run`, and
+the aggregate is `release pending`.
 
 The 2026-07-03 historical `flutter_scene` 0.18.1 target did not expose
 real transmission/glass or clearcoat support. The local audit found no public

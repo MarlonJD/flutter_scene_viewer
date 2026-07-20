@@ -25,8 +25,8 @@ const _basisuOutputRunner = 'packages/flutter_scene_viewer_basisu/test/native/'
     'basisu_output_runner.cc';
 const _basisuFixtureSha256 =
     '27484bc9b6e062acf0d6478df1b3ad62f6b6f32b923539c93353e535b572b0e4';
-const _basisuPngSha256 =
-    'e4df96db13158a2722ad9aad3ec8dd84dcfb9bc248b0c6721261b4777e41366b';
+const _basisuRgbaSha256 =
+    '34219173d529d9cf97a7f8642e32142570426af0d4d52ac50eb316a614e6dae8';
 const _basisuModificationNotice =
     'FSV LOCAL MODIFICATION (Apache-2.0 section 4(b))';
 const _basisuVendoredSourceRoot =
@@ -78,7 +78,7 @@ void main() {
         ),
       ),
     );
-    final rewrite = rewriteMeshoptCompressedGlb(
+    final rewrite = await rewriteMeshoptCompressedGlb(
       source,
       debugName: 'official-meshopt-v0-validator.glb',
     );
@@ -189,6 +189,8 @@ void main() {
       runner.path,
       'packages/flutter_scene_viewer_draco/android/src/main/cpp/'
           'fsv_draco_budget.cc',
+      'packages/flutter_scene_viewer_draco/android/src/main/cpp/'
+          'fsv_draco_control.cc',
       'packages/flutter_scene_viewer_draco/android/src/main/cpp/'
           'fsv_draco_bridge.cc',
       'packages/flutter_scene_viewer_draco/ios/Classes/'
@@ -318,7 +320,7 @@ void main() {
     _expectOrUpdateTrackedValidatorReport('draco', report);
   });
 
-  test('official validator accepts the actual BasisU bridge rewrite output',
+  test('actual BasisU bridge raw output cannot enter the PNG rewrite path',
       () async {
     final clang = await Process.run('clang++', const <String>['--version']);
     expect(
@@ -374,6 +376,8 @@ void main() {
       'packages/flutter_scene_viewer_basisu/android/src/main/cpp/'
           'fsv_basisu_budget.cc',
       'packages/flutter_scene_viewer_basisu/android/src/main/cpp/'
+          'fsv_basisu_control.cc',
+      'packages/flutter_scene_viewer_basisu/android/src/main/cpp/'
           'fsv_basisu_bridge.cc',
       'packages/flutter_scene_viewer_basisu/third_party/basis_universal/'
           'transcoder/basisu_transcoder.cpp',
@@ -388,103 +392,56 @@ void main() {
       reason: '${compile.stdout}\n${compile.stderr}',
     );
 
-    final pngFile = File('${temporaryDirectory.path}/basisu.png');
+    final rgbaFile = File('${temporaryDirectory.path}/basisu.rgba');
     final nativeRun = await Process.run(
       executable,
-      <String>[fixture.path, pngFile.path],
+      <String>[fixture.path, rgbaFile.path],
     );
     expect(
       nativeRun.exitCode,
       0,
       reason: '${nativeRun.stdout}\n${nativeRun.stderr}',
     );
-    final pngBytes = pngFile.readAsBytesSync();
-    expect(pngBytes, hasLength(1108));
-    final pngHash = await Process.run(
+    final rgbaBytes = rgbaFile.readAsBytesSync();
+    expect(rgbaBytes, hasLength(1024));
+    final rgbaHash = await Process.run(
       'shasum',
-      <String>['-a', '256', pngFile.path],
+      <String>['-a', '256', rgbaFile.path],
     );
     expect(
-      pngHash.exitCode,
+      rgbaHash.exitCode,
       0,
-      reason: '${pngHash.stdout}\n${pngHash.stderr}',
+      reason: '${rgbaHash.stdout}\n${rgbaHash.stderr}',
     );
     expect(
-      (pngHash.stdout as String).split(RegExp(r'\s+')).first,
-      _basisuPngSha256,
+      (rgbaHash.stdout as String).split(RegExp(r'\s+')).first,
+      _basisuRgbaSha256,
     );
-    final pngData = ByteData.sublistView(pngBytes);
-    expect(pngData.getUint32(16), 16);
-    expect(pngData.getUint32(20), 16);
 
+    final source = _basisuSourceGlb(fixture.readAsBytesSync());
     final rewrite = rewriteBasisuTexturesInGlb(
-      _basisuSourceGlb(fixture.readAsBytesSync()),
+      source,
       decodedImages: <GlbDecodedBasisuImage>[
         GlbDecodedBasisuImage(
           imageIndex: 0,
-          mimeType: 'image/png',
-          width: 16,
-          height: 16,
-          bytes: pngBytes,
+          contentRole: 'color',
+          levels: <GlbDecodedBasisuMipLevel>[
+            GlbDecodedBasisuMipLevel(
+              level: 0,
+              width: 16,
+              height: 16,
+              rgbaBytes: rgbaBytes,
+            ),
+          ],
         ),
       ],
       debugName: 'official-basisu-uastc-zstd-validator.glb',
     );
-    expect(rewrite.diagnostics, isEmpty);
-    expect(rewrite.bytes, isNotNull);
-
-    final rewrittenFile =
-        File('${temporaryDirectory.path}/basisu-rewritten.glb');
-    await rewrittenFile.writeAsBytes(rewrite.bytes!, flush: true);
-    final validation = await Process.run(
-      'node',
-      <String>[
-        _validatorRunner,
-        '--asset',
-        'basisu',
-        '--input',
-        rewrittenFile.path,
-      ],
-    );
-    expect(
-      validation.exitCode,
-      0,
-      reason: '${validation.stdout}\n${validation.stderr}',
-    );
-
-    final report = Map<String, Object?>.from(
-      jsonDecode(validation.stdout as String) as Map,
-    );
-    expect(
-      report['validator'],
-      <String, Object?>{
-        'package': 'gltf-validator',
-        'version': '2.0.0-dev.3.10',
-        'sourceCommit': 'bcd52cc4ba5f333b2999a58f67cc05ddf28b4fb1',
-        'license': 'Apache-2.0',
-      },
-    );
-    final asset = Map<String, Object?>.from(report['asset']! as Map);
-    expect(asset['label'], 'basisu');
-    expect(asset['sha256'], matches(RegExp(r'^[0-9a-f]{64}$')));
-    expect(
-      report['issues'],
-      <String, Object?>{
-        'errors': 0,
-        'warnings': 0,
-        'infos': 1,
-        'hints': 0,
-        'messages': <Object?>[
-          <String, Object?>{
-            'severity': 2,
-            'code': 'UNUSED_OBJECT',
-            'message': 'This object may be unused.',
-            'pointer': '/bufferViews/2',
-          },
-        ],
-      },
-    );
-    _expectOrUpdateTrackedValidatorReport('basisu', report);
+    expect(rewrite.bytes, isNull);
+    expect(rewrite.diagnostics, hasLength(1));
+    expect(rewrite.diagnostics.single.details,
+        containsPair('status', 'mipAwareImporterRequired'));
+    expect(source, _basisuSourceGlb(fixture.readAsBytesSync()));
   });
 
   test('material acceptance manifest records strict rewrite provenance',
@@ -705,7 +662,7 @@ void main() {
             .having(
               (codec) => codec['vendoredSourceSha256'],
               'vendored source hash',
-              'e7af01b01b33dbcfbbda9b9365be308347ee45e87b7fbd7bf65cd215b1e07ba5',
+              '316c54c224889e7b887c66663b6668e51ec90b89a7d836db8deec167b1b239d2',
             )
             .having(
               (codec) => codec['compiledSourceManifestPath'],
@@ -715,7 +672,7 @@ void main() {
             .having(
               (codec) => codec['compiledSourceManifestSha256'],
               'compiled source manifest hash',
-              '1d5514363ae26035bc28c9c324acef7100df87220f3511436e595b08257b145e',
+              'd675ed64ee129ac46c6f9fe4cc569bf9970bac65a69c7e1b1fc598eafe83bf55',
             )
             .having(
               (codec) => codec['localModificationsPath'],
@@ -725,7 +682,7 @@ void main() {
             .having(
               (codec) => codec['localModificationsSha256'],
               'local modifications hash',
-              'a72fdacfac7653a4da386ac8340cf85587380252e77b42de781eb36e8845676d',
+              '6d9e1984399050c50392c5638431ff6c07b8dcbdd2a879b4c0fb3f17775d6794',
             )
             .having(
               (codec) => codec['localModification'],
@@ -734,9 +691,10 @@ void main() {
                 'notice': _basisuModificationNotice,
                 'path': '$_basisuVendoredSourceRoot/transcoder/'
                     'basisu_transcoder.cpp',
-                'purpose': 'Reject KTX2 dimensions above '
-                    'BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION before dependent '
-                    'size calculations.',
+                'purpose': 'Reject oversized KTX2 dimensions and route reached '
+                    'KTX2 metadata, ETC1S state, Zstd workspace, input, result, '
+                    'and platform-copy native lifetimes through an explicit '
+                    'request allocator.',
               },
             )
             .having((codec) => codec['license'], 'license', 'Apache-2.0')

@@ -48,7 +48,10 @@ class DepthFirstTraverser
   typedef TraversalObserverT TraversalObserver;
   typedef TraverserBase<CornerTable, TraversalObserver> Base;
 
-  DepthFirstTraverser() {}
+  DepthFirstTraverser() : DepthFirstTraverser(nullptr) {}
+  explicit DepthFirstTraverser(FsvDecodeControl *control)
+      : Base(control),
+        corner_traversal_stack_(FsvDecodeAllocator<CornerIndex>(control)) {}
 
   // Called before any traversing starts.
   void OnTraversalStart() {}
@@ -164,7 +167,7 @@ class DepthFirstTraverser
   }
 
  private:
-  std::vector<CornerIndex> corner_traversal_stack_;
+  FsvVector<CornerIndex> corner_traversal_stack_;
 };
 
 }  // namespace draco

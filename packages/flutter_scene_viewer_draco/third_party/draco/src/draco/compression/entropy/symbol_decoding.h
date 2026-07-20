@@ -16,13 +16,15 @@
 #define DRACO_COMPRESSION_ENTROPY_SYMBOL_DECODING_H_
 
 #include "draco/core/decoder_buffer.h"
+#include "draco/core/fsv_decode_allocator.h"
 
 namespace draco {
 
 // Decodes an array of symbols that was previously encoded with an entropy code.
 // Returns false on error.
 bool DecodeSymbols(uint32_t num_values, int num_components,
-                   DecoderBuffer *src_buffer, uint32_t *out_values);
+                   DecoderBuffer *src_buffer, uint32_t *out_values,
+                   FsvDecodeControl *control = nullptr);
 
 }  // namespace draco
 

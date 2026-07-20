@@ -20,6 +20,7 @@ final class GlbDecodeBudget {
     this.maxIndices = 60 * 1024 * 1024,
     this.maxTexturePixels = 64 * 1024 * 1024,
     this.maxNativeOutputBytes = 256 * 1024 * 1024,
+    this.maxNativeWorkingBytes = 256 * 1024 * 1024,
     this.decodeTimeout = const Duration(seconds: 30),
     this.cancellationCheckInterval = 4096,
   })  : assert(maxJsonBytes >= 0 && maxJsonBytes <= kGlbMaxSafeInteger),
@@ -31,6 +32,8 @@ final class GlbDecodeBudget {
         assert(maxTexturePixels >= 0 && maxTexturePixels <= kGlbMaxSafeInteger),
         assert(maxNativeOutputBytes >= 0 &&
             maxNativeOutputBytes <= kGlbMaxSafeInteger),
+        assert(maxNativeWorkingBytes >= 0 &&
+            maxNativeWorkingBytes <= kGlbMaxSafeInteger),
         assert(cancellationCheckInterval > 0 &&
             cancellationCheckInterval <= kGlbMaxSafeInteger);
 
@@ -41,6 +44,7 @@ final class GlbDecodeBudget {
   final int maxIndices;
   final int maxTexturePixels;
   final int maxNativeOutputBytes;
+  final int maxNativeWorkingBytes;
   final Duration decodeTimeout;
   final int cancellationCheckInterval;
 }
@@ -448,6 +452,7 @@ void _validateRuntimeBudget(GlbDecodeBudget budget) {
     'maxIndices': budget.maxIndices,
     'maxTexturePixels': budget.maxTexturePixels,
     'maxNativeOutputBytes': budget.maxNativeOutputBytes,
+    'maxNativeWorkingBytes': budget.maxNativeWorkingBytes,
   };
   for (final entry in limits.entries) {
     if (entry.value < 0 || entry.value > kGlbMaxSafeInteger) {

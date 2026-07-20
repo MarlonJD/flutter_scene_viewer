@@ -22,6 +22,9 @@ namespace draco {
 
 MeshEdgebreakerDecoder::MeshEdgebreakerDecoder() {}
 
+MeshEdgebreakerDecoder::MeshEdgebreakerDecoder(FsvDecodeControl *control)
+    : MeshDecoder(control) {}
+
 bool MeshEdgebreakerDecoder::CreateAttributesDecoder(int32_t att_decoder_id) {
   return impl_->CreateAttributesDecoder(att_decoder_id);
 }
@@ -35,20 +38,23 @@ bool MeshEdgebreakerDecoder::InitializeDecoder() {
   if (traversal_decoder_type == MESH_EDGEBREAKER_STANDARD_ENCODING) {
 #ifdef DRACO_STANDARD_EDGEBREAKER_SUPPORTED
     impl_ = std::unique_ptr<MeshEdgebreakerDecoderImplInterface>(
-        new MeshEdgebreakerDecoderImpl<MeshEdgebreakerTraversalDecoder>());
+        new (fsv_decode_control())
+            MeshEdgebreakerDecoderImpl<MeshEdgebreakerTraversalDecoder>(
+            fsv_decode_control()));
 #endif
   } else if (traversal_decoder_type == MESH_EDGEBREAKER_PREDICTIVE_ENCODING) {
 #ifdef DRACO_BACKWARDS_COMPATIBILITY_SUPPORTED
 #ifdef DRACO_PREDICTIVE_EDGEBREAKER_SUPPORTED
     impl_ = std::unique_ptr<MeshEdgebreakerDecoderImplInterface>(
-        new MeshEdgebreakerDecoderImpl<
-            MeshEdgebreakerTraversalPredictiveDecoder>());
+        new (fsv_decode_control()) MeshEdgebreakerDecoderImpl<
+            MeshEdgebreakerTraversalPredictiveDecoder>(
+            fsv_decode_control()));
 #endif
 #endif
   } else if (traversal_decoder_type == MESH_EDGEBREAKER_VALENCE_ENCODING) {
     impl_ = std::unique_ptr<MeshEdgebreakerDecoderImplInterface>(
-        new MeshEdgebreakerDecoderImpl<
-            MeshEdgebreakerTraversalValenceDecoder>());
+        new (fsv_decode_control()) MeshEdgebreakerDecoderImpl<
+            MeshEdgebreakerTraversalValenceDecoder>(fsv_decode_control()));
   }
   if (!impl_) {
     return false;

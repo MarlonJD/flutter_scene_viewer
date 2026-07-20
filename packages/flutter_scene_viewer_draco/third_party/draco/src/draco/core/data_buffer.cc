@@ -20,6 +20,28 @@ namespace draco {
 
 DataBuffer::DataBuffer() {}
 
+DataBuffer::DataBuffer(FsvDecodeControl *control)
+    : data_(FsvDecodeAllocator<uint8_t>(control)) {}
+
+// FSV LOCAL MODIFICATION (Apache-2.0 section 4(b)): a copied or moved buffer
+// must never retain an allocator whose request control can die first. The
+// explicit-control overloads bind storage to the destination request; ordinary
+// copies/moves detach storage onto the host allocator.
+DataBuffer::DataBuffer(const DataBuffer &data)
+    : DataBuffer(data, nullptr) {}
+
+DataBuffer::DataBuffer(const DataBuffer &data, FsvDecodeControl *control)
+    : data_(data.data_.begin(), data.data_.end(),
+            FsvDecodeAllocator<uint8_t>(control)),
+      descriptor_(data.descriptor_) {}
+
+DataBuffer::DataBuffer(DataBuffer &&data)
+    : DataBuffer(std::move(data), nullptr) {}
+
+DataBuffer::DataBuffer(DataBuffer &&data, FsvDecodeControl *control)
+    : data_(std::move(data.data_), FsvDecodeAllocator<uint8_t>(control)),
+      descriptor_(data.descriptor_) {}
+
 bool DataBuffer::Update(const void *data, int64_t size) {
   const int64_t offset = 0;
   return this->Update(data, size, offset);

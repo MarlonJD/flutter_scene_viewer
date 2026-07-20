@@ -12,6 +12,7 @@ import 'material_extension_policy.dart';
 import 'material_override_store.dart';
 import 'material_patch.dart';
 import 'material_shading_mode.dart';
+import 'model_load_cancellation.dart';
 import 'model_loader.dart';
 import 'model_source.dart';
 import 'orbit_camera_controller.dart';
@@ -118,6 +119,10 @@ class _FlutterSceneViewerState extends State<FlutterSceneViewer>
   var _debugFramesPerSecond = 0;
   final List<double> _debugFrameIntervalSamples = <double>[];
   var _environmentConfigurationGeneration = 0;
+  var _nextProgrammaticLoad = 0;
+  var _activeProgrammaticLoad = 0;
+  ViewerLoadState? _lastEnvironmentConfiguredLoadState;
+  var _preservingReadyDuringLoad = false;
   ModelLoadResult? _lastModelLoadResult;
   ViewerStatsSnapshot? _lastStatsSnapshot;
   Duration? _lastAutoOrbitFrameTimestamp;
@@ -207,18 +212,41 @@ class _FlutterSceneViewerState extends State<FlutterSceneViewer>
   }
 
   @override
-  Future<ModelLoadResult> load(ModelSource source) async {
+  Future<ModelLoadResult> load(
+    ModelSource source, {
+    ModelLoadCancellationToken? cancellationToken,
+    bool Function()? tryAcceptPublication,
+    void Function()? onPublicationRejected,
+  }) async {
+    final load = ++_nextProgrammaticLoad;
+    _activeProgrammaticLoad = load;
     // A programmatic controller load replaces the adapter's concrete scene
     // without rebuilding this widget. Re-run the active environment against
     // that new scene when the controller reaches success.
-    _resetEnvironmentConfigurationAttempt();
     final result = await _loader.load(
       source,
       materialShadingPolicy: widget.materialShadingPolicy,
+      cancellationToken: cancellationToken,
+      tryAcceptPublication: tryAcceptPublication,
+      onPublicationRejected: onPublicationRejected,
     );
-    _lastModelLoadResult = result.isSuccess ? result : null;
+    if (!_isCurrentProgrammaticLoad(load) ||
+        cancellationToken?.isCancelled == true ||
+        result.superseded) {
+      return result;
+    }
+    if (result.isSuccess) {
+      _resetEnvironmentConfigurationAttempt();
+      _lastModelLoadResult = result;
+    } else if (result.diagnostic?.code !=
+        ViewerDiagnosticCode.modelLoadCancelled) {
+      _resetEnvironmentConfigurationAttempt();
+      _lastModelLoadResult = null;
+    }
     return result;
   }
+
+  bool _isCurrentProgrammaticLoad(int load) => load == _activeProgrammaticLoad;
 
   @override
   MaterialExtensionSupport get materialExtensionSupport {
@@ -400,6 +428,8 @@ class _FlutterSceneViewerState extends State<FlutterSceneViewer>
 
   void _attachController(FlutterSceneViewerController controller) {
     _attachedController = controller;
+    _lastEnvironmentConfiguredLoadState = null;
+    _preservingReadyDuringLoad = false;
     controller.attach(this);
     controller.addListener(_handleControllerChanged);
   }
@@ -415,13 +445,29 @@ class _FlutterSceneViewerState extends State<FlutterSceneViewer>
   }
 
   void _handleControllerChanged() {
-    _renderScheduler.setLoading(
-      _controller.loadState.status == ViewerLoadStatus.loading,
-    );
+    final loadState = _controller.loadState;
+    final isLoading = loadState.status == ViewerLoadStatus.loading;
+    _renderScheduler.setLoading(isLoading);
+    if (isLoading && _lastModelLoadResult != null) {
+      _preservingReadyDuringLoad = true;
+      _syncAutoOrbit();
+      return;
+    }
     _syncAutoOrbit();
-    if (_controller.loadState.status == ViewerLoadStatus.success) {
+    final hasNewSuccessfulPublication =
+        loadState.status == ViewerLoadStatus.success &&
+            !identical(_lastEnvironmentConfiguredLoadState, loadState);
+    if (hasNewSuccessfulPublication) {
+      _lastEnvironmentConfiguredLoadState = loadState;
       unawaited(_configureEnvironmentIfReady());
     }
+    if (_preservingReadyDuringLoad &&
+        loadState.status == ViewerLoadStatus.success &&
+        !hasNewSuccessfulPublication) {
+      _preservingReadyDuringLoad = false;
+      return;
+    }
+    _preservingReadyDuringLoad = false;
     if (mounted) {
       setState(() {});
       _scheduleRenderFrame();

@@ -93,7 +93,7 @@ Clearcoat support is also a v1.0 release blocker for automotive paint,
 varnished wood, carbon fiber, and premium coated surfaces. It requires real
 `KHR_materials_clearcoat`-style behavior; the viewer must not present lower
 roughness as clearcoat. The stable dependency pins published `flutter_scene`
-commit `ccf7372428961ebe0abb053727fe443150547a74`, whose importer, material
+commit `5dcf6fce7dc36719e64e536faba9538fe9fa1022`, whose importer, material
 contract, texture slots, and shared PBR lighting implement the renderer-native
 second coat lobe. The source-compatible `productionShaders()` policy routes
 clearcoat as `rendererNative`; the older package-local overlay remains only

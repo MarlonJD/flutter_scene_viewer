@@ -13,15 +13,20 @@ Support core glTF metallic-roughness PBR:
 - emissive factor and texture;
 - alpha mode and double-sided where `flutter_scene` exposes them.
 
-The [generated capability matrix](generated/capability_matrix.md) is the
-completed Plan 014 claim snapshot for selected glTF extensions. Plan 014 iOS Simulator evidence is `verified locally` for `KHR_texture_transform`,
-`KHR_materials_specular`, opaque `KHR_materials_ior`, and the A1B32 Draco load;
-physical iOS, Android, and Web remain `not run`. The extended material path
-remains `candidate-only`, and host parsing, intent preservation, codec output,
-rewrite validation, or Three.js captures alone do not establish target
-rendering. Completed Plans 015 and 016 add separate renderer-native clearcoat
-and transmission/volume evidence; Plan 017 owns the deferred aggregate
-physical-target, packaging, and release-evidence work.
+The [generated capability matrix](generated/capability_matrix.md) is generated
+from the stable live capability source. Completed Plan 014 rows remain
+fingerprinted historical context. Plan 014 iOS Simulator evidence is `verified locally`
+for `KHR_texture_transform`, `KHR_materials_specular`, opaque
+`KHR_materials_ior`, and the A1B32 Draco load, while physical iOS, Android,
+and Web remain `not run`. The extended material path remains `candidate-only`,
+and host parsing, intent preservation, codec output, rewrite validation,
+simulator runs, or Three.js captures alone do not establish exact target
+rendering. Plan 017's tracked
+[decoder/mip evidence contract](../tools/decoder_mip_acceptance/README.md)
+records content role (`color`, `data`, or `normal`), native storage role
+(`color` or `nonColor`), exact material slots, samplers, and mip levels without
+changing renderer behavior. It contains no runtime or package record yet, so
+release remains `release pending`.
 
 Supported lit materials automatically route through one internal
 `FSViewerExtendedPbr` material when they contain a nonidentity UV0 transform on
@@ -230,6 +235,14 @@ The remaining modern-glTF gaps are assigned to deferred Plans 019-027 in the
 strength, anisotropy, iridescence, diffuse transmission, dispersion, subsurface
 research, and archived specular-glossiness compatibility. Their existence does
 not change v1 scope or capability claims.
+
+Hardware-assisted ray/path tracing is separate from those material-extension
+plans and from the production raster path. Deferred
+[Plan 028](exec-plans/deferred/028_adaptive_ray_path_tracing_feasibility.md)
+starts with an unpublished fork-free lab under `tools/`, creates no permanent
+viewer ray-tracing package, and requires measured physical-device GO before a
+direct-upstream `flutter_scene` seam can be proposed. It does not change Plan
+016 transmission support, V1/V2 release gates, or current capability labels.
 
 ## Subsurface scattering note
 

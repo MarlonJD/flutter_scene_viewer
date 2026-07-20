@@ -18,6 +18,7 @@
 #include "draco/compression/config/compression_shared.h"
 #include "draco/compression/config/decoder_options.h"
 #include "draco/core/decoder_buffer.h"
+#include "draco/core/fsv_decode_allocator.h"
 #include "draco/core/status_or.h"
 #include "draco/draco_features.h"
 #include "draco/mesh/mesh.h"
@@ -48,7 +49,7 @@ class Decoder {
   // The function will return nullptr in case the input is invalid or if it was
   // encoded with the EncodePointCloudToBuffer method.
   StatusOr<std::unique_ptr<Mesh>> DecodeMeshFromBuffer(
-      DecoderBuffer *in_buffer);
+      DecoderBuffer *in_buffer, FsvDecodeControl *control = nullptr);
 
   // Decodes the buffer into a provided geometry. If the geometry is
   // incompatible with the encoded data. For example, when |out_geometry| is

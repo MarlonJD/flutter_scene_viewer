@@ -35,7 +35,7 @@ bool SequentialAttributeDecoder::InitializeStandalone(
 }
 
 bool SequentialAttributeDecoder::DecodePortableAttribute(
-    const std::vector<PointIndex> &point_ids, DecoderBuffer *in_buffer) {
+    const FsvVector<PointIndex> &point_ids, DecoderBuffer *in_buffer) {
   if (attribute_->num_components() <= 0 ||
       !attribute_->Reset(point_ids.size())) {
     return false;
@@ -47,13 +47,13 @@ bool SequentialAttributeDecoder::DecodePortableAttribute(
 }
 
 bool SequentialAttributeDecoder::DecodeDataNeededByPortableTransform(
-    const std::vector<PointIndex> &point_ids, DecoderBuffer *in_buffer) {
+    const FsvVector<PointIndex> &point_ids, DecoderBuffer *in_buffer) {
   // Default implementation does not apply any transform.
   return true;
 }
 
 bool SequentialAttributeDecoder::TransformAttributeToOriginalFormat(
-    const std::vector<PointIndex> &point_ids) {
+    const FsvVector<PointIndex> &point_ids) {
   // Default implementation does not apply any transform.
   return true;
 }
@@ -98,18 +98,24 @@ bool SequentialAttributeDecoder::InitPredictionScheme(
 }
 
 bool SequentialAttributeDecoder::DecodeValues(
-    const std::vector<PointIndex> &point_ids, DecoderBuffer *in_buffer) {
+    const FsvVector<PointIndex> &point_ids, DecoderBuffer *in_buffer) {
   const int32_t num_values = static_cast<uint32_t>(point_ids.size());
   const int entry_size = static_cast<int>(attribute_->byte_stride());
-  std::unique_ptr<uint8_t[]> value_data_ptr(new uint8_t[entry_size]);
-  uint8_t *const value_data = value_data_ptr.get();
+  FsvDecodeControl *const control = attribute_->fsv_decode_control();
+  FsvVector<uint8_t> value_data(
+      entry_size, 0, FsvDecodeAllocator<uint8_t>(control));
   int out_byte_pos = 0;
   // Decode raw attribute values in their original format.
   for (int i = 0; i < num_values; ++i) {
-    if (!in_buffer->Decode(value_data, entry_size)) {
+    // FSV LOCAL MODIFICATION (Apache-2.0 section 4(b)).
+    if ((i & 255) == 0 && decoder_ != nullptr &&
+        decoder_->ShouldStopDecoding()) {
       return false;
     }
-    attribute_->buffer()->Write(out_byte_pos, value_data, entry_size);
+    if (!in_buffer->Decode(value_data.data(), entry_size)) {
+      return false;
+    }
+    attribute_->buffer()->Write(out_byte_pos, value_data.data(), entry_size);
     out_byte_pos += entry_size;
   }
   return true;

@@ -31,6 +31,8 @@ class SequentialAttributeDecodersController : public AttributesDecoder {
  public:
   explicit SequentialAttributeDecodersController(
       std::unique_ptr<PointsSequencer> sequencer);
+  SequentialAttributeDecodersController(
+      std::unique_ptr<PointsSequencer> sequencer, FsvDecodeControl *control);
 
   bool DecodeAttributesDecoderData(DecoderBuffer *buffer) override;
   bool DecodeAttributes(DecoderBuffer *buffer) override;
@@ -51,8 +53,10 @@ class SequentialAttributeDecodersController : public AttributesDecoder {
       uint8_t decoder_type);
 
  private:
-  std::vector<std::unique_ptr<SequentialAttributeDecoder>> sequential_decoders_;
-  std::vector<PointIndex> point_ids_;
+  std::vector<std::unique_ptr<SequentialAttributeDecoder>,
+              FsvDecodeAllocator<std::unique_ptr<SequentialAttributeDecoder>>>
+      sequential_decoders_;
+  FsvVector<PointIndex> point_ids_;
   std::unique_ptr<PointsSequencer> sequencer_;
 };
 

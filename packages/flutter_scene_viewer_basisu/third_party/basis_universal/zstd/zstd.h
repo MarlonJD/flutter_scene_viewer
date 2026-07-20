@@ -173,6 +173,16 @@ ZSTDLIB_API size_t ZSTD_compress( void* dst, size_t dstCapacity,
 ZSTDLIB_API size_t ZSTD_decompress( void* dst, size_t dstCapacity,
                               const void* src, size_t compressedSize);
 
+/* FSV LOCAL MODIFICATION (BSD-3-Clause notice retained): request-scoped
+ * checkpoints around the exact one-shot entry used by the KTX2 transcoder. */
+typedef int (*ZSTD_fsv_checkpoint_fn)(void* opaque, size_t producedBytes);
+ZSTDLIB_API size_t ZSTD_fsv_dctx_allocation_size(void);
+ZSTDLIB_API size_t ZSTD_fsv_dctx_alignment(void);
+ZSTDLIB_API size_t ZSTD_decompress_fsv(
+    void* dst, size_t dstCapacity, const void* src, size_t compressedSize,
+    void* dctxWorkspace, size_t dctxWorkspaceSize,
+    ZSTD_fsv_checkpoint_fn checkpoint, void* opaque);
+
 
 /*======  Decompression helper functions  ======*/
 

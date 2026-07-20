@@ -27,6 +27,7 @@ void main() {
     messenger.setMockMethodCallHandler(channel, (MethodCall call) async {
       expect(call.method, 'decodeGlb');
       final arguments = call.arguments as Map<Object?, Object?>;
+      expect(arguments['requestId'], 'basisu-test-1');
       expect(arguments['bytes'], sourceBytes);
       expect(arguments['requiredExtensions'], <String>['KHR_texture_basisu']);
       expect(arguments['source'], 'basisu.glb');
@@ -48,6 +49,7 @@ void main() {
     });
 
     final result = await FlutterSceneViewerBasisu.decodeGlb(
+      requestId: 'basisu-test-1',
       bytes: sourceBytes,
       requiredExtensions: const <String>['KHR_texture_basisu'],
       decodeBudget: const <String, Object?>{
@@ -65,5 +67,23 @@ void main() {
     );
 
     expect(result?['bytes'], decodedBytes);
+  });
+
+  test('cancelDecode sends the active request id', () async {
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    const channel = FlutterSceneViewerBasisu.channel;
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    messenger.setMockMethodCallHandler(channel, (MethodCall call) async {
+      expect(call.method, 'cancelDecode');
+      expect(call.arguments, <String, Object?>{'requestId': 'basisu-test-2'});
+      return <String, Object?>{'status': 'cancelled'};
+    });
+
+    final result = await FlutterSceneViewerBasisu.cancelDecode(
+      requestId: 'basisu-test-2',
+    );
+
+    expect(result, <String, Object?>{'status': 'cancelled'});
   });
 }

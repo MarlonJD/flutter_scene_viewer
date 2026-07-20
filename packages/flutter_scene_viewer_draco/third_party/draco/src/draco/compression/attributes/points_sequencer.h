@@ -18,19 +18,20 @@
 #include <vector>
 
 #include "draco/attributes/point_attribute.h"
+#include "draco/core/fsv_decode_allocator.h"
 
 namespace draco {
 
 // Class for generating a sequence of point ids that can be used to encode
 // or decode attribute values in a specific order.
 // See sequential_attribute_encoders/decoders_controller.h for more details.
-class PointsSequencer {
+class PointsSequencer : public FsvDecodeAllocated {
  public:
   PointsSequencer() : out_point_ids_(nullptr) {}
   virtual ~PointsSequencer() = default;
 
   // Fills the |out_point_ids| with the generated sequence of point ids.
-  bool GenerateSequence(std::vector<PointIndex> *out_point_ids) {
+  bool GenerateSequence(FsvVector<PointIndex> *out_point_ids) {
     out_point_ids_ = out_point_ids;
     return GenerateSequenceInternal();
   }
@@ -52,10 +53,10 @@ class PointsSequencer {
   // implementation is responsible for filling |out_point_ids_| with the valid
   // sequence of point ids.
   virtual bool GenerateSequenceInternal() = 0;
-  std::vector<PointIndex> *out_point_ids() const { return out_point_ids_; }
+  FsvVector<PointIndex> *out_point_ids() const { return out_point_ids_; }
 
  private:
-  std::vector<PointIndex> *out_point_ids_;
+  FsvVector<PointIndex> *out_point_ids_;
 };
 
 }  // namespace draco

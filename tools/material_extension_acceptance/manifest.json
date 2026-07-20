@@ -303,15 +303,15 @@
           "upstreamSourcePath": "transcoder/basisu_transcoder.cpp",
           "upstreamSourceSha256": "27fda5a2330831704a7adcf254b852c6df5081258dcc1e42283a936030b6f01f",
           "vendoredSourcePath": "packages/flutter_scene_viewer_basisu/third_party/basis_universal/transcoder/basisu_transcoder.cpp",
-          "vendoredSourceSha256": "e7af01b01b33dbcfbbda9b9365be308347ee45e87b7fbd7bf65cd215b1e07ba5",
+          "vendoredSourceSha256": "316c54c224889e7b887c66663b6668e51ec90b89a7d836db8deec167b1b239d2",
           "compiledSourceManifestPath": "packages/flutter_scene_viewer_basisu/third_party/basis_universal/VENDORED_SOURCES.sha256",
-          "compiledSourceManifestSha256": "1d5514363ae26035bc28c9c324acef7100df87220f3511436e595b08257b145e",
+          "compiledSourceManifestSha256": "d675ed64ee129ac46c6f9fe4cc569bf9970bac65a69c7e1b1fc598eafe83bf55",
           "localModificationsPath": "packages/flutter_scene_viewer_basisu/third_party/basis_universal/FSV_LOCAL_MODIFICATIONS.md",
-          "localModificationsSha256": "a72fdacfac7653a4da386ac8340cf85587380252e77b42de781eb36e8845676d",
+          "localModificationsSha256": "6d9e1984399050c50392c5638431ff6c07b8dcbdd2a879b4c0fb3f17775d6794",
           "localModification": {
             "notice": "FSV LOCAL MODIFICATION (Apache-2.0 section 4(b))",
             "path": "packages/flutter_scene_viewer_basisu/third_party/basis_universal/transcoder/basisu_transcoder.cpp",
-            "purpose": "Reject KTX2 dimensions above BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION before dependent size calculations."
+            "purpose": "Reject oversized KTX2 dimensions and route reached KTX2 metadata, ETC1S state, Zstd workspace, input, result, and platform-copy native lifetimes through an explicit request allocator."
           },
           "license": "Apache-2.0",
           "licensePath": "packages/flutter_scene_viewer_basisu/third_party/basis_universal/LICENSE",

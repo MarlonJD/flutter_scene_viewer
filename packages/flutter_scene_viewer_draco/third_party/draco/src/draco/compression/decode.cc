@@ -42,13 +42,16 @@ StatusOr<std::unique_ptr<PointCloudDecoder>> CreatePointCloudDecoder(
 #endif
 
 #ifdef DRACO_MESH_COMPRESSION_SUPPORTED
-StatusOr<std::unique_ptr<MeshDecoder>> CreateMeshDecoder(uint8_t method) {
+StatusOr<std::unique_ptr<MeshDecoder>> CreateMeshDecoder(
+    uint8_t method, FsvDecodeControl *control) {
   if (method == MESH_SEQUENTIAL_ENCODING) {
-    return std::unique_ptr<MeshDecoder>(new MeshSequentialDecoder());
+    return std::unique_ptr<MeshDecoder>(
+        new (control) MeshSequentialDecoder(control));
   } else if (method == MESH_EDGEBREAKER_ENCODING) {
-    return std::unique_ptr<MeshDecoder>(new MeshEdgebreakerDecoder());
+    return std::unique_ptr<MeshDecoder>(
+        new (control) MeshEdgebreakerDecoder(control));
   }
-  return Status(Status::DRACO_ERROR, "Unsupported encoding method.");
+  return Status(Status::DRACO_ERROR, "Unsupported encoding method.", control);
 }
 #endif
 
@@ -84,9 +87,32 @@ StatusOr<std::unique_ptr<PointCloud>> Decoder::DecodePointCloudFromBuffer(
 }
 
 StatusOr<std::unique_ptr<Mesh>> Decoder::DecodeMeshFromBuffer(
-    DecoderBuffer *in_buffer) {
-  std::unique_ptr<Mesh> mesh(new Mesh());
-  DRACO_RETURN_IF_ERROR(DecodeBufferToGeometry(in_buffer, mesh.get()))
+    DecoderBuffer *in_buffer, FsvDecodeControl *control) {
+  // FSV LOCAL MODIFICATION (Apache-2.0 section 4(b)).
+  if (control != nullptr && control->ShouldStopDecoding()) {
+    return Status(Status::DRACO_ERROR, "Decode cancelled.", control);
+  }
+  std::unique_ptr<Mesh> mesh(new (control) Mesh(control));
+  DecoderBuffer temp_buffer(*in_buffer);
+  DracoHeader header;
+  DRACO_RETURN_IF_ERROR(
+      PointCloudDecoder::DecodeHeader(&temp_buffer, &header, control))
+  if (header.encoder_type != TRIANGULAR_MESH) {
+    return Status(Status::DRACO_ERROR, "Input is not a mesh.", control);
+  }
+#ifdef DRACO_MESH_COMPRESSION_SUPPORTED
+  DRACO_ASSIGN_OR_RETURN(std::unique_ptr<MeshDecoder> decoder,
+                         CreateMeshDecoder(header.encoder_method, control))
+  if (control != nullptr && control->ShouldStopDecoding()) {
+    return Status(Status::DRACO_ERROR, "Decode cancelled.", control);
+  }
+  DRACO_RETURN_IF_ERROR(decoder->Decode(options_, in_buffer, mesh.get(), control))
+#else
+  return Status(Status::DRACO_ERROR, "Unsupported geometry type.", control);
+#endif
+  if (control != nullptr && control->ShouldStopDecoding()) {
+    return Status(Status::DRACO_ERROR, "Decode cancelled.", control);
+  }
   return std::move(mesh);
 }
 
@@ -119,7 +145,7 @@ Status Decoder::DecodeBufferToGeometry(DecoderBuffer *in_buffer,
     return Status(Status::DRACO_ERROR, "Input is not a mesh.");
   }
   DRACO_ASSIGN_OR_RETURN(std::unique_ptr<MeshDecoder> decoder,
-                         CreateMeshDecoder(header.encoder_method))
+                         CreateMeshDecoder(header.encoder_method, nullptr))
 
   DRACO_RETURN_IF_ERROR(decoder->Decode(options_, in_buffer, out_geometry))
   return OkStatus();

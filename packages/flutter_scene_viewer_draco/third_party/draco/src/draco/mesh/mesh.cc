@@ -28,6 +28,11 @@ using conditional_t = typename std::conditional<B, T, F>::type;
 
 Mesh::Mesh() {}
 
+Mesh::Mesh(FsvDecodeControl *control)
+    : PointCloud(control),
+      attribute_data_(FsvDecodeAllocator<AttributeData>(control)),
+      faces_(control) {}
+
 #ifdef DRACO_TRANSCODER_SUPPORTED
 void Mesh::Copy(const Mesh &src) {
   PointCloud::Copy(src);

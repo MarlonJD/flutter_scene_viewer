@@ -32,6 +32,7 @@ namespace draco {
 class AttributesDecoder : public AttributesDecoderInterface {
  public:
   AttributesDecoder();
+  explicit AttributesDecoder(FsvDecodeControl *control);
   virtual ~AttributesDecoder() = default;
 
   // Called after all attribute decoders are created. It can be used to perform
@@ -82,11 +83,12 @@ class AttributesDecoder : public AttributesDecoderInterface {
 
  private:
   // List of attribute ids that need to be decoded with this decoder.
-  std::vector<int32_t> point_attribute_ids_;
+  std::vector<int32_t, FsvDecodeAllocator<int32_t>> point_attribute_ids_;
 
   // Map between point attribute id and the local id (i.e., the inverse of the
   // |point_attribute_ids_|.
-  std::vector<int32_t> point_attribute_to_local_id_map_;
+  std::vector<int32_t, FsvDecodeAllocator<int32_t>>
+      point_attribute_to_local_id_map_;
 
   PointCloudDecoder *point_cloud_decoder_;
   PointCloud *point_cloud_;

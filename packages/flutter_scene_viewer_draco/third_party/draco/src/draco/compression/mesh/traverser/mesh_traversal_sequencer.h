@@ -30,8 +30,12 @@ template <class TraverserT>
 class MeshTraversalSequencer : public PointsSequencer {
  public:
   MeshTraversalSequencer(const Mesh *mesh,
-                         const MeshAttributeIndicesEncodingData *encoding_data)
-      : mesh_(mesh), encoding_data_(encoding_data), corner_order_(nullptr) {}
+                         const MeshAttributeIndicesEncodingData *encoding_data,
+                         FsvDecodeControl *control = nullptr)
+      : traverser_(control),
+        mesh_(mesh),
+        encoding_data_(encoding_data),
+        corner_order_(nullptr) {}
   void SetTraverser(const TraverserT &t) { traverser_ = t; }
 
   // Function that can be used to set an order in which the mesh corners should

@@ -6,5 +6,9 @@
   "FSViewerClearcoatExtendedPbr": {
     "type": "fragment",
     "file": "shaders/fsviewer_clearcoat_extended_pbr.frag"
+  },
+  "FSViewerAuthoredMipProbe": {
+    "type": "fragment",
+    "file": "shaders/fsviewer_authored_mip_probe.frag"
   }
 }

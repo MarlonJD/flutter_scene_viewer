@@ -34,7 +34,7 @@ template <class EncodingDataSourceT, class PredictionSchemeT,
 std::unique_ptr<PredictionSchemeT> CreateMeshPredictionScheme(
     const EncodingDataSourceT *source, PredictionSchemeMethod method,
     int att_id, const typename PredictionSchemeT::Transform &transform,
-    uint16_t bitstream_version) {
+    uint16_t bitstream_version, FsvDecodeControl *control = nullptr) {
   const PointAttribute *const att = source->point_cloud()->attribute(att_id);
   if (source->GetGeometryType() == TRIANGULAR_MESH &&
       (method == MESH_PREDICTION_PARALLELOGRAM ||
@@ -58,7 +58,8 @@ std::unique_ptr<PredictionSchemeT> CreateMeshPredictionScheme(
       MeshData md;
       md.Set(source->mesh(), att_ct,
              &encoding_data->encoded_attribute_value_index_to_corner_map,
-             &encoding_data->vertex_to_encoded_attribute_value_index_map);
+             &encoding_data->vertex_to_encoded_attribute_value_index_map,
+             control);
       MeshPredictionSchemeFactoryT factory;
       auto ret = factory(method, att, transform, md, bitstream_version);
       if (ret) {
@@ -69,7 +70,8 @@ std::unique_ptr<PredictionSchemeT> CreateMeshPredictionScheme(
       MeshData md;
       md.Set(source->mesh(), ct,
              &encoding_data->encoded_attribute_value_index_to_corner_map,
-             &encoding_data->vertex_to_encoded_attribute_value_index_map);
+             &encoding_data->vertex_to_encoded_attribute_value_index_map,
+             control);
       MeshPredictionSchemeFactoryT factory;
       auto ret = factory(method, att, transform, md, bitstream_version);
       if (ret) {

@@ -93,8 +93,8 @@ transmission/volume implementation, immutable pin, and controlled iOS
 Simulator evidence are recorded in completed
 [Plan 016](exec-plans/completed/016_renderer_native_transmission_volume.md).
 Decoder cancellation/resource control, authored KTX2 mip chains, physical
-targets, packaging, and release evidence remain deferred in
-[Plan 017](exec-plans/deferred/017_decoder_control_mip_chains_and_release_evidence.md).
+targets, packaging, and release evidence are active in
+[Plan 017](exec-plans/active/017_decoder_control_mip_chains_and_release_evidence.md).
 Sheen diagnostics, a bounded package-local candidate, controlled textile/ToyCar
 evidence, and the renderer-native release path remain deferred in
 [Plan 018](exec-plans/deferred/018_khr_materials_sheen.md).
@@ -166,8 +166,9 @@ Candidate scope:
   stay compatible with `flutter_scene` scene ownership;
 - Flutter GPU feasibility checks for better real-time refraction, transmission
   compositing, and clearcoat highlights;
-- experimental ray/path-tracing reference views for visual validation or
-  offline comparison only, not as the default interactive mobile renderer;
+- fork-free experimental ray/path-tracing reference views for visual
+  validation, measured device feasibility, and offline comparison only, not as
+  the default interactive mobile renderer;
 - explicit diagnostics when a material feature requires renderer capabilities
   outside the current Flutter GPU / `flutter_scene` path.
 
@@ -176,7 +177,20 @@ Out of scope:
 - Filament-backed rendering;
 - production claims of full physical glass, caustics, multi-bounce refraction,
   or path tracing without measured target-platform evidence;
+- a maintained `flutter_scene` fork, a permanent viewer-owned ray-tracing
+  package, or conversion of the root viewer package into a native renderer;
 - replacing the V2 production GLB pipeline or viewer/configurator API.
+
+The deferred
+[Plan 028](exec-plans/deferred/028_adaptive_ray_path_tracing_feasibility.md)
+owns this research lane. It starts with an unpublished
+`tools/raytracing_lab/` Flutter application, leaves the root package and pinned
+`flutter_scene` unchanged, and reaches a measured GO/NO-GO decision before any
+upstream or product integration. A GO result produces a direct-upstream
+`flutter_scene` seam proposal and a separately approved Plan 029; it does not
+create `flutter_scene_viewer_raytracing` by default. A temporary sibling plugin
+requires a separate product/timing decision and explicit removal or migration
+criteria.
 
 ## V4: CAD/import research track
 

@@ -19,6 +19,7 @@
 #include <utility>
 #include <vector>
 
+#include "draco/core/fsv_decode_allocator.h"
 #include "draco/core/draco_index_type.h"
 
 namespace draco {
@@ -31,14 +32,22 @@ namespace draco {
 template <class IndexTypeT, class ValueTypeT>
 class IndexTypeVector {
  public:
-  typedef typename std::vector<ValueTypeT>::const_reference const_reference;
-  typedef typename std::vector<ValueTypeT>::reference reference;
-  typedef typename std::vector<ValueTypeT>::iterator iterator;
-  typedef typename std::vector<ValueTypeT>::const_iterator const_iterator;
+  using Vector = std::vector<ValueTypeT, FsvDecodeAllocator<ValueTypeT>>;
+  typedef typename Vector::const_reference const_reference;
+  typedef typename Vector::reference reference;
+  typedef typename Vector::iterator iterator;
+  typedef typename Vector::const_iterator const_iterator;
 
   IndexTypeVector() {}
+  explicit IndexTypeVector(FsvDecodeControl *control)
+      : vector_(FsvDecodeAllocator<ValueTypeT>(control)) {}
   explicit IndexTypeVector(size_t size) : vector_(size) {}
   IndexTypeVector(size_t size, const ValueTypeT &val) : vector_(size, val) {}
+  IndexTypeVector(FsvDecodeControl *control, size_t size)
+      : vector_(size, ValueTypeT(), FsvDecodeAllocator<ValueTypeT>(control)) {}
+  IndexTypeVector(FsvDecodeControl *control, size_t size,
+                  const ValueTypeT &val)
+      : vector_(size, val, FsvDecodeAllocator<ValueTypeT>(control)) {}
 
   iterator begin() { return vector_.begin(); }
   const_iterator begin() const { return vector_.begin(); }
@@ -82,7 +91,7 @@ class IndexTypeVector {
   const ValueTypeT *data() const { return vector_.data(); }
 
  private:
-  std::vector<ValueTypeT> vector_;
+  Vector vector_;
 };
 
 }  // namespace draco

@@ -17,6 +17,7 @@
 
 #include "draco/attributes/point_attribute.h"
 #include "draco/compression/config/compression_shared.h"
+#include "draco/core/fsv_decode_allocator.h"
 
 // Prediction schemes can be used during encoding and decoding of attributes
 // to predict attribute values based on the previously encoded/decoded data.
@@ -24,7 +25,7 @@
 namespace draco {
 
 // Abstract interface for all prediction schemes used during attribute encoding.
-class PredictionSchemeInterface {
+class PredictionSchemeInterface : public FsvDecodeAllocated {
  public:
   virtual ~PredictionSchemeInterface() = default;
   virtual PredictionSchemeMethod GetPredictionMethod() const = 0;
