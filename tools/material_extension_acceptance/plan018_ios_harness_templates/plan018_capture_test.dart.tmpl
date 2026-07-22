@@ -1,0 +1,79 @@
+import 'package:flutter_test/flutter_test.dart';
+import 'package:integration_test/integration_test.dart';
+import 'package:plan018_flutter_ios_harness/main.dart' as harness;
+import 'package:plan018_flutter_ios_harness/plan018_generated_contract.dart';
+
+void main() {
+  final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+
+  testWidgets('captures one exact Plan 018 model inventory', (tester) async {
+    await harness.main();
+    await _waitUntil(
+      tester,
+      () => harness.plan018HarnessControl.assetsReady,
+      failure: () => harness.plan018HarnessControl.failure,
+    );
+    await _waitUntil(
+      tester,
+      () => harness.plan018HarnessControl.canProbeModelReadiness,
+      failure: () => harness.plan018HarnessControl.failure,
+    );
+    await harness.plan018HarnessControl.requireModelReadiness();
+
+    final names = <String>[];
+    for (final view in harness.plan018HarnessControl.captureViews) {
+      for (final pass in harness.plan018HarnessControl.renderPasses) {
+        await harness.plan018HarnessControl.selectStage(view, pass);
+        for (var frame = 0; frame < 12; frame += 1) {
+          await tester.pump(const Duration(milliseconds: 17));
+          harness.plan018HarnessControl.recordPostCameraFrame();
+        }
+        await _waitUntil(
+          tester,
+          () => harness.plan018HarnessControl.stageReady,
+          failure: () => harness.plan018HarnessControl.failure,
+        );
+        final name = harness.plan018HarnessControl.requireStageReadiness();
+        expect(
+          plan018ExpectedScreenshotNamesByModel[
+              harness.plan018HarnessControl.selectedModelId],
+          contains(name),
+        );
+        names.add(name);
+        await binding.takeScreenshot(name);
+      }
+    }
+    harness.plan018HarnessControl.completeModel(names);
+    binding.reportData ??= <String, dynamic>{};
+    binding.reportData!['modelId'] =
+        harness.plan018HarnessControl.selectedModelId;
+    binding.reportData!['expectedScreenshotNames'] = names;
+    binding.reportData!['readyPayloads'] =
+        harness.plan018HarnessControl.readyPayloads;
+    binding.reportData!['status'] =
+        harness.plan018HarnessControl.featureMaturity;
+    binding.reportData!['application'] =
+        harness.plan018HarnessControl.materialApplication;
+    binding.reportData!['comparisonBoundary'] =
+        harness.plan018HarnessControl.comparisonBoundary;
+    binding.reportData!['integrationPath'] = 'executed by flutter drive';
+  });
+}
+
+Future<void> _waitUntil(
+  WidgetTester tester,
+  bool Function() predicate, {
+  required Object? Function() failure,
+}) async {
+  for (var attempt = 0; attempt < 300; attempt += 1) {
+    final error = failure();
+    if (error != null) {
+      throw StateError('Plan 018 harness failure: $error');
+    }
+    if (predicate()) {
+      return;
+    }
+    await tester.pump(const Duration(milliseconds: 100));
+  }
+  throw StateError('Plan 018 harness readiness timed out.');
+}

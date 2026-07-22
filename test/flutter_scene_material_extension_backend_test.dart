@@ -139,6 +139,10 @@ void main() {
       expect(diagnostic.details['limitation'], 'independentWrapAxes');
       expect(diagnostic.details['slot'], 'baseColor');
       expect(diagnostic.details['sampler'], binding.sampler.toJson());
+      expect(
+        diagnostic.details['rendererRevision'],
+        '766351c865c621e8720c726f9aa51173ce76e786',
+      );
       expect(diagnostic.details['status'], 'blocked');
     });
 

@@ -95,8 +95,8 @@ The dependency pinned by this repository is not backed by Google Filament:
 
 Primary evidence:
 
-- [Pinned flutter_scene README](https://github.com/MarlonJD/flutter_scene/blob/ccf7372428961ebe0abb053727fe443150547a74/packages/flutter_scene/README.md#L39-L79)
-- [Pinned PBR helpers](https://github.com/MarlonJD/flutter_scene/blob/ccf7372428961ebe0abb053727fe443150547a74/packages/flutter_scene/shaders/pbr.glsl#L5-L57)
+- [Pinned flutter_scene README](https://github.com/MarlonJD/flutter_scene/blob/766351c865c621e8720c726f9aa51173ce76e786/packages/flutter_scene/README.md#L39-L79)
+- [Pinned PBR helpers](https://github.com/MarlonJD/flutter_scene/blob/766351c865c621e8720c726f9aa51173ce76e786/packages/flutter_scene/shaders/pbr.glsl#L5-L126)
 
 Always re-read `pubspec.lock` before citing the commit; update pinned links in
 this note when the dependency revision changes.

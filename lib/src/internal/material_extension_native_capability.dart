@@ -18,6 +18,7 @@ abstract interface class RendererMaterialExtensionProbe {
   bool get hasIor;
   bool get hasVolume;
   bool get hasClearcoat;
+  bool get hasSheen;
 }
 
 /// Detects whether the active renderer exposes all production material
@@ -33,6 +34,7 @@ NativeMaterialExtensionCapability detectNativeMaterialExtensionCapability({
     MaterialExtensionFeature.ior: rendererProbe.hasIor,
     MaterialExtensionFeature.volume: rendererProbe.hasVolume,
     MaterialExtensionFeature.clearcoat: rendererProbe.hasClearcoat,
+    MaterialExtensionFeature.sheen: rendererProbe.hasSheen,
   };
   if (availability.values.any((available) => available)) {
     return NativeMaterialExtensionCapability(
@@ -80,6 +82,7 @@ NativeMaterialExtensionCapability detectNativeMaterialExtensionCapability({
             if (!rendererProbe.hasIor) 'ior',
             if (!rendererProbe.hasVolume) 'volume',
             if (!rendererProbe.hasClearcoat) 'clearcoat',
+            if (!rendererProbe.hasSheen) 'sheen',
           ],
         },
       ),
@@ -89,9 +92,9 @@ NativeMaterialExtensionCapability detectNativeMaterialExtensionCapability({
 
 /// Current installed renderer probe.
 ///
-/// Plan 016's selected renderer contract exposes transmission, volume, glass
-/// IOR, and clearcoat. Release maturity remains evidence-driven and separate
-/// from this compile-time API capability probe.
+/// The selected renderer contract exposes transmission, volume, glass IOR,
+/// clearcoat, and sheen. Release maturity and per-target evidence remain
+/// separate from this compile-time API capability probe.
 final class CurrentFlutterSceneMaterialExtensionProbe
     implements RendererMaterialExtensionProbe {
   const CurrentFlutterSceneMaterialExtensionProbe();
@@ -107,4 +110,7 @@ final class CurrentFlutterSceneMaterialExtensionProbe
 
   @override
   bool get hasClearcoat => true;
+
+  @override
+  bool get hasSheen => true;
 }

@@ -4,6 +4,21 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('authored mip GPU probe reports the current renderer revision', () {
+    final harness = File(
+      'integration_test/authored_mip_sampling_test.dart',
+    ).readAsStringSync();
+    final revisionMatches = RegExp(
+      r"const String _pinnedFlutterSceneCommit\s*=\s*'([0-9a-f]{40})';",
+    ).allMatches(harness).toList();
+
+    expect(revisionMatches, hasLength(1));
+    expect(
+      revisionMatches.single.group(1),
+      '766351c865c621e8720c726f9aa51173ce76e786',
+    );
+  });
+
   test('authored mip GPU probe owns explicit LOD and a base-only control', () {
     final manifest = jsonDecode(
       File(

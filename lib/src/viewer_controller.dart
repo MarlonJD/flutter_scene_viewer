@@ -156,6 +156,7 @@ class FlutterSceneViewerController extends ChangeNotifier {
           result.authoredCoreMaterialPatches,
           result.authoredExtensionMaterialPatches,
           sink,
+          loadDiagnostics: result.diagnostics,
         );
         if (_finishCancellationIfRequested(
           source,
@@ -390,6 +391,10 @@ class FlutterSceneViewerController extends ChangeNotifier {
         MaterialPatch(specularTextureBinding: binding),
       MaterialTextureSlot.specularColor =>
         MaterialPatch(specularColorTextureBinding: binding),
+      MaterialTextureSlot.sheenColor =>
+        MaterialPatch(sheenColorTextureBinding: binding),
+      MaterialTextureSlot.sheenRoughness =>
+        MaterialPatch(sheenRoughnessTextureBinding: binding),
     };
     return setPartMaterial(address, patch);
   }
@@ -417,11 +422,11 @@ class FlutterSceneViewerController extends ChangeNotifier {
   }
 
   Future<void> _applyAuthoredMaterialPatches(
-    Map<PartAddress, MaterialPatch> corePatches,
-    Map<PartAddress, Map<MaterialExtensionPatchGroup, MaterialPatch>>
-        extensionPatches,
-    ViewerCommandSink sink,
-  ) async {
+      Map<PartAddress, MaterialPatch> corePatches,
+      Map<PartAddress, Map<MaterialExtensionPatchGroup, MaterialPatch>>
+          extensionPatches,
+      ViewerCommandSink sink,
+      {required List<ViewerDiagnostic> loadDiagnostics}) async {
     var appliedAny = false;
     final addresses = <PartAddress>{
       ...corePatches.keys,
@@ -446,6 +451,13 @@ class FlutterSceneViewerController extends ChangeNotifier {
         if (groupPatch == null) {
           continue;
         }
+        if (_hasReportedAuthoredCapabilityDiagnostic(
+          group,
+          loadDiagnostics,
+          address,
+        )) {
+          continue;
+        }
         if (await _applyAuthoredMaterialPatch(
           address,
           patch: groupPatch,
@@ -457,6 +469,52 @@ class FlutterSceneViewerController extends ChangeNotifier {
     }
     if (appliedAny) {
       sink.requestRenderFrame();
+    }
+  }
+
+  bool _hasReportedAuthoredCapabilityDiagnostic(
+    MaterialExtensionPatchGroup group,
+    List<ViewerDiagnostic> diagnostics,
+    PartAddress address,
+  ) {
+    if (group != MaterialExtensionPatchGroup.sheen) {
+      return false;
+    }
+    return diagnostics.any(
+      (diagnostic) =>
+          diagnostic.code == ViewerDiagnosticCode.unsupportedMaterialFeature &&
+          diagnostic.details['extension'] == 'KHR_materials_sheen' &&
+          diagnostic.details['feature'] == 'sheen' &&
+          diagnostic.details['required'] == false &&
+          diagnostic.details['blocking'] == false &&
+          diagnostic.details['parsedIntentPreserved'] == true &&
+          _authoredCapabilityDiagnosticAppliesToAddress(
+            diagnostic,
+            address,
+          ),
+    );
+  }
+
+  bool _authoredCapabilityDiagnosticAppliesToAddress(
+    ViewerDiagnostic diagnostic,
+    PartAddress address,
+  ) {
+    final hasStructuredAddress = diagnostic.details.containsKey('partAddress');
+    final hasDisplayAddress = diagnostic.details.containsKey('part');
+    final structuredAddress = diagnostic.details['partAddress'];
+    if (!hasStructuredAddress) {
+      return !hasDisplayAddress;
+    }
+    if (structuredAddress is! Map) {
+      return false;
+    }
+    try {
+      return PartAddress.fromJson(
+            Map<String, Object?>.from(structuredAddress),
+          ) ==
+          address;
+    } on Object {
+      return false;
     }
   }
 
@@ -679,6 +737,11 @@ List<String> _textureSlotsForPatch(MaterialPatch patch) {
     if (patch.specularColorTexture != null) 'specularColorTexture',
     if (patch.specularColorTextureBinding != null)
       'specularColorTextureBinding',
+    if (patch.sheenColorTexture != null) 'sheenColorTexture',
+    if (patch.sheenColorTextureBinding != null) 'sheenColorTextureBinding',
+    if (patch.sheenRoughnessTexture != null) 'sheenRoughnessTexture',
+    if (patch.sheenRoughnessTextureBinding != null)
+      'sheenRoughnessTextureBinding',
   ];
 }
 

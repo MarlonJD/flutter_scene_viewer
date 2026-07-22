@@ -56,4 +56,24 @@ void main() {
     expect(roundTripped.patchFor(address)?.metallic, 0.2);
     expect(roundTripped.patchFor(address)?.roughness, 0.8);
   });
+
+  test('MaterialOverrideSnapshot persists and resets sheen intent', () {
+    final store = MaterialOverrideStore();
+    store.applyPatch(
+      address,
+      const MaterialPatch(
+        sheenColorFactor: <double>[0.3, 0.2, 0.1],
+        sheenRoughness: 0.45,
+        sheenColorTexture: TextureSource.asset('assets/sheen.png'),
+      ),
+    );
+
+    final roundTripped = MaterialOverrideSnapshot.fromJson(
+      store.snapshot.toJson(),
+    );
+    expect(roundTripped.patchFor(address), store.snapshot.patchFor(address));
+
+    store.resetPart(address);
+    expect(store.snapshot.patchFor(address), isNull);
+  });
 }

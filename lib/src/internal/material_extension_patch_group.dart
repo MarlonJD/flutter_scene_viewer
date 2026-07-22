@@ -2,6 +2,7 @@
 enum MaterialExtensionPatchGroup {
   opaqueIor,
   specular,
+  sheen,
   clearcoat,
   transmissionVolume,
 }

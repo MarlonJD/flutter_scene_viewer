@@ -1,0 +1,12 @@
+{
+  "name": "fsviewer-khronos-sample-viewer-reference-fixture",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "capture:plan018-toycar": "node render_plan018_toycar_controlled_comparison.mjs",
+    "test:plan018-toycar": "node --test render_plan018_toycar_controlled_comparison.test.mjs"
+  },
+  "dependencies": {
+    "puppeteer": "23.11.1"
+  }
+}

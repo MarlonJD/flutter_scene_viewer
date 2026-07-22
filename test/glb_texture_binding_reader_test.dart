@@ -180,6 +180,32 @@ void main() {
     expect(result.binding!.transform.scale, <double>[1, -1]);
   });
 
+  test('UV0-only slots diagnose authored UV1 without changing shared behavior',
+      () {
+    final result = readGlbTextureBinding(
+      textureInfo: <String, Object?>{'index': 0, 'texCoord': 1},
+      textures: <Object?>[
+        <String, Object?>{'source': 0}
+      ],
+      samplers: const <Object?>[],
+      source: source,
+      availableTexCoords: const <int>{0, 1},
+      textureTransformRequired: false,
+      requireUv0: true,
+      slot: 'KHR_materials_sheen.sheenColorTexture',
+      debugName: 'sheen-uv1.glb',
+    );
+
+    expect(result.binding, isNull);
+    expect(result.hasBlockingDiagnostics, isFalse);
+    expect(
+      result.diagnostics.single.code,
+      ViewerDiagnosticCode.unsupportedModelFeature,
+    );
+    expect(result.diagnostics.single.details['uvSet'], 1);
+    expect(result.diagnostics.single.details['limitation'], 'authoredUv0Only');
+  });
+
   test('optional malformed transform falls back but required form blocks', () {
     final textureInfo = <String, Object?>{
       'index': 0,

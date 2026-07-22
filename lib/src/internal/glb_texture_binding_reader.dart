@@ -29,6 +29,7 @@ GlbTextureBindingReadResult readGlbTextureBinding({
   required TextureSource source,
   required Set<int> availableTexCoords,
   required bool textureTransformRequired,
+  bool requireUv0 = false,
   required String slot,
   required String debugName,
 }) {
@@ -116,6 +117,27 @@ GlbTextureBindingReadResult readGlbTextureBinding({
             'textureSlot': slot,
             'textureIndex': textureIndex,
             'uvSet': effectiveTexCoord,
+            'blocking': false,
+          },
+        ),
+      ],
+      hasBlockingDiagnostics: false,
+    );
+  }
+  if (requireUv0 && effectiveTexCoord != 0) {
+    return GlbTextureBindingReadResult(
+      binding: null,
+      diagnostics: <ViewerDiagnostic>[
+        ...diagnostics,
+        ViewerDiagnostic(
+          code: ViewerDiagnosticCode.unsupportedModelFeature,
+          message: 'This authored GLB texture slot supports only UV0.',
+          details: <String, Object?>{
+            'source': debugName,
+            'textureSlot': slot,
+            'textureIndex': textureIndex,
+            'uvSet': effectiveTexCoord,
+            'limitation': 'authoredUv0Only',
             'blocking': false,
           },
         ),

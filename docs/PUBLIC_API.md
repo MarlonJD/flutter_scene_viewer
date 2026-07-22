@@ -31,24 +31,31 @@ an unlit base material. This is intentionally not a runtime material patch.
 are kept diagnostic-only or may be validated against an available renderer or
 package-local shader backend. The default
 `ViewerMaterialExtensionPolicy.diagnosticsOnly()` rejects unsupported
-transmission/glass and clearcoat fields before they are applied or persisted.
+transmission/glass, clearcoat, and sheen fields before they are applied or
+persisted.
 `ViewerMaterialExtensionPolicy.experimentalShaders()` opts into candidate
 transmission, IOR, and volume intent where the attached backend can honestly
-render it. `enableClearcoat` defaults to `false`; setting it to `true` permits
-the pinned renderer-native clearcoat contract.
+render it. Its `enableClearcoat` and `enableSheen` flags default to `false`.
 `ViewerMaterialExtensionPolicy.productionShaders()` opts into the
 renderer-native route, with the repository-owned custom shader retained only
 as a compatibility fallback, while preserving the existing constructor name
-for source compatibility. At pinned `flutter_scene` commit
-`5dcf6fce7dc36719e64e536faba9538fe9fa1022`, transmission, glass IOR, volume,
-and clearcoat report `backendKind: rendererNative`.
+for source compatibility. Its `enableClearcoat` flag defaults to `true`, while
+`enableSheen` remains an explicit `false`-by-default post-v1 opt-in. At pinned
+`flutter_scene` commit
+`766351c865c621e8720c726f9aa51173ce76e786`, transmission, glass IOR, volume,
+clearcoat, and enabled sheen report `backendKind: rendererNative` when the
+requested combination fits the native material contract.
 Availability and routing do not prove Khronos correctness or physical-device
 release readiness. Per-feature release maturity and per-target evidence remain
-separate: these native features are `release pending` with iOS Simulator
-evidence `verified locally`; the static policy claims no production release
-target. The policy does not permit fake fallbacks: if the backend cannot render
-the requested feature, it must report `unsupportedMaterialFeature`. Physical
-iOS, Android material rendering, and Web material rendering remain `not run`.
+separate. The native sheen scalar on/off control has runtime availability and
+iOS Simulator target plus visual evidence `verified locally`, while maturity
+is `release pending`; the static policy claims no production release target.
+The policy does not permit fake fallbacks: if the backend cannot render the
+requested feature or preserve an existing material state, it must report
+`unsupportedMaterialFeature`. Physical iOS, Android material rendering, Web
+material rendering, external-reference comparison, physical correctness,
+general pixel parity, release, and `production-ready` evidence remain `not run`
+or `release pending` as applicable.
 
 The [generated capability matrix](generated/capability_matrix.md) is generated
 from the stable live capability source. Its completed Plan 014 rows remain
@@ -61,6 +68,12 @@ and Web remain `not run`. These are `candidate-only` rows, not release or
 requires durable evidence for the exact feature and target before a live row
 can advance. Its current discovery records do not prove runtime or packaging;
 the aggregate remains `release pending`.
+
+Plan 018 rows keep application, runtime availability, visual evidence, target
+evidence, and maturity separate. The renderer-native scalar sheen-on control is
+`rendererNative`, sheen-off is `none`, runtime is available, and iOS Simulator
+target plus visual evidence are `verified locally`; maturity remains `release
+pending`. Earlier textile/ToyCar evidence remains `candidate-only`.
 
 `MaterialExtensionSupport.supportFor(MaterialExtensionFeature)` is the
 authoritative feature query. Each `MaterialExtensionFeatureSupport` keeps
@@ -299,6 +312,10 @@ Core patch fields:
 - `specularTexture`
 - `specularColorFactor`
 - `specularColorTexture`
+- `sheenColorFactor`
+- `sheenColorTexture`
+- `sheenRoughness`
+- `sheenRoughnessTexture`
 - `visible`
 
 Unsupported fields must be rejected with diagnostics, not silently ignored.
@@ -335,7 +352,12 @@ is selected. Effect masks are not alpha cutout and do not affect
 Runtime texture overrides require authored `TEXCOORD_0`/UV0 on the target
 primitive. Additional UV channels such as `TEXCOORD_1` may be used by authored
 assets for lightmaps or other data, but they are not treated as runtime material
-override UVs.
+override UVs in the package-owned reader or extended-PBR path. The only narrow
+exception is a pure renderer-native sheen texture patch whose binding explicitly
+selects UV1 and whose primitive exposes the exact `texture_coords_1` semantic.
+The viewer validates that semantic and never substitutes, synthesizes, or
+unwraps UVs. Authored GLB sheen textureInfo processed by the package reader
+remains UV0-only.
 
 Transmission/glass fields are v1 release-blocker API intent for
 `KHR_materials_transmission`, `KHR_materials_ior`, and
@@ -351,26 +373,68 @@ texture, exact glass IOR including `ior == 0`, thickness and green-channel
 texture, node/world scale, attenuation color/distance, roughness, and opaque
 scene color behind glass. Its iPhone 17 iOS 26.5 Simulator Impeller Metal
 evidence is `verified locally` against stock Three.js r167 under one fixed
-state; release maturity is `release pending`, production readiness is `false`,
-and physical iOS, Android material rendering, and Web material rendering
-remain `not run`. The older package-local screen-space backend remains only as
+state at exact Plan 016 revision
+`5dcf6fce7dc36719e64e536faba9538fe9fa1022`; the current pin retains that
+contract without transferring the target record to a different revision.
+Release maturity is `release pending`, production readiness is `false`, and
+physical iOS, Android material rendering, and Web material rendering remain
+`not run`. The older package-local screen-space backend remains only as
 historical `candidate-only` evidence.
 
 Clearcoat is a v1 release blocker for coated product materials such as car
 paint, varnished wood, and carbon fiber gloss coat. The clearcoat patch fields
 are serializable request intent for `KHR_materials_clearcoat`. The stable Git
 dependency now pins published `flutter_scene` commit
-`5dcf6fce7dc36719e64e536faba9538fe9fa1022`, whose importer, serialized scene
-path, material slots, and shared PBR lighting implement the complete native
-factor, red/green texture-channel, independent normal/scale, reset, and
-combined-core contract. The source-compatible `productionShaders()` policy
-routes clearcoat through `backendKind: rendererNative`; the default
+`766351c865c621e8720c726f9aa51173ce76e786`, which retains the importer,
+serialized scene path, material slots, and shared PBR lighting that implement
+the complete native factor, red/green texture-channel, independent
+normal/scale, reset, and combined-core contract. The source-compatible
+`productionShaders()` policy routes clearcoat through
+`backendKind: rendererNative`; the default
 diagnostics-only policy remains opt-in safe. Lowering base roughness is never a
 clearcoat substitute, and texture forms still require authored UV0. iOS
-Simulator evidence is `verified locally`; release maturity remains `release
-pending`, production readiness is `false`, and physical iOS, Android material
-rendering, and Web material rendering remain `not run`. The older translucent
-package-local overlay is retained only as historical `candidate-only` evidence.
+Simulator evidence is `verified locally` at the recorded Plan 015/016 exact
+revision; the current pin retains the contract without relabeling that target
+record. Release maturity remains `release pending`, production readiness is
+`false`, and physical iOS, Android material rendering, and Web material
+rendering remain `not run`. The older translucent package-local overlay is
+retained only as historical `candidate-only` evidence.
+
+Sheen fields are serializable request intent for `KHR_materials_sheen`.
+`sheenColorFactor` and `sheenRoughness` use the Khronos defaults and inclusive
+`0..1` ranges; the color texture is decoded from sRGB RGB and the roughness
+texture is sampled from linear alpha. The stable Git dependency at
+`766351c865c621e8720c726f9aa51173ce76e786` owns the native material/importer
+fields, Charlie direct and image-based lighting, DFG-B directional albedo,
+lazy Charlie environment prefiltering, per-slot authored UV metadata, sampler
+limits, and clearcoat-over-sheen layering. These renderer internals are not
+public viewer API controls.
+
+With `productionShaders(enableSheen: true)`, a pure standard-PBR sheen patch
+routes as `rendererNative`. A material that already needs package-owned core
+texture transforms, specular, or opaque-IOR behavior remains on one coherent
+`FSViewerExtendedPbr` candidate so that state is not discarded; scalar
+clearcoat can compose with that extended state. Renderer-native transmission or
+volume is never replaced by the extended material, and an incompatible
+combination fails atomically. Active transmission plus active sheen plus
+textured clearcoat is explicitly blocked at the portable fragment-sampler
+boundary before texture decode or live mutation; scalar clearcoat in that
+combination remains supported by the native variant.
+
+```dart
+const ViewerMaterialExtensionPolicy.productionShaders(
+  enableSheen: true,
+)
+```
+
+The current renderer-native scalar on/off control reports runtime availability,
+application `rendererNative` for sheen-on and `none` for sheen-off, and iOS
+Simulator target plus visual evidence `verified locally`. Maturity is `release
+pending`. The prior controlled textile/ToyCar run at
+`8e2e2221405b04c517189428d0faf8474cf7f708` remains `candidate-only` and is
+not evidence for the renderer-native route. Physical iOS, Android, Web,
+external-reference comparison, physical correctness, general pixel parity,
+release, and `production-ready` evidence are `not run` or `release pending`.
 
 Specular fields are serializable request intent for `KHR_materials_specular`.
 Authored GLB imports preserve `specularFactor`, `specularTexture`,
@@ -381,8 +445,11 @@ adapter automatically exposes `candidate-only` support and composes specular,
 opaque IOR, and core UV0 transforms through exactly one
 `FSViewerExtendedPbr` material. It performs shader/metadata, binding, texture,
 and construction preflight before replacing the primitive or persisting the
-patch. Unsupported targets and unavailable contracts remain diagnostic-only;
-no renderer-native or production-ready support is implied.
+patch. The same coherent material may retain candidate sheen and compose
+scalar clearcoat, but it must not replace renderer-native
+transmission/volume. Unsupported targets and unavailable contracts remain
+diagnostic-only; no renderer-native or `production-ready` specular claim is
+implied.
 
 ## Material override persistence
 

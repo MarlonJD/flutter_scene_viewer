@@ -58,6 +58,9 @@ Report these explicitly:
   `KHR_materials_volume` behavior;
 - unsupported clearcoat material requests when the adapter target does not
   expose real `KHR_materials_clearcoat` behavior;
+- unsupported sheen requests when the selected policy/backend is unavailable,
+  an authored texture requests a UV set outside the package reader's UV0
+  boundary, or the material combination exceeds the native sampler contract;
 - ambiguous node path;
 - missing primitive index;
 - model exceeds configured size limits;
@@ -131,21 +134,27 @@ and material static resources.
 Runtime material texture override diagnostics are based on the availability of
 UV0 / `TEXCOORD_0`. Later UV channels may exist for authored uses such as
 lightmaps, but the viewer must not substitute them for runtime albedo, normal,
-metallic-roughness, emissive, or occlusion texture overrides.
+metallic-roughness, emissive, or occlusion texture overrides. A pure
+renderer-native sheen texture patch is the only narrow exception: its binding
+may explicitly select UV1 only when the primitive exposes the exact
+`texture_coords_1` semantic. That check does not invent or reinterpret UVs and
+does not expand the package-authored reader beyond UV0.
 
 The loader also performs a bounded package-local read of the binary `.glb`
-JSON chunk to preserve authored material extension intent that the installed
+JSON chunk to preserve authored material extension intent for viewer policy,
+diagnostics, and package-owned routes, including fields the installed
 `flutter_scene` importer does not expose. This reader verifies the GLB magic,
 version 2 header, declared length, and JSON chunk shape, then maps
 `KHR_materials_transmission`, `KHR_materials_ior`, `KHR_materials_volume`, and
 `KHR_materials_clearcoat` fields to internal `MaterialPatch` intent. V2 also
-preserves `KHR_materials_specular` scalar, color, and texture intent for
-assets whose renderer cannot yet consume those fields. BufferView-backed GLB
+preserves `KHR_materials_specular` and `KHR_materials_sheen` scalar, color,
+roughness, and texture intent for assets whose selected route can consume those
+fields. BufferView-backed GLB
 images referenced by transmission, thickness, clearcoat, clearcoat roughness,
-clearcoat normal, specular, and specular color textureInfo fields are copied
-into the authored patch instead of using placeholder texture bytes. Malformed
-extension values report `invalidMaterialOverride` diagnostics instead of
-throwing.
+clearcoat normal, specular, specular color, sheen color, and sheen roughness
+textureInfo fields are copied into the authored patch instead of using
+placeholder texture bytes. Malformed extension values report
+`invalidMaterialOverride` diagnostics instead of throwing.
 Authored extension texture slots require `TEXCOORD_0`; UV1 is not substituted
 and UVs are never generated. Missing-UV diagnostics name the texture slots that
 triggered the requirement. If an authored extension texture explicitly requests
@@ -195,8 +204,9 @@ the normal texture path, and metallic-roughness/occlusion maps through the data
 texture path, using the existing `flutter_scene` `TextureContent`-aware mipmap
 pipeline. Authored material extension texture bytes flow through the same
 patch mechanism, with transmission, thickness, clearcoat factor, clearcoat
-roughness, and specular factor as data textures; clearcoat normal as a normal
-texture; and specular color as preserved specular intent.
+roughness, specular factor, and sheen roughness as data textures; clearcoat
+normal as a normal texture; and specular color plus sheen color as preserved
+sRGB color intent.
 
 Imported texture patching also has one narrow repair for malformed textile GLBs
 observed in A1B32-style exports: when a back-side material authors an `R_0*`
@@ -333,15 +343,27 @@ supported imported materials onto a lit or unlit base material. Runtime
 
 `FlutterSceneViewer.materialExtensionPolicy` is the viewer-side capability
 gate for advanced material extension validation. The default diagnostics-only
-policy reports unsupported glass and clearcoat before those patches reach the
-adapter or persistence store. The source-compatible `productionShaders()` name
-opts into the complete native material contract at pinned `flutter_scene`
-revision `5dcf6fce7dc36719e64e536faba9538fe9fa1022`. The adapter routes available
-transmission, glass IOR, volume, and clearcoat patches through
-`backendKind: rendererNative`; package-local shader preflight remains a
-compatibility fallback and proves routing only, not physical-device release
-readiness. The adapter/backend must still return diagnostics for any feature it
-cannot honestly render.
+policy reports unsupported glass, clearcoat, and sheen before those patches
+reach the adapter or persistence store. Sheen stays disabled unless
+`enableSheen: true` is selected. The source-compatible
+`productionShaders()` name opts into the complete native material contract at
+pinned `flutter_scene` revision
+`766351c865c621e8720c726f9aa51173ce76e786`. The adapter routes available
+transmission, glass IOR, volume, clearcoat, and supported pure standard-PBR
+sheen patches through `backendKind: rendererNative`; package-local shader
+preflight remains a compatibility fallback and proves routing only, not
+physical-device release readiness. The adapter/backend must still return
+diagnostics for any feature or composition state it cannot honestly preserve.
+
+Material routing is primitive-local. Nonidentity core texture transforms,
+specular, and opaque-IOR behavior are package-owned by one coherent
+`FSViewerExtendedPbr` instance. Existing extended state stays on that path when
+candidate sheen or scalar clearcoat is composed. Renderer-native
+transmission/volume is never replaced by the extended material; a conflicting
+patch fails before decode and mutation. Active transmission plus active sheen
+plus textured clearcoat is also blocked at the portable fragment-sampler limit,
+while scalar clearcoat remains compatible with the native sheen/transmission
+variant. There is no asset-name route and no public renderer-internal BRDF API.
 
 Historically, the `.fmat` material packaging path used `hook/build.dart` and
 `flutter_scene/build_hooks.dart` `buildMaterials(...)`. Task 011 hardens the
@@ -371,6 +393,13 @@ enforces that boundary and stores generated artifacts only below ignored
 `tools/out/`. Device discovery is not runtime or packaging evidence; Android
 capture is currently `blocked`, all new target claims remain `not run`, and
 the aggregate is `release pending`.
+
+Plan 018 rows keep five facts separate: application, runtime availability,
+visual evidence, target evidence, and maturity. The scalar sheen-on control is
+`rendererNative`, sheen-off is `none`, runtime is available, and iOS Simulator
+target plus visual evidence are `verified locally`; maturity remains `release
+pending`. Candidate textile/ToyCar rows retain their historical
+`candidate-only` identity.
 
 The 2026-07-03 historical `flutter_scene` 0.18.1 target did not expose
 real transmission/glass or clearcoat support. The local audit found no public
@@ -408,6 +437,24 @@ Khronos and synthetic evidence is `verified locally` on the iOS Simulator with
 the immutable Git dependency and no path override. Release maturity remains
 `release pending`, production readiness is `false`, and untested targets remain
 `not run`.
+
+The current viewer pin
+`766351c865c621e8720c726f9aa51173ce76e786` retains those native clearcoat and
+transmission/volume contracts and adds renderer-native `KHR_materials_sheen`.
+Upstream owns the native sheen fields/import, Charlie direct and image-based
+lighting, real DFG-B directional albedo, lazy Charlie environment prefiltering,
+authored UV metadata, shader variants, sampler limits, and layering below
+clearcoat. The viewer owns public intent, package-authored UV0 parsing, policy,
+diagnostics, persistence/reset, composition, and evidence.
+
+The renderer-native scalar control records application `rendererNative` for
+sheen-on and `none` for sheen-off, runtime availability, and iOS Simulator
+target plus visual evidence `verified locally`. Feature maturity is `release
+pending`. Physical iOS, Android, Web, external-reference comparison, physical
+correctness, general pixel parity, release, and `production-ready` evidence are
+`not run` or `release pending`. The prior four-model textile/ToyCar capture at
+`8e2e2221405b04c517189428d0faf8474cf7f708` remains historical
+`candidate-only` evidence and is not relabeled renderer-native.
 
 Remaining upstream material-extension opportunities include first-class
 `KHR_materials_specular` and opaque-only IOR fields so those package-local

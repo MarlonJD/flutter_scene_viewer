@@ -1,0 +1,36 @@
+name: plan018_flutter_ios_harness
+description: Disposable Plan 018 iOS Simulator evidence harness.
+publish_to: none
+version: 0.0.0+1
+
+environment:
+  sdk: ">=3.6.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  crypto: 3.0.7
+  flutter_scene_viewer:
+    path: ../../../../..
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  integration_test:
+    sdk: flutter
+  flutter_driver:
+    sdk: flutter
+
+flutter:
+  assets:
+    - assets/plan018_controlled_comparison_state.json
+    - assets/plan018_capture_inventory.json
+    - assets/plan018_renderer_native_scalar_sheen_control_state.json
+    - assets/plan018_renderer_native_control_capture_inventory.json
+    - assets/plan018_controlled_studio.hdr
+    - assets/models/sheen_chair.glb
+    - assets/models/sheen_cloth.glb
+    - assets/models/glam_velvet_sofa.glb
+    - assets/models/toycar.glb
+    - assets/models/renderer_native_scalar_sheen_on.glb
+    - assets/models/renderer_native_scalar_sheen_off.glb

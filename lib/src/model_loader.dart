@@ -506,6 +506,70 @@ final class ModelLoader {
             debugName: loaded.debugName,
           )
         : GlbMaterialExtensionReaderResult.empty;
+    var authoredSheenCapabilityResult = _AuthoredSheenCapabilityResult.empty;
+    if (isGlb) {
+      var authoredPreflightClosed = false;
+      final authoredPreflight = _authoredSheenCapabilityDiagnostics(
+        capabilityResult: capabilityResult,
+        authoredResult: authoredExtensionResult,
+        support: materialExtensionPolicy.support,
+        source: loaded.debugName,
+        adapter: adapter,
+        isClosed: () =>
+            authoredPreflightClosed ||
+            (cancellationToken?.isCancelled ?? false),
+      );
+      final terminal = await _firstAuthoredSheenPreflightTerminal(
+        authoredPreflight,
+        cancellationToken: cancellationToken,
+      );
+      authoredPreflightClosed = true;
+      switch (terminal) {
+        case _AuthoredSheenPreflightSucceeded(:final value):
+          authoredSheenCapabilityResult = value;
+          break;
+        case _AuthoredSheenPreflightFailed(:final error):
+          final diagnostic = ViewerDiagnostic(
+            code: ViewerDiagnosticCode.adapterFailure,
+            message:
+                'The configured adapter failed to preflight authored sheen intent.',
+            details: <String, Object?>{
+              'source': loaded.debugName,
+              'stage': 'authoredMaterialPreflight',
+              'extension': 'KHR_materials_sheen',
+              'feature': 'sheen',
+              'status': 'blocked',
+              'materialReplaced': false,
+              'encodedBytesModified': false,
+              'error': error.toString(),
+            },
+          );
+          return ModelLoadResult.failure(
+            diagnostic,
+            diagnostics: <ViewerDiagnostic>[
+              ...nativeDecoderDiagnostics,
+              ...capabilityResult.diagnostics,
+              ...authoredExtensionResult.diagnostics,
+              diagnostic,
+            ],
+          );
+        case _AuthoredSheenPreflightCancelled():
+          return _cancelledResult(
+            source,
+            cancellationToken!,
+            stage: 'authoredMaterialPreflight',
+          );
+        case _AuthoredSheenPreflightTimedOut():
+          return ModelLoadResult.failure(
+            _timeoutDiagnostic(source),
+            diagnostics: <ViewerDiagnostic>[
+              ...nativeDecoderDiagnostics,
+              ...capabilityResult.diagnostics,
+              ...authoredExtensionResult.diagnostics,
+            ],
+          );
+      }
+    }
     final importedTexturePatchResult = isGlb
         ? readGlbImportedTexturePatches(
             importBytes,
@@ -534,6 +598,7 @@ final class ModelLoader {
       ...capabilityResult.diagnostics,
       ...importedTextureDiagnostics,
       ...authoredExtensionResult.diagnostics,
+      ...authoredSheenCapabilityResult.diagnostics,
     ];
     final blockingTextureBindingDiagnostic =
         _blockingTextureBindingDiagnostic(preImportDiagnostics);
@@ -570,6 +635,10 @@ final class ModelLoader {
               importBytes,
               debugName: loaded.debugName,
               materialShadingPolicy: materialShadingPolicy,
+              authoredSheenCoreFallbacks:
+                  authoredSheenCapabilityResult.coreFallbackAddresses,
+              authoredSheenGlobalCoreFallback:
+                  authoredSheenCapabilityResult.globalCoreFallback,
               tryAcceptPublication: acceptPublication,
             )
             .timeout(options.timeout);
@@ -581,6 +650,10 @@ final class ModelLoader {
               bindingPlan: bindingPlan,
               debugName: loaded.debugName,
               materialShadingPolicy: materialShadingPolicy,
+              authoredSheenCoreFallbacks:
+                  authoredSheenCapabilityResult.coreFallbackAddresses,
+              authoredSheenGlobalCoreFallback:
+                  authoredSheenCapabilityResult.globalCoreFallback,
               isLoadCancelled: () => cancellationToken?.isCancelled ?? false,
               tryAcceptPublication: acceptPublication,
             )
@@ -782,6 +855,36 @@ final class ModelLoader {
     }
   }
 
+  Future<_AuthoredSheenPreflightTerminal> _firstAuthoredSheenPreflightTerminal(
+    Future<_AuthoredSheenCapabilityResult> operation, {
+    ModelLoadCancellationToken? cancellationToken,
+  }) async {
+    final timeout = Completer<_AuthoredSheenPreflightTerminal>();
+    final timer = Timer(
+      options.timeout,
+      () => timeout.complete(const _AuthoredSheenPreflightTimedOut()),
+    );
+    try {
+      return await Future.any<_AuthoredSheenPreflightTerminal>(
+        <Future<_AuthoredSheenPreflightTerminal>>[
+          operation.then<_AuthoredSheenPreflightTerminal>(
+            _AuthoredSheenPreflightSucceeded.new,
+            onError: (Object error, StackTrace _) =>
+                _AuthoredSheenPreflightFailed(error),
+          ),
+          if (cancellationToken != null)
+            cancellationToken.whenCancelled
+                .then<_AuthoredSheenPreflightTerminal>(
+              (_) => const _AuthoredSheenPreflightCancelled(),
+            ),
+          timeout.future,
+        ],
+      );
+    } finally {
+      timer.cancel();
+    }
+  }
+
   Future<_LoadedModelBytes> _loadAssetBytes(AssetModelSource source) async {
     try {
       final byteData = await assetBundle.load(source.assetPath);
@@ -954,6 +1057,34 @@ final class _SourceAcquisitionCancelled extends _SourceAcquisitionTerminal {
 
 final class _SourceAcquisitionTimedOut extends _SourceAcquisitionTerminal {
   const _SourceAcquisitionTimedOut();
+}
+
+sealed class _AuthoredSheenPreflightTerminal {
+  const _AuthoredSheenPreflightTerminal();
+}
+
+final class _AuthoredSheenPreflightSucceeded
+    extends _AuthoredSheenPreflightTerminal {
+  const _AuthoredSheenPreflightSucceeded(this.value);
+
+  final _AuthoredSheenCapabilityResult value;
+}
+
+final class _AuthoredSheenPreflightFailed
+    extends _AuthoredSheenPreflightTerminal {
+  const _AuthoredSheenPreflightFailed(this.error);
+
+  final Object error;
+}
+
+final class _AuthoredSheenPreflightCancelled
+    extends _AuthoredSheenPreflightTerminal {
+  const _AuthoredSheenPreflightCancelled();
+}
+
+final class _AuthoredSheenPreflightTimedOut
+    extends _AuthoredSheenPreflightTerminal {
+  const _AuthoredSheenPreflightTimedOut();
 }
 
 final class _LoadScopedNetworkRequest {
@@ -1146,6 +1277,228 @@ ViewerDiagnostic? _blockingTextureBindingDiagnostic(
     }
   }
   return null;
+}
+
+final class _AuthoredSheenCapabilityResult {
+  const _AuthoredSheenCapabilityResult({
+    this.diagnostics = const <ViewerDiagnostic>[],
+    this.coreFallbackAddresses = const <PartAddress>{},
+    this.globalCoreFallback = false,
+  });
+
+  static const empty = _AuthoredSheenCapabilityResult();
+
+  final List<ViewerDiagnostic> diagnostics;
+  final Set<PartAddress> coreFallbackAddresses;
+  final bool globalCoreFallback;
+}
+
+Future<_AuthoredSheenCapabilityResult> _authoredSheenCapabilityDiagnostics({
+  required GlbAssetCapabilityResult capabilityResult,
+  required GlbMaterialExtensionReaderResult authoredResult,
+  required MaterialExtensionSupport support,
+  required String source,
+  required FlutterSceneAdapter adapter,
+  bool Function()? isClosed,
+}) async {
+  const extension = 'KHR_materials_sheen';
+  if ((capabilityResult.materialExtensionCounts[extension] ?? 0) == 0) {
+    return _AuthoredSheenCapabilityResult.empty;
+  }
+  final parsedEntries = authoredResult.patches.entries
+      .where(
+        (entry) => entry.value.containsKey(MaterialExtensionPatchGroup.sheen),
+      )
+      .toList(growable: false);
+  final rejectedAddresses = authoredResult.rejectedSheenPatchAddresses;
+  final required = capabilityResult.extensionsRequired.contains(extension);
+  final hasAmbiguousSheenPatchAddresses =
+      authoredResult.hasAmbiguousSheenPatchAddresses;
+  final requiresGlobalCoreFallback =
+      !required && hasAmbiguousSheenPatchAddresses;
+  if (parsedEntries.isEmpty &&
+      rejectedAddresses.isEmpty &&
+      !hasAmbiguousSheenPatchAddresses) {
+    return _AuthoredSheenCapabilityResult.empty;
+  }
+  final parsedAddresses = <PartAddress>{
+    for (final entry in parsedEntries) entry.key,
+  };
+  if (parsedEntries.isEmpty) {
+    return _AuthoredSheenCapabilityResult(
+      coreFallbackAddresses:
+          required ? const <PartAddress>{} : rejectedAddresses,
+      globalCoreFallback: requiresGlobalCoreFallback,
+    );
+  }
+  final affectedAddresses = <PartAddress>{
+    ...parsedAddresses,
+    ...rejectedAddresses,
+  };
+  if (support.supportFor(MaterialExtensionFeature.sheen).available) {
+    if (adapter is! FlutterSceneAuthoredMaterialPreflightAdapter) {
+      return _AuthoredSheenCapabilityResult(
+        diagnostics: <ViewerDiagnostic>[
+          _authoredSheenPreflightDiagnostic(
+            const ViewerDiagnostic(
+              code: ViewerDiagnosticCode.unsupportedMaterialFeature,
+              message:
+                  'The configured adapter cannot preflight package-local sheen resources.',
+              details: <String, Object?>{
+                'limitation': 'authoredSheenPreflightAdapterUnavailable',
+                'status': 'blocked',
+                'materialReplaced': false,
+                'encodedBytesModified': false,
+              },
+            ),
+            source: source,
+            required: required,
+            global: true,
+          ),
+        ],
+        coreFallbackAddresses:
+            required ? const <PartAddress>{} : affectedAddresses,
+        globalCoreFallback: requiresGlobalCoreFallback,
+      );
+    }
+    final diagnostics = <ViewerDiagnostic>[];
+    final coreFallbackAddresses = <PartAddress>{
+      if (!required) ...rejectedAddresses,
+    };
+    final preflightAdapter =
+        adapter as FlutterSceneAuthoredMaterialPreflightAdapter;
+    for (final entry in parsedEntries) {
+      if (isClosed?.call() ?? false) {
+        return _AuthoredSheenCapabilityResult(
+          diagnostics: List<ViewerDiagnostic>.unmodifiable(diagnostics),
+          coreFallbackAddresses:
+              Set<PartAddress>.unmodifiable(coreFallbackAddresses),
+          globalCoreFallback: requiresGlobalCoreFallback,
+        );
+      }
+      var combinedPatch = const MaterialPatch();
+      for (final group in MaterialExtensionPatchGroup.values) {
+        final groupPatch = entry.value[group];
+        if (groupPatch != null) {
+          combinedPatch = combinedPatch.merge(groupPatch);
+        }
+      }
+      final failure = await preflightAdapter.preflightAuthoredMaterialPatch(
+        address: entry.key,
+        patch: combinedPatch,
+      );
+      if (isClosed?.call() ?? false) {
+        return _AuthoredSheenCapabilityResult(
+          diagnostics: List<ViewerDiagnostic>.unmodifiable(diagnostics),
+          coreFallbackAddresses:
+              Set<PartAddress>.unmodifiable(coreFallbackAddresses),
+          globalCoreFallback: requiresGlobalCoreFallback,
+        );
+      }
+      if (failure == null) {
+        continue;
+      }
+      final globalFailure = _isGlobalAuthoredSheenPreflightFailure(failure);
+      diagnostics.add(
+        _authoredSheenPreflightDiagnostic(
+          failure,
+          source: source,
+          required: required,
+          address: entry.key,
+          global: globalFailure,
+        ),
+      );
+      if (!required) {
+        if (globalFailure) {
+          coreFallbackAddresses.addAll(affectedAddresses);
+        } else {
+          coreFallbackAddresses.add(entry.key);
+        }
+      }
+      if (required || globalFailure) {
+        return _AuthoredSheenCapabilityResult(
+          diagnostics: List<ViewerDiagnostic>.unmodifiable(diagnostics),
+          coreFallbackAddresses:
+              Set<PartAddress>.unmodifiable(coreFallbackAddresses),
+          globalCoreFallback: requiresGlobalCoreFallback,
+        );
+      }
+    }
+    return _AuthoredSheenCapabilityResult(
+      diagnostics: List<ViewerDiagnostic>.unmodifiable(diagnostics),
+      coreFallbackAddresses:
+          Set<PartAddress>.unmodifiable(coreFallbackAddresses),
+      globalCoreFallback: requiresGlobalCoreFallback,
+    );
+  }
+  return _AuthoredSheenCapabilityResult(
+    diagnostics: <ViewerDiagnostic>[
+      ViewerDiagnostic(
+        code: ViewerDiagnosticCode.unsupportedMaterialFeature,
+        message:
+            'Authored KHR_materials_sheen requires a backend that consumes every sheen field.',
+        details: <String, Object?>{
+          'source': source,
+          'feature': 'sheen',
+          'extension': extension,
+          'required': required,
+          'blocking': required,
+          'status': 'unsupported',
+          'fallback': required ? 'none' : 'coreMaterial',
+          'parsedIntentPreserved': true,
+          'renderingEvidence': 'not run',
+        },
+      ),
+    ],
+    globalCoreFallback: requiresGlobalCoreFallback,
+  );
+}
+
+ViewerDiagnostic _authoredSheenPreflightDiagnostic(
+  ViewerDiagnostic failure, {
+  required String source,
+  required bool required,
+  PartAddress? address,
+  bool global = false,
+}) {
+  final failureDetails = <String, Object?>{...failure.details};
+  if (global) {
+    failureDetails.remove('part');
+    failureDetails.remove('partAddress');
+  } else if (address != null) {
+    failureDetails['part'] = address.debugPath;
+    failureDetails['partAddress'] = address.toJson();
+  }
+  return ViewerDiagnostic(
+    code: failure.code,
+    message: failure.message,
+    details: <String, Object?>{
+      ...failureDetails,
+      'source': source,
+      if (failure.details['feature'] != null)
+        'preflightFeature': failure.details['feature'],
+      'feature': 'sheen',
+      'extension': 'KHR_materials_sheen',
+      'required': required,
+      'blocking': required,
+      'status': required ? 'blocked' : 'unsupported',
+      'fallback': required ? 'none' : 'coreMaterial',
+      'parsedIntentPreserved': true,
+      'renderingEvidence': 'not run',
+      'materialReplaced': false,
+      'encodedBytesModified': false,
+    },
+  );
+}
+
+bool _isGlobalAuthoredSheenPreflightFailure(ViewerDiagnostic failure) {
+  return switch (failure.details['limitation']) {
+    'sheenCandidateNotEnabled' ||
+    'sheenCandidateBackendUnavailable' ||
+    'sheenDirectionalAlbedoResourceUnavailable' =>
+      true,
+    _ => false,
+  };
 }
 
 ViewerDiagnostic? _nativeDiagnosticFor(

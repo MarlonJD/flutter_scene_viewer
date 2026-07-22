@@ -457,6 +457,62 @@ void main() {
         <String>['clearcoatTexture']);
   });
 
+  test('supported sheen texture diagnostics name only requested fields',
+      () async {
+    final binding = MaterialTextureBinding(
+      source: const TextureSource.asset('assets/sheen-binding.png'),
+    );
+    final cases = <({String field, MaterialPatch patch})>[
+      (
+        field: 'sheenColorTexture',
+        patch: const MaterialPatch(
+          sheenColorTexture: TextureSource.asset('assets/sheen-color.png'),
+        ),
+      ),
+      (
+        field: 'sheenColorTextureBinding',
+        patch: MaterialPatch(sheenColorTextureBinding: binding),
+      ),
+      (
+        field: 'sheenRoughnessTexture',
+        patch: const MaterialPatch(
+          sheenRoughnessTexture:
+              TextureSource.asset('assets/sheen-roughness.png'),
+        ),
+      ),
+      (
+        field: 'sheenRoughnessTextureBinding',
+        patch: MaterialPatch(sheenRoughnessTextureBinding: binding),
+      ),
+    ];
+
+    for (final testCase in cases) {
+      final controller = FlutterSceneViewerController();
+      final sink = MaterialSink(
+        partTree: _treeFor(address, hasTexCoords: false),
+        materialExtensionSupport: _materialExtensionSupport(
+          const <MaterialExtensionFeature>{MaterialExtensionFeature.sheen},
+        ),
+      );
+      controller.attach(sink);
+      await controller.load(ModelSource.bytes(Uint8List.fromList(<int>[1])));
+
+      await controller.setPartMaterial(address, testCase.patch);
+
+      expect(sink.materialCalls, isEmpty, reason: testCase.field);
+      expect(controller.materialOverrides.patchFor(address), isNull,
+          reason: testCase.field);
+      final diagnostic = controller.diagnostics.single;
+      expect(diagnostic.code, ViewerDiagnosticCode.missingUvSet,
+          reason: testCase.field);
+      expect(
+        diagnostic.details['textureSlots'],
+        <String>[testCase.field],
+        reason: testCase.field,
+      );
+    }
+  });
+
   test('setPartTexture applies texture when UVs exist', () async {
     final controller = FlutterSceneViewerController();
     final sink = MaterialSink(partTree: _treeFor(address));
@@ -743,6 +799,93 @@ void main() {
       controller.diagnostics.single.details['extensions'],
       contains('KHR_materials_specular'),
     );
+  });
+
+  test('authored IOR specular sheen clearcoat yield one combined material',
+      () async {
+    final source = flutter_scene.PhysicallyBasedMaterial();
+    final body = flutter_scene.Node(
+      name: 'Body',
+      mesh: flutter_scene.Mesh(_AdapterUvGeometry(), source),
+    );
+    final root = flutter_scene.Node(name: 'Root')..children.add(body);
+    final backend = _ControllerExtendedPbrBackend();
+    const policy = ViewerMaterialExtensionPolicy.productionShaders(
+      enableSheen: true,
+    );
+    final support = _materialExtensionSupport(
+      const <MaterialExtensionFeature>{
+        MaterialExtensionFeature.ior,
+        MaterialExtensionFeature.specular,
+        MaterialExtensionFeature.sheen,
+        MaterialExtensionFeature.clearcoat,
+      },
+      backendKind: MaterialExtensionBackendKind.rendererNative,
+    );
+    final runtimeAdapter = FlutterSceneRuntimeAdapter(
+      materialExtensionPolicy: policy,
+      extendedPbrBackend: backend,
+    );
+    final preflightDiagnostic =
+        await runtimeAdapter.preflightAuthoredMaterialPatch(
+      address: address,
+      patch: const MaterialPatch(
+        ior: 1.45,
+        specular: 0.6,
+        specularColorFactor: <double>[0.8, 0.7, 0.6],
+        sheenColorFactor: <double>[0.4, 0.3, 0.2],
+        sheenRoughness: 0.55,
+        clearcoat: 0.9,
+        clearcoatRoughness: 0.25,
+      ),
+    );
+    expect(preflightDiagnostic, isNull);
+    final sink = AdapterMaterialSink(
+      root: root,
+      partTree: _treeFor(address),
+      materialExtensionSupport: support,
+      authoredCoreMaterialPatches: const <PartAddress, MaterialPatch>{},
+      authoredExtensionMaterialPatches: <PartAddress,
+          Map<MaterialExtensionPatchGroup, MaterialPatch>>{
+        address: <MaterialExtensionPatchGroup, MaterialPatch>{
+          MaterialExtensionPatchGroup.opaqueIor: const MaterialPatch(ior: 1.45),
+          MaterialExtensionPatchGroup.specular: const MaterialPatch(
+            specular: 0.6,
+            specularColorFactor: <double>[0.8, 0.7, 0.6],
+          ),
+          MaterialExtensionPatchGroup.clearcoat: const MaterialPatch(
+            clearcoat: 0.9,
+            clearcoatRoughness: 0.25,
+          ),
+          MaterialExtensionPatchGroup.sheen: const MaterialPatch(
+            sheenColorFactor: <double>[0.4, 0.3, 0.2],
+            sheenRoughness: 0.55,
+          ),
+        },
+      },
+      runtimeAdapter: runtimeAdapter,
+      materialExtensionPolicy: policy,
+    );
+    final controller = FlutterSceneViewerController()..attach(sink);
+
+    await controller.load(ModelSource.bytes(Uint8List.fromList(<int>[1])));
+
+    expect(controller.diagnostics, isEmpty);
+    expect(body.mesh!.primitives, hasLength(1));
+    final material = body.mesh!.primitives.single.material;
+    expect(material, same(backend.created.last));
+    expect(material, isA<FlutterSceneExtendedPbrState>());
+    final retained = material as FlutterSceneExtendedPbrState;
+    expect(retained.ior, 1.45);
+    expect(retained.specularFactor, 0.6);
+    expect(retained.specularColorFactor, <double>[0.8, 0.7, 0.6]);
+    expect(retained.hasSheenIntent, isTrue);
+    expect(retained.sheenColorFactor, <double>[0.4, 0.3, 0.2]);
+    expect(retained.sheenRoughness, 0.55);
+    final pbr = material as flutter_scene.PhysicallyBasedMaterial;
+    expect(pbr.clearcoatFactor, 0.9);
+    expect(pbr.clearcoatRoughnessFactor, 0.25);
+    expect(sink.renderRequests, 1);
   });
 
   test('unavailable extended shader rejects opaque IOR atomically', () async {
@@ -1539,6 +1682,8 @@ Map<MaterialTextureSlot, MaterialTextureBinding?> _bindingFields(
     MaterialTextureSlot.clearcoatNormal: patch.clearcoatNormalTextureBinding,
     MaterialTextureSlot.specular: patch.specularTextureBinding,
     MaterialTextureSlot.specularColor: patch.specularColorTextureBinding,
+    MaterialTextureSlot.sheenColor: patch.sheenColorTextureBinding,
+    MaterialTextureSlot.sheenRoughness: patch.sheenRoughnessTextureBinding,
   };
 }
 
@@ -1741,17 +1886,35 @@ final class AdapterMaterialSink implements ViewerCommandSink {
 }
 
 final class _ControllerExtendedPbrBackend
-    implements FlutterSceneExtendedPbrMaterialBackend {
+    implements
+        FlutterSceneExtendedPbrMaterialBackend,
+        FlutterSceneSheenMaterialBackend {
   final List<FlutterSceneExtendedPbrMaterialConfig> configs =
       <FlutterSceneExtendedPbrMaterialConfig>[];
   final List<flutter_scene.PhysicallyBasedMaterial> created =
       <flutter_scene.PhysicallyBasedMaterial>[];
+  final List<FlutterSceneExtendedPbrResourceRequest> sheenRequests =
+      <FlutterSceneExtendedPbrResourceRequest>[];
+  bool _isSheenReady = false;
 
   @override
   bool get isReady => true;
 
   @override
+  bool get isSheenReady => _isSheenReady;
+
+  @override
   Future<ViewerDiagnostic?> preflight(PartAddress address) async => null;
+
+  @override
+  Future<ViewerDiagnostic?> preflightSheen(
+    PartAddress address, {
+    required FlutterSceneExtendedPbrResourceRequest request,
+  }) async {
+    sheenRequests.add(request);
+    _isSheenReady = true;
+    return null;
+  }
 
   @override
   Future<flutter_scene.PhysicallyBasedMaterial> createMaterial(
@@ -1776,10 +1939,22 @@ final class _ControllerExtendedPbrMaterial extends flutter_scene
           config.specularColorFactor,
         ),
         specularFactorTexture = config.specularFactorTexture,
-        specularColorTexture = config.specularColorTexture {
+        specularColorTexture = config.specularColorTexture,
+        hasSheenIntent = config.hasSheenIntent,
+        retainedSheenColorFactor =
+            List<double>.unmodifiable(config.sheenColorFactor),
+        sheenRoughness = config.sheenRoughness {
     ior = config.ior;
+    sheenColorTexture = config.sheenColorTexture;
+    sheenRoughnessTexture = config.sheenRoughnessTexture;
     metallicFactor = config.source.metallicFactor;
     roughnessFactor = config.source.roughnessFactor;
+    clearcoatFactor = config.source.clearcoatFactor;
+    clearcoatRoughnessFactor = config.source.clearcoatRoughnessFactor;
+    clearcoatTexture = config.source.clearcoatTexture;
+    clearcoatRoughnessTexture = config.source.clearcoatRoughnessTexture;
+    clearcoatNormalTexture = config.source.clearcoatNormalTexture;
+    clearcoatNormalScale = config.source.clearcoatNormalScale;
   }
 
   @override
@@ -1792,6 +1967,12 @@ final class _ControllerExtendedPbrMaterial extends flutter_scene
   final flutter_scene.TextureSource? specularFactorTexture;
   @override
   final flutter_scene.TextureSource? specularColorTexture;
+  @override
+  final bool hasSheenIntent;
+  @override
+  final List<double> retainedSheenColorFactor;
+  @override
+  final double sheenRoughness;
 }
 
 final class _ControllerTextureFactory implements FlutterSceneTextureFactory {

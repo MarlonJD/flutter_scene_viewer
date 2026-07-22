@@ -16,6 +16,8 @@ enum MaterialTextureSlot {
   clearcoatNormal,
   specular,
   specularColor,
+  sheenColor,
+  sheenRoughness,
 }
 
 enum TextureWrapMode { clampToEdge, mirroredRepeat, repeat }

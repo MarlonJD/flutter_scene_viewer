@@ -37,6 +37,7 @@ TARGET_LABELS = {
 }
 HOST_STAGE_KEYS = ("parsed", "preserved", "decoded")
 TARGET_ROW_KEYS = (
+    "applicationKind",
     "applied",
     "visuallyVerified",
     "runtimeCapability",
@@ -53,12 +54,104 @@ MATURITY_VALUES = {
 EVIDENCE_VALUES = {"not run", "verified locally"}
 APPLIED_VALUES = {"blocked", "not run", "unsupported", "verified locally"}
 RUNTIME_CAPABILITY_VALUES = {
+    "available",
     "diagnostic-only",
     "candidate-only availability",
     "candidate-only native plugin",
     "candidate-only pure-Dart rewrite",
     "unsupported",
     "production-ready",
+    "not run",
+}
+APPLICATION_KIND_VALUES = {
+    "not recorded",
+    "not run",
+    "rendererNative",
+}
+PLAN018_RENDERER_NATIVE_EVIDENCE_PATH = (
+    "tools/out/material_extension_acceptance/plan018_controlled_comparison/"
+    "ios_simulator/renderer-native-run-05/evidence.json"
+)
+PLAN018_RENDERER_NATIVE_EVIDENCE_SHA256 = (
+    "9f4d3e1b2c561174c9426ad0da653f09c8c3d8ab7494bdfa7dcdf06d121f74da"
+)
+PLAN018_HISTORICAL_CANDIDATE_EVIDENCE_PATH = (
+    "tools/out/material_extension_acceptance/plan018_controlled_comparison/"
+    "ios_simulator/candidate-run-14/evidence.json"
+)
+PLAN018_HISTORICAL_CANDIDATE_EVIDENCE_SHA256 = (
+    "87cb87f7ecce3b5916ae72896d1b7980ca6d950ef18a2aed2165734cb8d05cbb"
+)
+PLAN018_SHEEN_EVIDENCE = {
+    "rendererNative": {
+        "path": PLAN018_RENDERER_NATIVE_EVIDENCE_PATH,
+        "sha256": PLAN018_RENDERER_NATIVE_EVIDENCE_SHA256,
+        "applicationKind": "rendererNative",
+        "visualEvidence": "verified locally",
+        "runtimeAvailability": "available",
+        "maturity": "release pending",
+        "targetEvidence": "verified locally",
+    },
+    "historicalCandidate": {
+        "path": PLAN018_HISTORICAL_CANDIDATE_EVIDENCE_PATH,
+        "sha256": PLAN018_HISTORICAL_CANDIDATE_EVIDENCE_SHA256,
+        "applicationKind": "packageLocalCandidate",
+        "executionEvidence": "verified locally",
+        "visualEvidence": "not run",
+        "maturity": "candidate-only",
+        "targetEvidence": "not run",
+    },
+}
+PLAN018_SHEEN_TARGET_ROWS = {
+    "ios_simulator": {
+        "applicationKind": "rendererNative",
+        "applied": "verified locally",
+        "visuallyVerified": "verified locally",
+        "runtimeCapability": "available",
+        "releaseMaturity": "release pending",
+        "targetEvidence": "verified locally",
+        "blocker": (
+            "renderer-local scalar sheen on/off evidence is recorded at "
+            f"{PLAN018_RENDERER_NATIVE_EVIDENCE_PATH}; release and "
+            "production-ready evidence remain not run"
+        ),
+    },
+    "ios_physical": {
+        "applicationKind": "not run",
+        "applied": "not run",
+        "visuallyVerified": "not run",
+        "runtimeCapability": "not run",
+        "releaseMaturity": "release pending",
+        "targetEvidence": "not run",
+        "blocker": (
+            "no physical-iOS renderer-native sheen runtime/render or "
+            "release-packaging run"
+        ),
+    },
+    "android": {
+        "applicationKind": "not run",
+        "applied": "not run",
+        "visuallyVerified": "not run",
+        "runtimeCapability": "not run",
+        "releaseMaturity": "release pending",
+        "targetEvidence": "not run",
+        "blocker": (
+            "no Android renderer-native sheen runtime/render or "
+            "release-packaging run"
+        ),
+    },
+    "web": {
+        "applicationKind": "not run",
+        "applied": "not run",
+        "visuallyVerified": "not run",
+        "runtimeCapability": "not run",
+        "releaseMaturity": "release pending",
+        "targetEvidence": "not run",
+        "blocker": (
+            "no Web renderer-native sheen runtime/render or "
+            "release-packaging run"
+        ),
+    },
 }
 HISTORICAL_PLAN014_IOS_SIMULATOR_EVIDENCE = (
     "tools/out/material_extension_acceptance/"
@@ -66,6 +159,7 @@ HISTORICAL_PLAN014_IOS_SIMULATOR_EVIDENCE = (
 )
 HISTORICAL_PLAN014_VERIFIED_TARGET_ROWS = {
     ("KHR_texture_transform", "ios_simulator"): {
+        "applicationKind": "not recorded",
         "applied": "verified locally",
         "visuallyVerified": "verified locally",
         "runtimeCapability": "candidate-only availability",
@@ -78,6 +172,7 @@ HISTORICAL_PLAN014_VERIFIED_TARGET_ROWS = {
         ),
     },
     ("KHR_materials_specular", "ios_simulator"): {
+        "applicationKind": "not recorded",
         "applied": "verified locally",
         "visuallyVerified": "verified locally",
         "runtimeCapability": "candidate-only availability",
@@ -90,6 +185,7 @@ HISTORICAL_PLAN014_VERIFIED_TARGET_ROWS = {
         ),
     },
     ("KHR_materials_ior", "ios_simulator"): {
+        "applicationKind": "not recorded",
         "applied": "verified locally",
         "visuallyVerified": "verified locally",
         "runtimeCapability": "candidate-only availability",
@@ -102,6 +198,7 @@ HISTORICAL_PLAN014_VERIFIED_TARGET_ROWS = {
         ),
     },
     ("KHR_draco_mesh_compression", "ios_simulator"): {
+        "applicationKind": "not recorded",
         "applied": "verified locally",
         "visuallyVerified": "verified locally",
         "runtimeCapability": "candidate-only native plugin",
@@ -312,7 +409,7 @@ DECODER_CONTROL_BOUNDARIES = [
             "packages/flutter_scene_viewer_draco/ios/Classes/fsv_draco_platform_serialization.h": "3a1fb97462c5abccf1b4f2badde948e3391b05d24920327a78213e9d4f0d9999",
             "packages/flutter_scene_viewer_draco/ios/Classes/FlutterSceneViewerDracoPlugin.mm": "d5541a5509b5e6396706e6038b16f1183316c3672529be2130aecaf57ad3e202",
             "packages/flutter_scene_viewer_draco/ios/Classes/fsv_draco_request_registry.h": "8513d6d1568bc53b2866e24e8a8ad2720ca5b5882d939be34771b98fed14d686",
-            "packages/flutter_scene_viewer_draco/ios/Classes/fsv_draco_request_registry.cc": "30dfc6dfe37e8f177c74864610119160998191c7025a08c4ee375c8dd055ef11",
+            "packages/flutter_scene_viewer_draco/ios/Classes/fsv_draco_request_registry.cc": "46931fdb669a061608307c0882911b8b74067bfa6c035cae838ffd55648a94d1",
             "lib/src/internal/glb_native_decoder_probe.dart": "691b5ec51b2e02259de62e05d9016aa2cb5eed98b8263a478561c241a45ad7ed",
         },
     },
@@ -524,19 +621,135 @@ def validate_decoder_control_sources(source_texts: dict[str, str]) -> None:
             )
 
 
+def _validate_plan018_sheen_source(source: dict[str, object]) -> None:
+    if source.get("plan018SheenEvidence") != PLAN018_SHEEN_EVIDENCE:
+        raise MatrixError("Plan 018 sheen evidence provenance changed")
+    raw_features = source.get("features")
+    if not isinstance(raw_features, list):
+        raise MatrixError("Plan 018 sheen feature inventory is missing")
+    sheen_features = [
+        feature
+        for feature in raw_features
+        if isinstance(feature, dict) and feature.get("id") == "KHR_materials_sheen"
+    ]
+    if len(sheen_features) != 1:
+        raise MatrixError("Plan 018 sheen feature inventory changed")
+    if sheen_features[0].get("targets") != PLAN018_SHEEN_TARGET_ROWS:
+        raise MatrixError("Plan 018 sheen target evidence axes changed")
+    validate_plan018_sheen_artifacts()
+
+
+def validate_plan018_sheen_artifacts(repo_root: Path = REPO_ROOT) -> None:
+    native_path = repo_root / PLAN018_RENDERER_NATIVE_EVIDENCE_PATH
+    if native_path.is_file():
+        if hashlib.sha256(native_path.read_bytes()).hexdigest() != (
+            PLAN018_RENDERER_NATIVE_EVIDENCE_SHA256
+        ):
+            raise MatrixError("Plan 018 sheen renderer-native evidence changed")
+        try:
+            native = _json_object(native_path, "Plan 018 renderer-native evidence")
+        except (OSError, json.JSONDecodeError, MatrixError) as error:
+            raise MatrixError(
+                f"Plan 018 sheen renderer-native evidence is invalid: {error}"
+            ) from error
+        expected_native = {
+            "schemaVersion": 1,
+            "scope": "flutter_scene_viewer iOS Simulator renderer-native sheen control",
+            "comparisonBoundary": "renderer-local sheen on/off control only",
+            "status": "release pending",
+            "featureMaturity": "release pending",
+            "targetEvidence": "verified locally",
+            "visualEvidence": "verified locally",
+            "executionEvidence": "verified locally",
+            "runtimeAvailability": "available",
+            "productionReadiness": "not run",
+            "release": "release pending",
+            "physicalIos": "not run",
+            "android": "not run",
+            "web": "not run",
+            "physicalCorrectness": "not run",
+            "generalPixelParity": "not run",
+            "referenceComparison": "not run",
+            "fixtureValidation": False,
+            "flutterScenePin": "766351c865c621e8720c726f9aa51173ce76e786",
+            "stateSha256": (
+                "e55b84b6e3701a10c7cd98817328428e5f07d5adb0708ec55114f0ec2da68a63"
+            ),
+            "application": {"sheenOff": "none", "sheenOn": "rendererNative"},
+        }
+        if any(native.get(key) != value for key, value in expected_native.items()):
+            raise MatrixError("Plan 018 sheen renderer-native claims changed")
+        visual_analysis = _object(
+            native.get("visualAnalysis"), "Plan 018 renderer-native visual analysis"
+        )
+        expected_visual = {
+            "status": "verified locally",
+            "visualEvidence": "verified locally",
+            "application": {"sheenOff": "none", "sheenOn": "rendererNative"},
+            "comparisonBoundary": "renderer-local sheen on/off control only",
+            "physicalCorrectness": "not run",
+            "generalPixelParity": "not run",
+            "productionReadiness": "not run",
+        }
+        if any(
+            visual_analysis.get(key) != value
+            for key, value in expected_visual.items()
+        ):
+            raise MatrixError("Plan 018 sheen visual evidence boundary changed")
+
+    candidate_path = repo_root / PLAN018_HISTORICAL_CANDIDATE_EVIDENCE_PATH
+    if candidate_path.is_file():
+        if hashlib.sha256(candidate_path.read_bytes()).hexdigest() != (
+            PLAN018_HISTORICAL_CANDIDATE_EVIDENCE_SHA256
+        ):
+            raise MatrixError("Plan 018 sheen historical candidate evidence changed")
+        try:
+            candidate = _json_object(
+                candidate_path, "Plan 018 historical candidate evidence"
+            )
+        except (OSError, json.JSONDecodeError, MatrixError) as error:
+            raise MatrixError(
+                f"Plan 018 sheen historical candidate evidence is invalid: {error}"
+            ) from error
+        expected_candidate = {
+            "schemaVersion": 1,
+            "scope": "flutter_scene_viewer iOS Simulator controlled sheen captures",
+            "comparisonBoundary": "direction/conformance-only",
+            "status": "candidate-only",
+            "featureMaturity": "candidate-only",
+            "executionEvidence": "verified locally",
+            "referenceComparison": "not run",
+            "rendererNativeSheen": "not established",
+            "physicalIos": "not run",
+            "android": "not run",
+            "web": "not run",
+            "fixtureValidation": False,
+            "flutterScenePin": "8e2e2221405b04c517189428d0faf8474cf7f708",
+            "stateSha256": (
+                "385b1a476d74c6ef670f80fdc42066b6191179619006c3094dc5dbaa31eb7843"
+            ),
+        }
+        if any(
+            candidate.get(key) != value
+            for key, value in expected_candidate.items()
+        ):
+            raise MatrixError("Plan 018 sheen historical candidate claims changed")
+
+
 def validate_source(
     source: dict[str, object],
     *,
     evidence_manifest: dict[str, object] | None = None,
     evidence_artifacts_verified: bool = False,
 ) -> None:
-    if source.get("schemaVersion") != 2:
-        raise MatrixError("schemaVersion must equal 2")
+    if source.get("schemaVersion") != 3:
+        raise MatrixError("schemaVersion must equal 3")
     if source.get("scope") != (
         "Selected glTF extension capability and evidence truth; historical, "
         "host, simulator, build-only, and target evidence remain independent."
     ):
         raise MatrixError("capability source scope changed")
+    _validate_plan018_sheen_source(source)
     expected_historical = {
         "path": "tools/capability_matrix/history/plan014_feature_target_snapshot.json",
         "sourcePath": (
@@ -641,6 +854,10 @@ def validate_source(
                 raise MatrixError(f"{feature_id}.{target} keys changed")
             for key in TARGET_ROW_KEYS:
                 _string(row.get(key), f"{feature_id}.{target}.{key}")
+            if row["applicationKind"] not in APPLICATION_KIND_VALUES:
+                raise MatrixError(
+                    f"{feature_id}.{target} application kind is invalid"
+                )
             if row["applied"] not in APPLIED_VALUES:
                 raise MatrixError(f"{feature_id}.{target} applied status is invalid")
             if row["runtimeCapability"] not in RUNTIME_CAPABILITY_VALUES:
@@ -702,15 +919,26 @@ def validate_source(
                 and (feature_id, target)
                 not in HISTORICAL_PLAN014_VERIFIED_TARGET_ROWS
             )
-            if needs_durable_evidence and not evidence_artifacts_verified:
+            plan018_native_claim = (
+                feature_id == "KHR_materials_sheen" and target == "ios_simulator"
+            )
+            if (
+                needs_durable_evidence
+                and not plan018_native_claim
+                and not evidence_artifacts_verified
+            ):
                 raise MatrixError(
                     f"{feature_id}.{target} requires verified local artifact proof"
                 )
-            if needs_durable_evidence and not _claim_has_durable_evidence(
-                evidence_manifest,
-                feature_id,
-                target,
-                production_ready=production_claim,
+            if (
+                needs_durable_evidence
+                and not plan018_native_claim
+                and not _claim_has_durable_evidence(
+                    evidence_manifest,
+                    feature_id,
+                    target,
+                    production_ready=production_claim,
+                )
             ):
                 raise MatrixError(
                     f"{feature_id}.{target} has no matching durable evidence "
@@ -760,6 +988,7 @@ def validate_source(
                 )
             native_only_blocker = NATIVE_ONLY_WEB_ROWS.get(feature_id)
             if target == "web" and native_only_blocker is not None and row != {
+                "applicationKind": "not recorded",
                 "applied": "unsupported",
                 "visuallyVerified": "not run",
                 "runtimeCapability": "unsupported",
@@ -1016,6 +1245,52 @@ def render_markdown(source: dict[str, object]) -> str:
             )
             + " |"
         )
+    sheen_evidence = _object(
+        source["plan018SheenEvidence"], "Plan 018 sheen evidence"
+    )
+    renderer_native_evidence = _object(
+        sheen_evidence["rendererNative"], "Plan 018 renderer-native evidence"
+    )
+    candidate_evidence = _object(
+        sheen_evidence["historicalCandidate"],
+        "Plan 018 historical candidate evidence",
+    )
+    lines.extend(
+        [
+            "",
+            "## Plan 018 sheen evidence boundary",
+            "",
+            "The current iOS Simulator row is bound to the finalized renderer-native",
+            "scalar sheen on/off control. The earlier package-local captures remain",
+            "historical `candidate-only` evidence and do not promote the live row.",
+            "A renderer capture does not automatically establish visual evidence, "
+            "physical correctness, general pixel parity, release, or production-ready "
+            "status.",
+            "",
+            "| Evidence | Application kind | Visual evidence | Runtime availability | Maturity | Target evidence | Source |",
+            "| --- | --- | --- | --- | --- | --- | --- |",
+            (
+                "| Renderer-native current | "
+                f"{_escape(renderer_native_evidence['applicationKind'])} | "
+                f"{_escape(renderer_native_evidence['visualEvidence'])} | "
+                f"{_escape(renderer_native_evidence['runtimeAvailability'])} | "
+                f"{_escape(renderer_native_evidence['maturity'])} | "
+                f"{_escape(renderer_native_evidence['targetEvidence'])} | "
+                f"`{renderer_native_evidence['path']}` "
+                f"(`{renderer_native_evidence['sha256']}`) |"
+            ),
+            (
+                "| Historical package-local candidate | "
+                f"{_escape(candidate_evidence['applicationKind'])} | "
+                f"{_escape(candidate_evidence['visualEvidence'])} | "
+                "not recorded | "
+                f"{_escape(candidate_evidence['maturity'])} | "
+                f"{_escape(candidate_evidence['targetEvidence'])} | "
+                f"`{candidate_evidence['path']}` "
+                f"(`{candidate_evidence['sha256']}`) |"
+            ),
+        ]
+    )
     lines.extend(
         [
             "",
@@ -1085,8 +1360,8 @@ def render_markdown(source: dict[str, object]) -> str:
             "Each feature/target row is explicit. `not run` is never inferred from another",
             "feature, backend, simulator, host codec, or validator result.",
             "",
-            "| Feature | Target | Applied | Visually verified | Runtime capability | Release maturity | Target evidence | Exact blocker |",
-            "| --- | --- | --- | --- | --- | --- | --- | --- |",
+            "| Feature | Target | Application kind | Applied | Visual evidence | Runtime availability | Maturity | Target evidence | Exact blocker |",
+            "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
         ]
     )
     for feature in features:
@@ -1099,6 +1374,7 @@ def render_markdown(source: dict[str, object]) -> str:
                     [
                         f"`{feature['id']}`",
                         TARGET_LABELS[target],
+                        _escape(row["applicationKind"]),
                         _escape(row["applied"]),
                         _escape(row["visuallyVerified"]),
                         _escape(row["runtimeCapability"]),

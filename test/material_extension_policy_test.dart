@@ -320,6 +320,69 @@ void main() {
       }
     }
   });
+
+  test('all default policies keep sheen diagnostic-only and not run', () {
+    for (final policy in <ViewerMaterialExtensionPolicy>[
+      const ViewerMaterialExtensionPolicy.diagnosticsOnly(),
+      const ViewerMaterialExtensionPolicy.experimentalShaders(),
+      const ViewerMaterialExtensionPolicy.productionShaders(),
+    ]) {
+      final support = policy.support.supportFor(MaterialExtensionFeature.sheen);
+
+      expect(support.available, isFalse, reason: policy.mode.name);
+      for (final target in MaterialExtensionTarget.values) {
+        expect(
+          support.maturityFor(target),
+          MaterialExtensionMaturity.diagnosticOnly,
+        );
+        expect(
+          support.evidenceFor(target),
+          MaterialExtensionEvidenceStatus.notRun,
+        );
+      }
+    }
+  });
+
+  test('sheen candidate is explicit opt-in and remains candidate-only', () {
+    const experimental = ViewerMaterialExtensionPolicy.experimentalShaders(
+      enableSheen: true,
+    );
+    const production = ViewerMaterialExtensionPolicy.productionShaders(
+      enableSheen: true,
+    );
+
+    for (final policy in <ViewerMaterialExtensionPolicy>[
+      experimental,
+      production,
+    ]) {
+      expect(policy.enableSheen, isTrue);
+      final support = policy.support.supportFor(MaterialExtensionFeature.sheen);
+      expect(support.available, isTrue);
+      for (final target in MaterialExtensionTarget.values) {
+        expect(
+          support.maturityFor(target),
+          MaterialExtensionMaturity.candidateOnly,
+          reason: '${policy.mode.name}/${target.name}',
+        );
+        expect(
+          support.evidenceFor(target),
+          MaterialExtensionEvidenceStatus.notRun,
+          reason: '${policy.mode.name}/${target.name}',
+        );
+      }
+    }
+
+    expect(
+      const ViewerMaterialExtensionPolicy.diagnosticsOnly().support.sheen,
+      isFalse,
+    );
+    expect(experimental,
+        isNot(const ViewerMaterialExtensionPolicy.experimentalShaders()));
+    expect(
+        experimental.hashCode,
+        isNot(const ViewerMaterialExtensionPolicy.experimentalShaders()
+            .hashCode));
+  });
 }
 
 Map<MaterialExtensionFeature, MaterialExtensionFeatureSupport>

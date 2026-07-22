@@ -40,6 +40,8 @@ abstract interface class FlutterSceneAdapter {
     String? debugName,
     MaterialShadingPolicy materialShadingPolicy =
         MaterialShadingPolicy.authored,
+    Set<PartAddress> authoredSheenCoreFallbacks = const <PartAddress>{},
+    bool authoredSheenGlobalCoreFallback = false,
     bool Function()? tryAcceptPublication,
   });
 
@@ -79,8 +81,19 @@ abstract interface class FlutterSceneAuthoredMipBindingAdapter {
     String? debugName,
     MaterialShadingPolicy materialShadingPolicy =
         MaterialShadingPolicy.authored,
+    Set<PartAddress> authoredSheenCoreFallbacks = const <PartAddress>{},
+    bool authoredSheenGlobalCoreFallback = false,
     bool Function()? isLoadCancelled,
     bool Function()? tryAcceptPublication,
+  });
+}
+
+/// Pre-import seam for authored extension patches whose package-local shader
+/// and resource contract must be proven before the GLB can be published.
+abstract interface class FlutterSceneAuthoredMaterialPreflightAdapter {
+  Future<ViewerDiagnostic?> preflightAuthoredMaterialPatch({
+    required PartAddress address,
+    required MaterialPatch patch,
   });
 }
 
@@ -155,7 +168,10 @@ final class _DefaultFlutterSceneTextureFactory
 
 /// Runtime adapter backed by the installed `flutter_scene` package.
 final class FlutterSceneRuntimeAdapter
-    implements FlutterSceneAdapter, FlutterSceneAuthoredMipBindingAdapter {
+    implements
+        FlutterSceneAdapter,
+        FlutterSceneAuthoredMipBindingAdapter,
+        FlutterSceneAuthoredMaterialPreflightAdapter {
   FlutterSceneRuntimeAdapter({
     EnvironmentSourceLoader? environmentSourceLoader,
     this.materialExtensionPolicy =
@@ -200,11 +216,99 @@ final class FlutterSceneRuntimeAdapter
   flutter_scene.Scene? get debugScene => _scene;
 
   MaterialExtensionSupport get materialExtensionSupport {
-    final base = materialExtensionPolicy.mode ==
+    final policyBase = materialExtensionPolicy.mode ==
             ViewerMaterialExtensionMode.productionFlutterSceneShaders
         ? _productionMaterialExtensionSupport
         : materialExtensionPolicy.support;
-    return _extendedPbrBackend.isReady ? _withExtendedPbrSupport(base) : base;
+    final usesNativeSheen = materialExtensionPolicy.enableSheen &&
+        policyBase.backendKind == MaterialExtensionBackendKind.rendererNative &&
+        policyBase.supportFor(MaterialExtensionFeature.sheen).available;
+    final base =
+        usesNativeSheen ? policyBase : _withoutSheenSupport(policyBase);
+    final extended =
+        _extendedPbrBackend.isReady ? _withExtendedPbrSupport(base) : base;
+    if (usesNativeSheen) {
+      return extended;
+    }
+    final sheenBackend = _extendedPbrBackend;
+    final candidateBackend = sheenBackend is FlutterSceneSheenMaterialBackend
+        ? sheenBackend as FlutterSceneSheenMaterialBackend
+        : null;
+    return materialExtensionPolicy.enableSheen &&
+            candidateBackend?.isSheenReady == true
+        ? _withSheenSupport(extended)
+        : extended;
+  }
+
+  @override
+  Future<ViewerDiagnostic?> preflightAuthoredMaterialPatch({
+    required PartAddress address,
+    required MaterialPatch patch,
+  }) async {
+    if (!patch.hasSheenOverride) {
+      return null;
+    }
+    if (!materialExtensionPolicy.enableSheen) {
+      return _sheenCandidateUnavailableDiagnostic(
+        address,
+        limitation: 'sheenCandidateNotEnabled',
+      );
+    }
+    final support = materialExtensionPolicy.mode ==
+            ViewerMaterialExtensionMode.productionFlutterSceneShaders
+        ? detectNativeMaterialExtensionCapability(
+            rendererProbe: _materialExtensionRendererProbe,
+          ).support
+        : materialExtensionSupport;
+    if (materialExtensionPolicy.mode ==
+            ViewerMaterialExtensionMode.productionFlutterSceneShaders &&
+        support.backendKind == MaterialExtensionBackendKind.rendererNative &&
+        supportsNativeMaterialExtensionPatch(support, patch)) {
+      final compositionDiagnostic = _nativeSheenCompositionDiagnostic(
+        address: address,
+        source: null,
+        patch: patch,
+      );
+      if (compositionDiagnostic != null) {
+        return compositionDiagnostic;
+      }
+      return null;
+    }
+    final backend = _extendedPbrBackend;
+    if (backend is! FlutterSceneSheenMaterialBackend) {
+      return _sheenCandidateUnavailableDiagnostic(
+        address,
+        limitation: 'sheenCandidateBackendUnavailable',
+      );
+    }
+    final sheenBackend = backend as FlutterSceneSheenMaterialBackend;
+    return sheenBackend.preflightSheen(
+      address,
+      request: FlutterSceneExtendedPbrResourceRequest(
+        hasSheen: true,
+        hasSpecular: patch.hasSpecularOverride,
+        hasClearcoat: patch.hasClearcoatOverride,
+        hasTransmissionState: _patchHasTransmissionState(patch),
+        hasVolumeState: _patchHasVolumeState(patch),
+        hasSpecularFactorTexture:
+            patch.textureBindingFor(MaterialTextureSlot.specular) != null,
+        hasSpecularColorTexture:
+            patch.textureBindingFor(MaterialTextureSlot.specularColor) != null,
+        hasSheenColorTexture:
+            patch.textureBindingFor(MaterialTextureSlot.sheenColor) != null,
+        hasSheenRoughnessTexture:
+            patch.textureBindingFor(MaterialTextureSlot.sheenRoughness) != null,
+        hasClearcoatTexture:
+            patch.textureBindingFor(MaterialTextureSlot.clearcoat) != null,
+        hasClearcoatRoughnessTexture: patch.textureBindingFor(
+              MaterialTextureSlot.clearcoatRoughness,
+            ) !=
+            null,
+        hasClearcoatNormalTexture:
+            patch.textureBindingFor(MaterialTextureSlot.clearcoatNormal) !=
+                null,
+      ),
+    );
   }
 
   @override
@@ -276,12 +380,16 @@ final class FlutterSceneRuntimeAdapter
     String? debugName,
     MaterialShadingPolicy materialShadingPolicy =
         MaterialShadingPolicy.authored,
+    Set<PartAddress> authoredSheenCoreFallbacks = const <PartAddress>{},
+    bool authoredSheenGlobalCoreFallback = false,
     bool Function()? tryAcceptPublication,
   }) =>
       _loadGlbBytes(
         bytes,
         debugName: debugName,
         materialShadingPolicy: materialShadingPolicy,
+        authoredSheenCoreFallbacks: authoredSheenCoreFallbacks,
+        authoredSheenGlobalCoreFallback: authoredSheenGlobalCoreFallback,
         tryAcceptPublication: tryAcceptPublication,
       );
 
@@ -292,6 +400,8 @@ final class FlutterSceneRuntimeAdapter
     String? debugName,
     MaterialShadingPolicy materialShadingPolicy =
         MaterialShadingPolicy.authored,
+    Set<PartAddress> authoredSheenCoreFallbacks = const <PartAddress>{},
+    bool authoredSheenGlobalCoreFallback = false,
     bool Function()? isLoadCancelled,
     bool Function()? tryAcceptPublication,
   }) =>
@@ -300,6 +410,8 @@ final class FlutterSceneRuntimeAdapter
         debugName: debugName,
         materialShadingPolicy: materialShadingPolicy,
         authoredMipBindingPlan: bindingPlan,
+        authoredSheenCoreFallbacks: authoredSheenCoreFallbacks,
+        authoredSheenGlobalCoreFallback: authoredSheenGlobalCoreFallback,
         isLoadCancelled: isLoadCancelled,
         tryAcceptPublication: tryAcceptPublication,
       );
@@ -309,6 +421,8 @@ final class FlutterSceneRuntimeAdapter
     String? debugName,
     required MaterialShadingPolicy materialShadingPolicy,
     FlutterSceneAuthoredMipBindingPlan? authoredMipBindingPlan,
+    Set<PartAddress> authoredSheenCoreFallbacks = const <PartAddress>{},
+    bool authoredSheenGlobalCoreFallback = false,
     bool Function()? isLoadCancelled,
     bool Function()? tryAcceptPublication,
   }) async {
@@ -344,6 +458,19 @@ final class FlutterSceneRuntimeAdapter
     await flutter_scene.loadBaseShaderLibrary();
     await flutter_scene.Material.initializeStaticResources();
     final rootNode = await flutter_scene.Node.fromGlbBytes(bytes);
+    _applyRendererNativeSheenImportPolicy(
+      rootNode,
+      retainRendererNativeSheen: materialExtensionPolicy.mode ==
+              ViewerMaterialExtensionMode.productionFlutterSceneShaders &&
+          materialExtensionPolicy.enableSheen &&
+          stagedProductionMaterialExtensionSupport.backendKind ==
+              MaterialExtensionBackendKind.rendererNative &&
+          stagedProductionMaterialExtensionSupport
+              .supportFor(MaterialExtensionFeature.sheen)
+              .available,
+      coreFallbackAddresses: authoredSheenCoreFallbacks,
+      globalCoreFallback: authoredSheenGlobalCoreFallback,
+    );
     _applyMaterialShadingPolicy(rootNode, materialShadingPolicy);
     final bindingPlan = authoredMipBindingPlan;
     if (bindingPlan != null) {
@@ -568,27 +695,71 @@ final class FlutterSceneRuntimeAdapter
       return <ViewerDiagnostic>[_primitiveNotFound(address)];
     }
 
+    final sourcePbr =
+        target.primitive.material is flutter_scene.PhysicallyBasedMaterial
+            ? target.primitive.material as flutter_scene.PhysicallyBasedMaterial
+            : null;
+    final retainedExtendedState =
+        target.primitive.material is FlutterSceneExtendedPbrState
+            ? target.primitive.material as FlutterSceneExtendedPbrState
+            : null;
+    final hasRetainedNativeSheenIntent = retainedExtendedState == null &&
+        sourcePbr != null &&
+        _hasNativeSheenState(sourcePbr);
+    final hasEffectiveSheenIntent = patch.hasSheenOverride ||
+        retainedExtendedState?.hasSheenIntent == true ||
+        hasRetainedNativeSheenIntent;
+    final productionNativeRoutingSupport = materialExtensionPolicy.mode ==
+            ViewerMaterialExtensionMode.productionFlutterSceneShaders
+        ? materialExtensionPolicy.enableSheen
+            ? _productionMaterialExtensionSupport
+            : _withoutSheenSupport(_productionMaterialExtensionSupport)
+        : MaterialExtensionSupport.unsupported;
     final usesNativeMaterialExtensionApplier =
         _usesNativeMaterialExtensionApplierFor(
       materialExtensionPolicy,
       patch,
-      support: materialExtensionSupport,
+      support: productionNativeRoutingSupport,
     );
     final needsExtendedPbr =
         _usesExtendedPbrFor(target.primitive.material, patch);
-    final combinesNativeClearcoatWithExtendedPbr =
-        usesNativeMaterialExtensionApplier &&
-            patch.hasClearcoatOverride &&
-            !patch.hasGlassOverride &&
-            needsExtendedPbr;
-    final usesExtendedPbr = needsExtendedPbr &&
+    final requiresPackageOwnedExtendedPbr = _requiresPackageOwnedExtendedPbrFor(
+      target.primitive.material,
+      patch,
+    );
+    final hasRetainedTransmissionState =
+        sourcePbr != null && _hasNativeTransmissionState(sourcePbr);
+    final hasRetainedVolumeState =
+        sourcePbr != null && _hasNativeVolumeState(sourcePbr);
+    final selectsClearcoatSheenVariant = hasEffectiveSheenIntent &&
+        (patch.hasClearcoatOverride ||
+            (sourcePbr != null && _hasClearcoatStateForPreflight(sourcePbr)));
+    final routesThroughExtendedPbr = needsExtendedPbr &&
         (!usesNativeMaterialExtensionApplier ||
-            combinesNativeClearcoatWithExtendedPbr);
+            requiresPackageOwnedExtendedPbr);
+    final combinesNativeClearcoatWithExtendedPbr = patch.hasClearcoatOverride &&
+        routesThroughExtendedPbr &&
+        !patch.hasGlassOverride &&
+        productionNativeRoutingSupport.backendKind ==
+            MaterialExtensionBackendKind.rendererNative &&
+        productionNativeRoutingSupport
+            .supportFor(MaterialExtensionFeature.clearcoat)
+            .available;
+    final usesExtendedPbr = routesThroughExtendedPbr;
+    if (usesExtendedPbr && hasRetainedNativeSheenIntent) {
+      final retainedSheenUvDiagnostic =
+          _retainedNativeSheenTextureCoordinateDiagnostic(
+        address: address,
+        source: sourcePbr,
+        patch: patch,
+      );
+      if (retainedSheenUvDiagnostic != null) {
+        return <ViewerDiagnostic>[retainedSheenUvDiagnostic];
+      }
+    }
     if (usesExtendedPbr &&
-        target.primitive.material is flutter_scene.PhysicallyBasedMaterial &&
-        _hasNativeTransmissionVolumeState(
-          target.primitive.material as flutter_scene.PhysicallyBasedMaterial,
-        )) {
+        (hasRetainedTransmissionState || hasRetainedVolumeState) &&
+        !selectsClearcoatSheenVariant) {
       return <ViewerDiagnostic>[
         _extendedPbrNativeTransmissionVolumeCombinationUnavailable(
           address,
@@ -604,11 +775,20 @@ final class FlutterSceneRuntimeAdapter
       if (validationDiagnostics.isNotEmpty) {
         return validationDiagnostics;
       }
+      final compositionDiagnostic = _nativeSheenCompositionDiagnostic(
+        address: address,
+        source: sourcePbr,
+        patch: patch,
+      );
+      if (compositionDiagnostic != null) {
+        return <ViewerDiagnostic>[compositionDiagnostic];
+      }
     }
     if (usesExtendedPbr) {
-      if (patch.hasGlassOverride ||
-          (patch.hasClearcoatOverride &&
-              !combinesNativeClearcoatWithExtendedPbr)) {
+      if (!selectsClearcoatSheenVariant &&
+          (patch.hasGlassOverride ||
+              (patch.hasClearcoatOverride &&
+                  !combinesNativeClearcoatWithExtendedPbr))) {
         return <ViewerDiagnostic>[
           _extendedPbrCombinationUnavailable(address, patch),
         ];
@@ -628,16 +808,106 @@ final class FlutterSceneRuntimeAdapter
           ),
         ];
       }
+      final ViewerDiagnostic? preflightDiagnostic;
+      if (hasEffectiveSheenIntent) {
+        if (!materialExtensionPolicy.enableSheen) {
+          preflightDiagnostic = _sheenCandidateUnavailableDiagnostic(
+            address,
+            limitation: 'sheenCandidateNotEnabled',
+          );
+        } else if (_extendedPbrBackend is! FlutterSceneSheenMaterialBackend) {
+          preflightDiagnostic = _sheenCandidateUnavailableDiagnostic(
+            address,
+            limitation: 'sheenCandidateBackendUnavailable',
+          );
+        } else {
+          final sheenBackend =
+              _extendedPbrBackend as FlutterSceneSheenMaterialBackend;
+          preflightDiagnostic = await sheenBackend.preflightSheen(
+            address,
+            request: FlutterSceneExtendedPbrResourceRequest(
+              hasSheen: true,
+              hasSpecular: patch.hasSpecularOverride ||
+                  retainedExtendedState?.specularFactorTexture != null ||
+                  retainedExtendedState?.specularColorTexture != null,
+              hasClearcoat: patch.hasClearcoatOverride ||
+                  (sourcePbr != null &&
+                      _hasClearcoatStateForPreflight(sourcePbr)),
+              hasTransmissionState: _patchHasTransmissionState(patch) ||
+                  hasRetainedTransmissionState,
+              hasVolumeState:
+                  _patchHasVolumeState(patch) || hasRetainedVolumeState,
+              hasSpecularFactorTexture:
+                  patch.textureBindingFor(MaterialTextureSlot.specular) !=
+                          null ||
+                      retainedExtendedState?.specularFactorTexture != null,
+              hasSpecularColorTexture: patch.textureBindingFor(
+                        MaterialTextureSlot.specularColor,
+                      ) !=
+                      null ||
+                  retainedExtendedState?.specularColorTexture != null,
+              hasSheenColorTexture:
+                  patch.textureBindingFor(MaterialTextureSlot.sheenColor) !=
+                          null ||
+                      retainedExtendedState?.sheenColorTexture != null ||
+                      (hasRetainedNativeSheenIntent &&
+                          sourcePbr.sheenColorTexture != null),
+              hasSheenRoughnessTexture: patch.textureBindingFor(
+                        MaterialTextureSlot.sheenRoughness,
+                      ) !=
+                      null ||
+                  retainedExtendedState?.sheenRoughnessTexture != null ||
+                  (hasRetainedNativeSheenIntent &&
+                      sourcePbr.sheenRoughnessTexture != null),
+              hasClearcoatTexture:
+                  patch.textureBindingFor(MaterialTextureSlot.clearcoat) !=
+                          null ||
+                      (target.primitive.material
+                              is flutter_scene.PhysicallyBasedMaterial &&
+                          (target.primitive.material
+                                      as flutter_scene.PhysicallyBasedMaterial)
+                                  .clearcoatTexture !=
+                              null),
+              hasClearcoatRoughnessTexture: patch.textureBindingFor(
+                        MaterialTextureSlot.clearcoatRoughness,
+                      ) !=
+                      null ||
+                  (target.primitive.material
+                          is flutter_scene.PhysicallyBasedMaterial &&
+                      (target.primitive.material
+                                  as flutter_scene.PhysicallyBasedMaterial)
+                              .clearcoatRoughnessTexture !=
+                          null),
+              hasClearcoatNormalTexture: patch.textureBindingFor(
+                        MaterialTextureSlot.clearcoatNormal,
+                      ) !=
+                      null ||
+                  (target.primitive.material
+                          is flutter_scene.PhysicallyBasedMaterial &&
+                      (target.primitive.material
+                                  as flutter_scene.PhysicallyBasedMaterial)
+                              .clearcoatNormalTexture !=
+                          null),
+            ),
+          );
+        }
+      } else {
+        preflightDiagnostic = await _extendedPbrBackend.preflight(address);
+      }
+      if (preflightDiagnostic != null) {
+        return <ViewerDiagnostic>[preflightDiagnostic];
+      }
+      final validationSupport = hasEffectiveSheenIntent
+          ? _withSheenSupport(
+              _withExtendedPbrSupport(materialExtensionSupport),
+            )
+          : _withExtendedPbrSupport(materialExtensionSupport);
       final validationDiagnostics = patch.validate(
         address,
-        support: _withExtendedPbrSupport(materialExtensionSupport),
+        support: validationSupport,
       );
       if (validationDiagnostics.isNotEmpty) {
         return validationDiagnostics;
-      }
-      final preflightDiagnostic = await _extendedPbrBackend.preflight(address);
-      if (preflightDiagnostic != null) {
-        return <ViewerDiagnostic>[preflightDiagnostic];
       }
     }
 
@@ -645,6 +915,7 @@ final class FlutterSceneRuntimeAdapter
             ViewerMaterialExtensionMode.productionFlutterSceneShaders &&
         materialExtensionSupport.backendKind ==
             MaterialExtensionBackendKind.rendererNative &&
+        !usesExtendedPbr &&
         hasNativeMaterialExtensionIntent(patch)) {
       final diagnostic = nativeMaterialExtensionPatchDiagnostic(
         support: materialExtensionSupport,
@@ -673,11 +944,7 @@ final class FlutterSceneRuntimeAdapter
     final unsupportedDiagnostics = <ViewerDiagnostic>[
       if (patch.hasGlassOverride &&
           patch.hasClearcoatOverride &&
-          !_usesNativeMaterialExtensionApplierFor(
-            materialExtensionPolicy,
-            patch,
-            support: materialExtensionSupport,
-          ))
+          !usesNativeMaterialExtensionApplier)
         _unsupportedCombinedGlassClearcoatMaterial(address)
       else ...<ViewerDiagnostic>[
         if (patch.hasGlassOverride &&
@@ -686,23 +953,16 @@ final class FlutterSceneRuntimeAdapter
               patch,
               support: materialExtensionSupport,
             ) &&
-            !_usesNativeMaterialExtensionApplierFor(
-              materialExtensionPolicy,
-              patch,
-              support: materialExtensionSupport,
-            ))
+            !usesNativeMaterialExtensionApplier)
           _unsupportedGlassMaterial(address),
         if (patch.hasClearcoatOverride &&
+            !combinesNativeClearcoatWithExtendedPbr &&
             !_usesMaterialExtensionBackendFor(
               materialExtensionPolicy,
               patch,
               support: materialExtensionSupport,
             ) &&
-            !_usesNativeMaterialExtensionApplierFor(
-              materialExtensionPolicy,
-              patch,
-              support: materialExtensionSupport,
-            ))
+            !usesNativeMaterialExtensionApplier)
           _unsupportedClearcoatMaterial(address),
       ],
     ];
@@ -717,6 +977,21 @@ final class FlutterSceneRuntimeAdapter
     final packageLocalTransmissionZeroBypass = patch.hasGlassOverride &&
         usesMaterialExtensionBackend &&
         (patch.transmission ?? 0.0) == 0.0;
+    // The pinned importer accepts AO UV1 only when that effective set exists
+    // on the primitive, then retains the selection on the material.
+    final allowAuthoredOcclusionTexCoord1 =
+        // ignore: invalid_use_of_internal_member
+        sourcePbr?.occlusionTextureTexCoord == 1;
+    final allowNativeSheenBinding =
+        usesNativeMaterialExtensionApplier && !usesExtendedPbr;
+    bool isNativeSheenUv1Binding(MaterialTextureSlot slot) {
+      final binding = patch.textureBindingFor(slot);
+      return allowNativeSheenBinding &&
+          (slot == MaterialTextureSlot.sheenColor ||
+              slot == MaterialTextureSlot.sheenRoughness) &&
+          binding?.effectiveTexCoord == 1;
+    }
+
     final isolationDiagnostic =
         patch.hasGlassOverride && !packageLocalTransmissionZeroBypass
             ? _glassNodeIsolationDiagnostic(
@@ -728,9 +1003,29 @@ final class FlutterSceneRuntimeAdapter
     if (isolationDiagnostic != null) {
       return <ViewerDiagnostic>[isolationDiagnostic];
     }
+    for (final slot in <MaterialTextureSlot>[
+      MaterialTextureSlot.sheenColor,
+      MaterialTextureSlot.sheenRoughness,
+    ]) {
+      if (isNativeSheenUv1Binding(slot) &&
+          !_primitiveHasTexCoord1(target.primitive)) {
+        return <ViewerDiagnostic>[
+          _missingUv(
+            address,
+            uvSet: 1,
+            slot: slot,
+            includeAtomicApplyState: true,
+          ),
+        ];
+      }
+    }
     final requiresUv0 = MaterialTextureSlot.values.any(
       (slot) =>
           patch.textureBindingFor(slot) != null &&
+          !isNativeSheenUv1Binding(slot) &&
+          !(allowAuthoredOcclusionTexCoord1 &&
+              slot == MaterialTextureSlot.occlusion &&
+              patch.textureBindingFor(slot)!.effectiveTexCoord == 1) &&
           !(packageLocalTransmissionZeroBypass &&
               (slot == MaterialTextureSlot.transmission ||
                   slot == MaterialTextureSlot.thickness)),
@@ -757,6 +1052,8 @@ final class FlutterSceneRuntimeAdapter
         allowExtendedPbrCoreTransform: usesExtendedPbr,
         allowNativeTransmissionVolumeTransform:
             usesNativeMaterialExtensionApplier,
+        allowNativeSheenBinding: allowNativeSheenBinding,
+        allowAuthoredOcclusionTexCoord1: allowAuthoredOcclusionTexCoord1,
       );
       textureBindingPlans[slot] = plan;
       final diagnostic = plan.diagnostic;
@@ -927,6 +1224,20 @@ final class FlutterSceneRuntimeAdapter
       textureContent: flutter_scene.TextureContent.color,
       bindingPlan: textureBindingPlans[MaterialTextureSlot.specularColor],
     );
+    final loadedSheenColorTexture = await _loadTextureOverride(
+      patch.textureBindingFor(MaterialTextureSlot.sheenColor),
+      address,
+      slot: MaterialTextureSlot.sheenColor,
+      textureContent: flutter_scene.TextureContent.color,
+      bindingPlan: textureBindingPlans[MaterialTextureSlot.sheenColor],
+    );
+    final loadedSheenRoughnessTexture = await _loadTextureOverride(
+      patch.textureBindingFor(MaterialTextureSlot.sheenRoughness),
+      address,
+      slot: MaterialTextureSlot.sheenRoughness,
+      textureContent: flutter_scene.TextureContent.data,
+      bindingPlan: textureBindingPlans[MaterialTextureSlot.sheenRoughness],
+    );
     final loadedTransmissionTexture = packageLocalTransmissionZeroBypass
         ? null
         : await _loadTextureOverride(
@@ -974,6 +1285,8 @@ final class FlutterSceneRuntimeAdapter
       loadedOcclusionTexture,
       loadedSpecularTexture,
       loadedSpecularColorTexture,
+      loadedSheenColorTexture,
+      loadedSheenRoughnessTexture,
       loadedTransmissionTexture,
       loadedThicknessTexture,
       loadedClearcoatTexture,
@@ -1035,13 +1348,26 @@ final class FlutterSceneRuntimeAdapter
         rawNormalTexture: true,
       );
       if (combinesNativeClearcoatWithExtendedPbr) {
+        final clearcoatPatch = MaterialPatch(
+          clearcoat: patch.clearcoat,
+          clearcoatRoughness: patch.clearcoatRoughness,
+          clearcoatNormalScale: patch.clearcoatNormalScale,
+          clearcoatTextureBinding:
+              patch.textureBindingFor(MaterialTextureSlot.clearcoat),
+          clearcoatRoughnessTextureBinding:
+              patch.textureBindingFor(MaterialTextureSlot.clearcoatRoughness),
+          clearcoatNormalTextureBinding:
+              patch.textureBindingFor(MaterialTextureSlot.clearcoatNormal),
+        );
         final diagnostics = applyNativeMaterialExtensionPatch(
           material: _FlutterSceneNativeClearcoatMaterial(stagedSource),
-          patch: patch,
-          support: materialExtensionSupport,
+          patch: clearcoatPatch,
+          support: productionNativeRoutingSupport,
           clearcoatTexture: loadedClearcoatTexture?.texture,
           clearcoatRoughnessTexture: loadedClearcoatRoughnessTexture?.texture,
           clearcoatNormalTexture: loadedClearcoatNormalTexture?.texture,
+          sheenColorTexture: loadedSheenColorTexture?.texture,
+          sheenRoughnessTexture: loadedSheenRoughnessTexture?.texture,
         );
         if (diagnostics.isNotEmpty) {
           return diagnostics;
@@ -1054,7 +1380,25 @@ final class FlutterSceneRuntimeAdapter
       final transforms = <MaterialTextureSlot, TextureTransform>{
         ...?currentExtended?.transforms,
       };
-      for (final slot in _extendedPbrCoreSlots) {
+      if (currentExtended == null && hasRetainedNativeSheenIntent) {
+        if (source.sheenColorTexture != null) {
+          transforms[MaterialTextureSlot.sheenColor] =
+              // ignore: invalid_use_of_internal_member
+              _viewerTextureTransform(source.sheenColorTextureTransform);
+        }
+        if (source.sheenRoughnessTexture != null) {
+          transforms[MaterialTextureSlot.sheenRoughness] =
+              // ignore: invalid_use_of_internal_member
+              _viewerTextureTransform(source.sheenRoughnessTextureTransform);
+        }
+      }
+      for (final slot in <MaterialTextureSlot>[
+        ..._extendedPbrCoreSlots,
+        MaterialTextureSlot.clearcoat,
+        MaterialTextureSlot.clearcoatRoughness,
+        MaterialTextureSlot.sheenColor,
+        MaterialTextureSlot.sheenRoughness,
+      ]) {
         final binding = patch.textureBindingFor(slot);
         if (binding != null) {
           transforms[slot] = binding.transform;
@@ -1077,6 +1421,33 @@ final class FlutterSceneRuntimeAdapter
                 currentExtended?.specularFactorTexture,
             specularColorTexture: loadedSpecularColorTexture?.texture ??
                 currentExtended?.specularColorTexture,
+            hasSheenIntent: patch.hasSheenOverride ||
+                currentExtended?.hasSheenIntent == true ||
+                hasRetainedNativeSheenIntent,
+            sheenColorFactor: patch.sheenColorFactor ??
+                currentExtended?.sheenColorFactor ??
+                (hasRetainedNativeSheenIntent
+                    ? <double>[
+                        source.sheenColorFactor.x,
+                        source.sheenColorFactor.y,
+                        source.sheenColorFactor.z,
+                      ]
+                    : const <double>[0, 0, 0]),
+            sheenRoughness: patch.sheenRoughness ??
+                currentExtended?.sheenRoughness ??
+                (hasRetainedNativeSheenIntent
+                    ? source.sheenRoughnessFactor
+                    : 0),
+            sheenColorTexture: loadedSheenColorTexture?.texture ??
+                currentExtended?.sheenColorTexture ??
+                (hasRetainedNativeSheenIntent
+                    ? source.sheenColorTexture
+                    : null),
+            sheenRoughnessTexture: loadedSheenRoughnessTexture?.texture ??
+                currentExtended?.sheenRoughnessTexture ??
+                (hasRetainedNativeSheenIntent
+                    ? source.sheenRoughnessTexture
+                    : null),
           ),
         );
         if (candidate is! FlutterSceneExtendedPbrState) {
@@ -1130,12 +1501,14 @@ final class FlutterSceneRuntimeAdapter
         return applyNativeMaterialExtensionPatch(
           material: material as NativeMaterialExtensionMaterial,
           patch: patch,
-          support: materialExtensionSupport,
+          support: productionNativeRoutingSupport,
           transmissionTexture: loadedTransmissionTexture?.texture,
           thicknessTexture: loadedThicknessTexture?.texture,
           clearcoatTexture: loadedClearcoatTexture?.texture,
           clearcoatRoughnessTexture: loadedClearcoatRoughnessTexture?.texture,
           clearcoatNormalTexture: loadedClearcoatNormalTexture?.texture,
+          sheenColorTexture: loadedSheenColorTexture?.texture,
+          sheenRoughnessTexture: loadedSheenRoughnessTexture?.texture,
         );
       }
       if (material is flutter_scene.PhysicallyBasedMaterial) {
@@ -1143,12 +1516,14 @@ final class FlutterSceneRuntimeAdapter
         final diagnostics = applyNativeMaterialExtensionPatch(
           material: _FlutterSceneNativeClearcoatMaterial(stagedMaterial),
           patch: patch,
-          support: materialExtensionSupport,
+          support: productionNativeRoutingSupport,
           transmissionTexture: loadedTransmissionTexture?.texture,
           thicknessTexture: loadedThicknessTexture?.texture,
           clearcoatTexture: loadedClearcoatTexture?.texture,
           clearcoatRoughnessTexture: loadedClearcoatRoughnessTexture?.texture,
           clearcoatNormalTexture: loadedClearcoatNormalTexture?.texture,
+          sheenColorTexture: loadedSheenColorTexture?.texture,
+          sheenRoughnessTexture: loadedSheenRoughnessTexture?.texture,
         );
         if (diagnostics.isNotEmpty) {
           return diagnostics;
@@ -1550,6 +1925,22 @@ final class FlutterSceneRuntimeAdapter
     return false;
   }
 
+  bool _primitiveHasTexCoord1(flutter_scene.MeshPrimitive primitive) {
+    // The pinned importer publishes TEXCOORD_1 as this exact shader input in
+    // both its unskinned and skinned vertex layouts. Inspecting the semantic
+    // keeps runtime overrides fail-closed without inferring UVs from assets.
+    // ignore: invalid_use_of_internal_member
+    final layout = primitive.geometry.instancedVertexLayout;
+    if (layout == null) {
+      return false;
+    }
+    return layout.buffers.any(
+      (buffer) => buffer.attributes.any(
+        (attribute) => attribute.name == 'texture_coords_1',
+      ),
+    );
+  }
+
   bool _requiresPbrMaterial(
     MaterialPatch patch,
     MaterialBaseFamily family,
@@ -1561,6 +1952,7 @@ final class FlutterSceneRuntimeAdapter
       patch.roughness != null ||
       patch.emissiveFactor != null ||
       patch.occlusionStrength != null ||
+      patch.hasSheenOverride ||
       patch.alphaCutoff != null ||
       family == MaterialBaseFamily.maskedCutout;
 
@@ -1589,6 +1981,10 @@ final class FlutterSceneRuntimeAdapter
       ..occlusionTexture = source.occlusionTextureSource
       ..occlusionStrength = source.occlusionStrength
       // ignore: invalid_use_of_internal_member
+      ..occlusionTextureTexCoord = source.occlusionTextureTexCoord
+      // ignore: invalid_use_of_internal_member
+      ..occlusionTextureTransform = source.occlusionTextureTransform
+      // ignore: invalid_use_of_internal_member
       ..transmissionTexture = source.transmissionTextureSource
       ..transmissionFactor = source.transmissionFactor
       ..transmissionTextureTransform = source.transmissionTextureTransform
@@ -1608,6 +2004,18 @@ final class FlutterSceneRuntimeAdapter
       // ignore: invalid_use_of_internal_member
       ..clearcoatNormalTexture = source.clearcoatNormalTextureSource
       ..clearcoatNormalScale = source.clearcoatNormalScale
+      ..sheenColorFactor = source.sheenColorFactor.clone()
+      ..sheenColorTexture = source.sheenColorTexture
+      // ignore: invalid_use_of_internal_member
+      ..sheenColorTextureTexCoord = source.sheenColorTextureTexCoord
+      // ignore: invalid_use_of_internal_member
+      ..sheenColorTextureTransform = source.sheenColorTextureTransform
+      ..sheenRoughnessFactor = source.sheenRoughnessFactor
+      ..sheenRoughnessTexture = source.sheenRoughnessTexture
+      // ignore: invalid_use_of_internal_member
+      ..sheenRoughnessTextureTexCoord = source.sheenRoughnessTextureTexCoord
+      // ignore: invalid_use_of_internal_member
+      ..sheenRoughnessTextureTransform = source.sheenRoughnessTextureTransform
       ..environment = source.environment
       ..alphaMode = source.alphaMode
       ..alphaCutoff = source.alphaCutoff
@@ -1850,11 +2258,25 @@ final class FlutterSceneRuntimeAdapter
     );
   }
 
-  ViewerDiagnostic _missingUv(PartAddress address) {
+  ViewerDiagnostic _missingUv(
+    PartAddress address, {
+    int uvSet = 0,
+    MaterialTextureSlot? slot,
+    bool includeAtomicApplyState = false,
+  }) {
     return ViewerDiagnostic(
       code: ViewerDiagnosticCode.missingUvSet,
       message: 'Texture override requires authored UV coordinates.',
-      details: <String, Object?>{'part': address.debugPath, 'uvSet': 0},
+      details: <String, Object?>{
+        'part': address.debugPath,
+        'uvSet': uvSet,
+        if (slot != null) 'slot': slot.name,
+        if (includeAtomicApplyState) ...<String, Object?>{
+          'status': 'blocked',
+          'decodedTextureCount': 0,
+          'materialReplaced': false,
+        },
+      },
     );
   }
 
@@ -2165,6 +2587,46 @@ final class _FlutterSceneNativeClearcoatMaterial
       material.clearcoatNormalTexture = value as flutter_scene.TextureSource?;
 
   @override
+  set sheenColorFactor(List<double> value) =>
+      material.sheenColorFactor = vm.Vector3(value[0], value[1], value[2]);
+
+  @override
+  set sheenRoughnessFactor(double value) =>
+      material.sheenRoughnessFactor = value;
+
+  @override
+  set sheenColorTexture(Object? value) =>
+      material.sheenColorTexture = value as flutter_scene.TextureSource?;
+
+  @override
+  set sheenColorTextureTexCoord(int value) {
+    // ignore: invalid_use_of_internal_member
+    material.sheenColorTextureTexCoord = value;
+  }
+
+  @override
+  set sheenColorTextureTransform(TextureTransform value) {
+    // ignore: invalid_use_of_internal_member
+    material.sheenColorTextureTransform = _flutterSceneTransform(value);
+  }
+
+  @override
+  set sheenRoughnessTexture(Object? value) =>
+      material.sheenRoughnessTexture = value as flutter_scene.TextureSource?;
+
+  @override
+  set sheenRoughnessTextureTexCoord(int value) {
+    // ignore: invalid_use_of_internal_member
+    material.sheenRoughnessTextureTexCoord = value;
+  }
+
+  @override
+  set sheenRoughnessTextureTransform(TextureTransform value) {
+    // ignore: invalid_use_of_internal_member
+    material.sheenRoughnessTextureTransform = _flutterSceneTransform(value);
+  }
+
+  @override
   set transmissionFactor(double value) => material.transmissionFactor = value;
 
   @override
@@ -2206,6 +2668,15 @@ flutter_scene.MaterialTextureTransform _flutterSceneTransform(
       rotation: value.rotation,
       scaleX: value.scaleX,
       scaleY: value.scaleY,
+    );
+
+TextureTransform _viewerTextureTransform(
+  flutter_scene.MaterialTextureTransform value,
+) =>
+    TextureTransform(
+      offset: <double>[value.offsetX, value.offsetY],
+      rotation: value.rotation,
+      scale: <double>[value.scaleX, value.scaleY],
     );
 
 final class _FlutterSceneRenderScene implements AdapterRenderScene {
@@ -2577,6 +3048,8 @@ FlutterSceneTextureBindingPlan _flutterSceneTextureBindingPlan(
   PartAddress address, {
   bool allowExtendedPbrCoreTransform = false,
   bool allowNativeTransmissionVolumeTransform = false,
+  bool allowNativeSheenBinding = false,
+  bool allowAuthoredOcclusionTexCoord1 = false,
 }) {
   final diagnostic = flutterSceneTextureBindingDiagnostic(
     address: address,
@@ -2585,6 +3058,8 @@ FlutterSceneTextureBindingPlan _flutterSceneTextureBindingPlan(
     allowExtendedPbrCoreTransform: allowExtendedPbrCoreTransform,
     allowNativeTransmissionVolumeTransform:
         allowNativeTransmissionVolumeTransform,
+    allowNativeSheenBinding: allowNativeSheenBinding,
+    allowAuthoredOcclusionTexCoord1: allowAuthoredOcclusionTexCoord1,
   );
   if (diagnostic != null) {
     return (sampling: null, diagnostic: diagnostic);
@@ -2714,9 +3189,16 @@ bool _usesExtendedPbrFor(
   flutter_scene.Material material,
   MaterialPatch patch,
 ) =>
+    patch.hasSheenOverride ||
+    patch.hasOpaqueIorOverride ||
+    _requiresPackageOwnedExtendedPbrFor(material, patch);
+
+bool _requiresPackageOwnedExtendedPbrFor(
+  flutter_scene.Material material,
+  MaterialPatch patch,
+) =>
     material is FlutterSceneExtendedPbrState ||
     patch.hasSpecularOverride ||
-    patch.hasOpaqueIorOverride ||
     _extendedPbrCoreSlots.any((slot) {
       final binding = patch.textureBindingFor(slot);
       return binding != null && !_isIdentityTransform(binding.transform);
@@ -2729,17 +3211,225 @@ bool _isIdentityTransform(TextureTransform transform) =>
     transform.scaleY == 1 &&
     transform.rotation == 0;
 
-bool _hasNativeTransmissionVolumeState(
+bool _hasNativeTransmissionState(
   flutter_scene.PhysicallyBasedMaterial material,
 ) =>
-    material.transmissionFactor != 0 ||
-    material.transmissionTexture != null ||
+    material.transmissionFactor != 0 || material.transmissionTexture != null;
+
+bool _hasNativeVolumeState(
+  flutter_scene.PhysicallyBasedMaterial material,
+) =>
     material.thicknessFactor != 0 ||
     material.thicknessTexture != null ||
     material.attenuationDistance.isFinite ||
     material.attenuationColor.x != 1 ||
     material.attenuationColor.y != 1 ||
     material.attenuationColor.z != 1;
+
+bool _patchHasTransmissionState(MaterialPatch patch) =>
+    patch.transmission != null ||
+    patch.textureBindingFor(MaterialTextureSlot.transmission) != null;
+
+bool _patchHasVolumeState(MaterialPatch patch) =>
+    patch.thickness != null ||
+    patch.textureBindingFor(MaterialTextureSlot.thickness) != null ||
+    patch.attenuationDistance != null ||
+    patch.attenuationColor != null;
+
+bool _hasClearcoatStateForPreflight(
+  flutter_scene.PhysicallyBasedMaterial material,
+) =>
+    material.clearcoatFactor != 0 ||
+    material.clearcoatRoughnessFactor != 0 ||
+    material.clearcoatTexture != null ||
+    material.clearcoatRoughnessTexture != null ||
+    material.clearcoatNormalTexture != null;
+
+bool _hasNativeSheenState(
+  flutter_scene.PhysicallyBasedMaterial material,
+) =>
+    material.sheenColorFactor.x != 0 ||
+    material.sheenColorFactor.y != 0 ||
+    material.sheenColorFactor.z != 0 ||
+    material.sheenRoughnessFactor != 0 ||
+    material.sheenColorTexture != null ||
+    material.sheenRoughnessTexture != null;
+
+ViewerDiagnostic? _retainedNativeSheenTextureCoordinateDiagnostic({
+  required PartAddress address,
+  required flutter_scene.PhysicallyBasedMaterial source,
+  required MaterialPatch patch,
+}) {
+  final retainedSlots = <(
+    MaterialTextureSlot,
+    flutter_scene.TextureSource?,
+    int,
+  )>[
+    (
+      MaterialTextureSlot.sheenColor,
+      source.sheenColorTexture,
+      // ignore: invalid_use_of_internal_member
+      source.sheenColorTextureTexCoord,
+    ),
+    (
+      MaterialTextureSlot.sheenRoughness,
+      source.sheenRoughnessTexture,
+      // ignore: invalid_use_of_internal_member
+      source.sheenRoughnessTextureTexCoord,
+    ),
+  ];
+  for (final (slot, texture, texCoord) in retainedSlots) {
+    if (texture == null ||
+        patch.textureBindingFor(slot) != null ||
+        texCoord == 0) {
+      continue;
+    }
+    return ViewerDiagnostic(
+      code: ViewerDiagnosticCode.unsupportedMaterialFeature,
+      message:
+          'Package-owned extended PBR cannot preserve the renderer-native sheen texture coordinate selection.',
+      details: <String, Object?>{
+        'part': address.debugPath,
+        'feature': flutterSceneExtendedPbrShaderName,
+        'limitation': 'perSlotTextureCoordinateContractMissing',
+        'slot': slot.name,
+        'texCoord': texCoord,
+        'status': 'blocked',
+        'decodedTextureCount': 0,
+        'materialReplaced': false,
+        'encodedBytesModified': false,
+      },
+    );
+  }
+  return null;
+}
+
+ViewerDiagnostic? _nativeSheenCompositionDiagnostic({
+  required PartAddress address,
+  required flutter_scene.PhysicallyBasedMaterial? source,
+  required MaterialPatch patch,
+}) {
+  final sheenColor = patch.sheenColorFactor ??
+      <double>[
+        source?.sheenColorFactor.x ?? 0,
+        source?.sheenColorFactor.y ?? 0,
+        source?.sheenColorFactor.z ?? 0,
+      ];
+  final hasActiveSheen = sheenColor.any((value) => value > 0);
+  final hasTransmission =
+      (patch.transmission ?? source?.transmissionFactor ?? 0) > 0;
+  final hasActiveClearcoat =
+      (patch.clearcoat ?? source?.clearcoatFactor ?? 0) > 0;
+  final hasTexturedClearcoat = patch
+              .textureBindingFor(MaterialTextureSlot.clearcoat) !=
+          null ||
+      patch.textureBindingFor(MaterialTextureSlot.clearcoatRoughness) != null ||
+      patch.textureBindingFor(MaterialTextureSlot.clearcoatNormal) != null ||
+      source?.clearcoatTexture != null ||
+      source?.clearcoatRoughnessTexture != null ||
+      source?.clearcoatNormalTexture != null;
+  if (!hasActiveSheen ||
+      !hasTransmission ||
+      !hasActiveClearcoat ||
+      !hasTexturedClearcoat) {
+    return null;
+  }
+  return ViewerDiagnostic(
+    code: ViewerDiagnosticCode.unsupportedMaterialFeature,
+    message:
+        'Renderer-native transmission, sheen, and textured clearcoat exceed the portable fragment sampler limit.',
+    details: <String, Object?>{
+      'part': address.debugPath,
+      'feature': 'KHR_materials_sheen',
+      'limitation': 'nativeSheenPortableSamplerLimit',
+      'backendKind': MaterialExtensionBackendKind.rendererNative.name,
+      'portableLimit': 16,
+      'incompatibleState': <String>[
+        'transmission',
+        'sheen',
+        'texturedClearcoat',
+      ],
+      'status': 'blocked',
+      'decodedTextureCount': 0,
+      'materialReplaced': false,
+      'encodedBytesModified': false,
+    },
+  );
+}
+
+void _applyRendererNativeSheenImportPolicy(
+  flutter_scene.Node root, {
+  required bool retainRendererNativeSheen,
+  Set<PartAddress> coreFallbackAddresses = const <PartAddress>{},
+  bool globalCoreFallback = false,
+}) {
+  final retainSheen = retainRendererNativeSheen && !globalCoreFallback;
+  if (retainSheen && coreFallbackAddresses.isEmpty) {
+    return;
+  }
+
+  if (!retainSheen) {
+    final visited = Set<flutter_scene.PhysicallyBasedMaterial>.identity();
+
+    void visit(flutter_scene.Node node) {
+      for (final primitive
+          in node.mesh?.primitives ?? const <flutter_scene.MeshPrimitive>[]) {
+        final material = primitive.material;
+        if (material is flutter_scene.PhysicallyBasedMaterial &&
+            visited.add(material)) {
+          _neutralizeRendererNativeSheen(material);
+        }
+      }
+      for (final child in node.children) {
+        visit(child);
+      }
+    }
+
+    visit(root);
+    return;
+  }
+
+  final resolver = FlutterSceneRuntimeAdapter().._rootNode = root;
+  for (final address in coreFallbackAddresses) {
+    final target = resolver._resolveTarget(address);
+    if (target == null) {
+      throw StateError(
+        'Authored sheen core fallback address could not be resolved: '
+        '${address.debugPath}',
+      );
+    }
+    final source = target.primitive.material;
+    if (source is! flutter_scene.PhysicallyBasedMaterial) {
+      throw StateError(
+        'Authored sheen core fallback requires a lit PBR material: '
+        '${address.debugPath}',
+      );
+    }
+    final fallback = resolver._copyPbrMaterial(source);
+    _neutralizeRendererNativeSheen(fallback);
+    target.primitive.material = fallback;
+  }
+}
+
+void _neutralizeRendererNativeSheen(
+  flutter_scene.PhysicallyBasedMaterial material,
+) {
+  material
+    ..sheenColorFactor = vm.Vector3.zero()
+    ..sheenColorTexture = null
+    // ignore: invalid_use_of_internal_member
+    ..sheenColorTextureTexCoord = 0
+    // ignore: invalid_use_of_internal_member
+    ..sheenColorTextureTransform =
+        const flutter_scene.MaterialTextureTransform()
+    ..sheenRoughnessFactor = 0
+    ..sheenRoughnessTexture = null
+    // ignore: invalid_use_of_internal_member
+    ..sheenRoughnessTextureTexCoord = 0
+    // ignore: invalid_use_of_internal_member
+    ..sheenRoughnessTextureTransform =
+        const flutter_scene.MaterialTextureTransform();
+}
 
 ViewerDiagnostic _extendedPbrNativeTransmissionVolumeCombinationUnavailable(
   PartAddress address,
@@ -2825,7 +3515,7 @@ ViewerDiagnostic? _pinnedStandardPbrExtensionDiagnostic(
         'limitation': 'pinnedStandardPbrSpecularContractMissing',
         'backendKind': backendKind.name,
         'upstreamPackage': 'flutter_scene',
-        'upstreamRevision': '5dcf6fce7dc36719e64e536faba9538fe9fa1022',
+        'upstreamRevision': flutterSceneRendererRevision,
         'status': 'unsupported',
         'productionBlocker': 'rendererNativeSpecularContractMissing',
         'nextStep': 'implementRendererNativeSpecularContract',
@@ -2844,7 +3534,7 @@ ViewerDiagnostic? _pinnedStandardPbrExtensionDiagnostic(
         'limitation': 'pinnedStandardPbrOpaqueIorContractMissing',
         'backendKind': backendKind.name,
         'upstreamPackage': 'flutter_scene',
-        'upstreamRevision': '5dcf6fce7dc36719e64e536faba9538fe9fa1022',
+        'upstreamRevision': flutterSceneRendererRevision,
         'status': 'unsupported',
         'productionBlocker': 'rendererNativeOpaqueIorContractMissing',
         'nextStep': 'implementRendererNativeOpaqueIorContract',
@@ -2944,6 +3634,7 @@ bool _hasAvailableMaterialExtensionBackendFeatures(
       MaterialExtensionFeature.ior,
       MaterialExtensionFeature.volume,
       MaterialExtensionFeature.clearcoat,
+      MaterialExtensionFeature.sheen,
     }.any((feature) => support.supportFor(feature).available);
 
 MaterialExtensionSupport _withExtendedPbrSupport(
@@ -2968,6 +3659,63 @@ MaterialExtensionSupport _withExtendedPbrSupport(
     claimedReleaseTargets: base.claimedReleaseTargets,
   );
 }
+
+MaterialExtensionSupport _withoutSheenSupport(
+  MaterialExtensionSupport base,
+) {
+  if (!base.features.containsKey(MaterialExtensionFeature.sheen)) {
+    return base;
+  }
+  return MaterialExtensionSupport(
+    backendKind: base.backendKind,
+    features: <MaterialExtensionFeature, MaterialExtensionFeatureSupport>{
+      for (final entry in base.features.entries)
+        if (entry.key != MaterialExtensionFeature.sheen) entry.key: entry.value,
+    },
+    claimedReleaseTargets: base.claimedReleaseTargets,
+  );
+}
+
+MaterialExtensionSupport _withSheenSupport(MaterialExtensionSupport base) {
+  final candidate = MaterialExtensionFeatureSupport(
+    available: true,
+    maturityByTarget: <MaterialExtensionTarget, MaterialExtensionMaturity>{
+      for (final target in MaterialExtensionTarget.values)
+        target: MaterialExtensionMaturity.candidateOnly,
+    },
+  );
+  return MaterialExtensionSupport(
+    // A single support record cannot honestly label a package-owned sheen
+    // route as renderer-native. Preserve each non-sheen feature record below,
+    // but underclaim the mixed backend as a package-local candidate and drop
+    // release-target claims while sheen is dynamically available.
+    backendKind: MaterialExtensionBackendKind.packageLocalCandidate,
+    features: <MaterialExtensionFeature, MaterialExtensionFeatureSupport>{
+      ...base.features,
+      MaterialExtensionFeature.sheen: candidate,
+    },
+  );
+}
+
+ViewerDiagnostic _sheenCandidateUnavailableDiagnostic(
+  PartAddress address, {
+  required String limitation,
+}) =>
+    ViewerDiagnostic(
+      code: ViewerDiagnosticCode.unsupportedMaterialFeature,
+      message:
+          'The package-local sheen candidate is unavailable for this request.',
+      details: <String, Object?>{
+        'part': address.debugPath,
+        'feature': 'FSViewerSheenExtendedPbr',
+        'extension': 'KHR_materials_sheen',
+        'limitation': limitation,
+        'status': 'blocked',
+        'materialReplaced': false,
+        'encodedBytesModified': false,
+        'renderingEvidence': 'not run',
+      },
+    );
 
 List<ViewerDiagnostic> _applyFlutterSceneAuthoredMipBindingPlan(
   flutter_scene.Node root,
@@ -3288,12 +4036,14 @@ flutter_scene.AlphaMode debugFlutterSceneAlphaModeFor(
 @visibleForTesting
 FlutterSceneTextureBindingPlan debugFlutterSceneTextureBindingPlan(
   MaterialTextureBinding binding,
-  MaterialTextureSlot slot,
-) =>
+  MaterialTextureSlot slot, {
+  bool allowAuthoredOcclusionTexCoord1 = false,
+}) =>
     _flutterSceneTextureBindingPlan(
       binding,
       slot,
       PartAddress(nodePath: const <String>['debug'], primitiveIndex: 0),
+      allowAuthoredOcclusionTexCoord1: allowAuthoredOcclusionTexCoord1,
     );
 
 @visibleForTesting
@@ -3381,6 +4131,20 @@ bool debugCanResolvePartAddress(
   final adapter = FlutterSceneRuntimeAdapter().._rootNode = root;
   return adapter._resolveTarget(address) != null;
 }
+
+@visibleForTesting
+void debugApplyRendererNativeSheenImportPolicy(
+  flutter_scene.Node root, {
+  required bool retainRendererNativeSheen,
+  Set<PartAddress> coreFallbackAddresses = const <PartAddress>{},
+  bool globalCoreFallback = false,
+}) =>
+    _applyRendererNativeSheenImportPolicy(
+      root,
+      retainRendererNativeSheen: retainRendererNativeSheen,
+      coreFallbackAddresses: coreFallbackAddresses,
+      globalCoreFallback: globalCoreFallback,
+    );
 
 @visibleForTesting
 Future<List<ViewerDiagnostic>> debugApplyMaterialPatchToRoot(

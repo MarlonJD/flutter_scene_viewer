@@ -1,8 +1,16 @@
+// ignore_for_file: invalid_use_of_internal_member
+
 import 'dart:convert';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter_scene/scene.dart' as flutter_scene;
+// ignore: implementation_imports
+import 'package:flutter_scene/src/geometry/geometry.dart'
+    as flutter_scene_internal_geometry;
+// ignore: implementation_imports
+import 'package:flutter_scene/src/geometry/vertex_layout.dart'
+    as flutter_scene_internal_vertex_layout;
 import 'package:flutter_scene/src/gpu/gpu.dart' as flutter_scene_internal_gpu;
 import 'package:flutter_scene_viewer/flutter_scene_viewer.dart';
 import 'package:flutter_scene_viewer/src/internal/flutter_scene_adapter.dart';
@@ -70,9 +78,7 @@ void main() {
       expect(diagnostics, isEmpty);
       expect(interop.allocations, hasLength(1));
       expect(interop.uploadMipLevels, <int>[0, 1]);
-      // ignore: invalid_use_of_internal_member
       final firstSource = first.metallicRoughnessTextureSource;
-      // ignore: invalid_use_of_internal_member
       final secondSource = second.occlusionTextureSource;
       expect(firstSource, isNotNull);
       expect(secondSource, same(firstSource));
@@ -139,9 +145,7 @@ void main() {
       expect(diagnostics, isEmpty);
       expect(interop.allocations, hasLength(1));
       expect(interop.uploadMipLevels, <int>[0, 1]);
-      // ignore: invalid_use_of_internal_member
       final normalSource = material.normalTextureSource;
-      // ignore: invalid_use_of_internal_member
       final occlusionSource = material.occlusionTextureSource;
       expect(normalSource, isNotNull);
       expect(occlusionSource, isNotNull);
@@ -217,9 +221,7 @@ void main() {
 
       expect(diagnostics, isEmpty);
       expect(interop.allocations, hasLength(1));
-      // ignore: invalid_use_of_internal_member
       final firstSource = first.baseColorTextureSource!;
-      // ignore: invalid_use_of_internal_member
       final secondSource = second.baseColorTextureSource!;
       expect(firstSource, isNot(same(secondSource)));
       expect(
@@ -276,11 +278,745 @@ void main() {
       expect(diagnostics, hasLength(1));
       expect(diagnostics.single.details['blocking'], isTrue);
       expect(diagnostics.single.details['imageIndex'], 9);
-      // ignore: invalid_use_of_internal_member
       expect(first.baseColorTextureSource, isNull);
-      // ignore: invalid_use_of_internal_member
       expect(second.normalTextureSource, isNull);
     });
+  });
+
+  test('adapter advertises opted-in sheen only after request preflight',
+      () async {
+    final backend = _SheenReadyExtendedPbrBackend();
+    final adapter = FlutterSceneRuntimeAdapter(
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.experimentalShaders(
+        enableSheen: true,
+      ),
+      extendedPbrBackend: backend,
+    );
+    final address = PartAddress(
+      nodePath: const <String>['Fabric'],
+      primitiveIndex: 0,
+    );
+
+    expect(adapter.materialExtensionSupport.sheen, isFalse);
+
+    final diagnostic = await adapter.preflightAuthoredMaterialPatch(
+      address: address,
+      patch: const MaterialPatch(
+        sheenColorFactor: <double>[0.4, 0.5, 0.6],
+        sheenRoughness: 0.7,
+      ),
+    );
+
+    expect(diagnostic, isNull);
+    expect(backend.requests, hasLength(1));
+    expect(backend.requests.single.hasSheen, isTrue);
+    final support = adapter.materialExtensionSupport
+        .supportFor(MaterialExtensionFeature.sheen);
+    expect(support.available, isTrue);
+    for (final target in MaterialExtensionTarget.values) {
+      expect(
+        support.maturityFor(target),
+        MaterialExtensionMaturity.candidateOnly,
+      );
+      expect(
+        support.evidenceFor(target),
+        MaterialExtensionEvidenceStatus.notRun,
+      );
+    }
+  });
+
+  test('production authored sheen preflight uses the current native probe',
+      () async {
+    final candidateBackend = _RecordingExtendedPbrBackend();
+    final adapter = FlutterSceneRuntimeAdapter(
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.productionShaders(
+        enableSheen: true,
+      ),
+      extendedPbrBackend: candidateBackend,
+    );
+
+    final diagnostic = await adapter.preflightAuthoredMaterialPatch(
+      address: PartAddress(
+        nodePath: const <String>['Fabric'],
+        primitiveIndex: 0,
+      ),
+      patch: const MaterialPatch(
+        sheenColorFactor: <double>[0.2, 0.4, 0.8],
+        sheenRoughness: 0.35,
+      ),
+    );
+
+    expect(diagnostic, isNull);
+    expect(candidateBackend.sheenRequests, isEmpty);
+    expect(candidateBackend.configs, isEmpty);
+  });
+
+  test(
+      'authored combined scalar clearcoat glass sheen uses native preflight without shader load',
+      () async {
+    var shaderLoadCount = 0;
+    final adapter = FlutterSceneRuntimeAdapter(
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.productionShaders(
+        enableSheen: true,
+      ),
+      extendedPbrBackend: FlutterSceneExtendedPbrBackend(
+        loadShader: (_, __) async {
+          shaderLoadCount += 1;
+          throw StateError('state diagnostic must precede shader load');
+        },
+      ),
+    );
+    final address = PartAddress(
+      nodePath: const <String>['CoatedGlassFabric'],
+      primitiveIndex: 0,
+    );
+
+    final diagnostic = await adapter.preflightAuthoredMaterialPatch(
+      address: address,
+      patch: const MaterialPatch(
+        sheenColorFactor: <double>[0.4, 0.5, 0.6],
+        clearcoat: 0.8,
+        transmission: 0.5,
+        thickness: 0.25,
+      ),
+    );
+
+    expect(diagnostic, isNull);
+    expect(shaderLoadCount, 0);
+  });
+
+  test(
+      'authored native textured clearcoat glass sheen fails before decode or shader load',
+      () async {
+    var shaderLoadCount = 0;
+    final textureFactory = _RecordingTextureFactory();
+    final adapter = FlutterSceneRuntimeAdapter(
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.productionShaders(
+        enableSheen: true,
+      ),
+      textureFactory: textureFactory,
+      extendedPbrBackend: FlutterSceneExtendedPbrBackend(
+        loadShader: (_, __) async {
+          shaderLoadCount += 1;
+          throw StateError('composition diagnostic must precede shader load');
+        },
+      ),
+    );
+    final address = PartAddress(
+      nodePath: const <String>['CoatedGlassFabric'],
+      primitiveIndex: 0,
+    );
+
+    final diagnostic = await adapter.preflightAuthoredMaterialPatch(
+      address: address,
+      patch: MaterialPatch(
+        sheenColorFactor: const <double>[0.4, 0.5, 0.6],
+        clearcoat: 0.8,
+        clearcoatTextureBinding: MaterialTextureBinding(
+          source: const TextureSource.asset('assets/clearcoat.png'),
+        ),
+        transmission: 0.5,
+        thickness: 0.25,
+      ),
+    );
+
+    expect(diagnostic, isNotNull);
+    expect(
+      diagnostic!.details['limitation'],
+      'nativeSheenPortableSamplerLimit',
+    );
+    expect(diagnostic.details['decodedTextureCount'], 0);
+    expect(diagnostic.details['materialReplaced'], isFalse);
+    expect(textureFactory.paths, isEmpty);
+    expect(shaderLoadCount, 0);
+  });
+
+  test('ready sheen never inherits renderer native release capability',
+      () async {
+    final backend = _RecordingExtendedPbrBackend();
+    final adapter = FlutterSceneRuntimeAdapter(
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.productionShaders(
+        enableSheen: true,
+      ),
+      extendedPbrBackend: backend,
+    );
+    final root = flutter_scene.Node(
+      name: 'Fabric',
+      mesh: flutter_scene.Mesh(
+        _UvStubGeometry(),
+        flutter_scene.PhysicallyBasedMaterial(),
+      ),
+    );
+    final nativeSupport = MaterialExtensionSupport(
+      backendKind: MaterialExtensionBackendKind.rendererNative,
+      features: <MaterialExtensionFeature, MaterialExtensionFeatureSupport>{
+        MaterialExtensionFeature.clearcoat:
+            MaterialExtensionFeatureSupport(available: true),
+      },
+      claimedReleaseTargets: const <MaterialExtensionTarget>{
+        MaterialExtensionTarget.iosSimulator,
+      },
+    );
+
+    final diagnostics = await debugApplyMaterialPatchToRoot(
+      root,
+      PartAddress(nodePath: const <String>['Fabric'], primitiveIndex: 0),
+      const MaterialPatch(),
+      materialExtensionSupport: nativeSupport,
+      runtimeAdapter: adapter,
+    );
+
+    expect(diagnostics, isEmpty);
+    final support = adapter.materialExtensionSupport;
+    expect(
+      support.backendKind,
+      MaterialExtensionBackendKind.packageLocalCandidate,
+    );
+    expect(support.claimedReleaseTargets, isEmpty);
+    expect(support.productionReady, isFalse);
+    final sheen = support.supportFor(MaterialExtensionFeature.sheen);
+    expect(sheen.available, isTrue);
+    for (final target in MaterialExtensionTarget.values) {
+      expect(
+          sheen.maturityFor(target), MaterialExtensionMaturity.candidateOnly);
+      expect(
+        sheen.evidenceFor(target),
+        MaterialExtensionEvidenceStatus.notRun,
+      );
+      expect(support.productionReadyFor(MaterialExtensionFeature.sheen, target),
+          isFalse);
+    }
+  });
+
+  test('ready sheen preserves native routing for unrelated no-sheen patches',
+      () async {
+    final backend = _RecordingExtendedPbrBackend();
+    final adapter = FlutterSceneRuntimeAdapter(
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.productionShaders(
+        enableSheen: true,
+      ),
+      extendedPbrBackend: backend,
+    );
+    final nativeSupport = MaterialExtensionSupport(
+      backendKind: MaterialExtensionBackendKind.rendererNative,
+      features: <MaterialExtensionFeature, MaterialExtensionFeatureSupport>{
+        for (final feature in <MaterialExtensionFeature>[
+          MaterialExtensionFeature.transmission,
+          MaterialExtensionFeature.ior,
+          MaterialExtensionFeature.volume,
+          MaterialExtensionFeature.clearcoat,
+        ])
+          feature: MaterialExtensionFeatureSupport(available: true),
+      },
+    );
+    final coatSource = flutter_scene.PhysicallyBasedMaterial();
+    final coatRoot = flutter_scene.Node(
+      name: 'Paint',
+      mesh: flutter_scene.Mesh(_UvStubGeometry(), coatSource),
+    );
+    final glassSource = flutter_scene.PhysicallyBasedMaterial();
+    final glassRoot = flutter_scene.Node(
+      name: 'Glass',
+      mesh: flutter_scene.Mesh(_UvStubGeometry(), glassSource),
+    );
+
+    final coatDiagnostics = await debugApplyMaterialPatchToRoot(
+      coatRoot,
+      PartAddress(nodePath: const <String>['Paint'], primitiveIndex: 0),
+      const MaterialPatch(clearcoat: 0.8, clearcoatRoughness: 0.2),
+      materialExtensionSupport: nativeSupport,
+      runtimeAdapter: adapter,
+    );
+    final glassDiagnostics = await debugApplyMaterialPatchToRoot(
+      glassRoot,
+      PartAddress(nodePath: const <String>['Glass'], primitiveIndex: 0),
+      const MaterialPatch(
+        transmission: 0.6,
+        ior: 1.4,
+        thickness: 0.1,
+      ),
+      materialExtensionSupport: nativeSupport,
+      runtimeAdapter: adapter,
+    );
+
+    expect(
+      adapter.materialExtensionSupport.backendKind,
+      MaterialExtensionBackendKind.packageLocalCandidate,
+    );
+    expect(coatDiagnostics, isEmpty);
+    final coat = coatRoot.mesh!.primitives.single.material
+        as flutter_scene.PhysicallyBasedMaterial;
+    expect(coat.clearcoatFactor, 0.8);
+    expect(coat.clearcoatRoughnessFactor, 0.2);
+    expect(coat, isNot(isA<FlutterSceneExtendedPbrState>()));
+    expect(glassDiagnostics, isEmpty);
+    final glass = glassRoot.mesh!.primitives.single.material
+        as flutter_scene.PhysicallyBasedMaterial;
+    expect(glass.transmissionFactor, 0.6);
+    expect(glass.ior, 1.4);
+    expect(glass.thicknessFactor, 0.1);
+    expect(glass, isNot(isA<FlutterSceneExtendedPbrState>()));
+    expect(backend.sheenRequests, isEmpty);
+    expect(backend.configs, isEmpty);
+  });
+
+  test(
+      'renderer-native sheen and opaque IOR bypass the package-local candidate atomically',
+      () async {
+    final textureFactory = _RecordingTextureFactory();
+    final candidateBackend = _RecordingExtendedPbrBackend();
+    final adapter = FlutterSceneRuntimeAdapter(
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.productionShaders(
+        enableSheen: true,
+      ),
+      textureFactory: textureFactory,
+      extendedPbrBackend: candidateBackend,
+    );
+    final sourceMaterial = flutter_scene.PhysicallyBasedMaterial();
+    final root = flutter_scene.Node(
+      name: 'Fabric',
+      mesh: flutter_scene.Mesh(_Uv1StubGeometry(), sourceMaterial),
+    );
+    final support = MaterialExtensionSupport(
+      backendKind: MaterialExtensionBackendKind.rendererNative,
+      features: <MaterialExtensionFeature, MaterialExtensionFeatureSupport>{
+        MaterialExtensionFeature.sheen: MaterialExtensionFeatureSupport(
+          available: true,
+          maturityByTarget: const <MaterialExtensionTarget,
+              MaterialExtensionMaturity>{
+            MaterialExtensionTarget.iosSimulator:
+                MaterialExtensionMaturity.releasePending,
+          },
+        ),
+        MaterialExtensionFeature.ior:
+            MaterialExtensionFeatureSupport(available: true),
+      },
+    );
+    final colorTransform = TextureTransform(
+      offset: const <double>[0.1, 0.2],
+      scale: const <double>[1.5, 0.75],
+      rotation: 0.3,
+    );
+    final roughnessTransform = TextureTransform(
+      offset: const <double>[0.4, 0.5],
+      scale: const <double>[0.5, 2.0],
+      rotation: 0.6,
+    );
+
+    final diagnostics = await debugApplyMaterialPatchToRoot(
+      root,
+      PartAddress(nodePath: const <String>['Fabric'], primitiveIndex: 0),
+      MaterialPatch(
+        ior: 1.45,
+        sheenColorFactor: const <double>[0.2, 0.4, 0.8],
+        sheenColorTextureBinding: MaterialTextureBinding(
+          source: TextureSource.bytes(
+            _onePixelPng,
+            debugName: 'native-sheen-color',
+          ),
+          texCoord: 1,
+          transform: colorTransform,
+        ),
+        sheenRoughness: 0.35,
+        sheenRoughnessTextureBinding: MaterialTextureBinding(
+          source: TextureSource.bytes(
+            _onePixelPng,
+            debugName: 'native-sheen-roughness',
+          ),
+          transform: roughnessTransform,
+        ),
+      ),
+      materialExtensionSupport: support,
+      runtimeAdapter: adapter,
+    );
+
+    expect(diagnostics, isEmpty);
+    expect(
+      adapter.materialExtensionSupport.backendKind,
+      MaterialExtensionBackendKind.rendererNative,
+    );
+    final advertisedSheen = adapter.materialExtensionSupport
+        .supportFor(MaterialExtensionFeature.sheen);
+    expect(advertisedSheen.available, isTrue);
+    expect(
+      advertisedSheen.maturityFor(MaterialExtensionTarget.iosSimulator),
+      MaterialExtensionMaturity.releasePending,
+    );
+    expect(
+      advertisedSheen.evidenceFor(MaterialExtensionTarget.iosSimulator),
+      MaterialExtensionEvidenceStatus.notRun,
+    );
+    expect(candidateBackend.sheenRequests, isEmpty);
+    expect(candidateBackend.configs, isEmpty);
+    expect(textureFactory.createdSources, hasLength(2));
+    final native = root.mesh!.primitives.single.material
+        as flutter_scene.PhysicallyBasedMaterial;
+    expect(native, isNot(isA<FlutterSceneExtendedPbrState>()));
+    expect(native.sheenColorFactor.x, closeTo(0.2, 0.0001));
+    expect(native.sheenColorFactor.y, closeTo(0.4, 0.0001));
+    expect(native.sheenColorFactor.z, closeTo(0.8, 0.0001));
+    expect(native.sheenColorTexture, same(textureFactory.createdSources[0]));
+    expect(native.sheenColorTextureTexCoord, 1);
+    expect(native.sheenColorTextureTransform.offsetX, 0.1);
+    expect(native.sheenColorTextureTransform.offsetY, 0.2);
+    expect(native.sheenColorTextureTransform.rotation, 0.3);
+    expect(native.sheenColorTextureTransform.scaleX, 1.5);
+    expect(native.sheenColorTextureTransform.scaleY, 0.75);
+    expect(native.sheenRoughnessFactor, 0.35);
+    expect(
+      native.sheenRoughnessTexture,
+      same(textureFactory.createdSources[1]),
+    );
+    expect(native.sheenRoughnessTextureTexCoord, 0);
+    expect(native.sheenRoughnessTextureTransform.offsetX, 0.4);
+    expect(native.sheenRoughnessTextureTransform.offsetY, 0.5);
+    expect(native.sheenRoughnessTextureTransform.rotation, 0.6);
+    expect(native.sheenRoughnessTextureTransform.scaleX, 0.5);
+    expect(native.sheenRoughnessTextureTransform.scaleY, 2.0);
+    expect(native.ior, 1.45);
+  });
+
+  test('renderer-native sheen rejects unlit before visibility mutation',
+      () async {
+    final originalGeometry = _UvStubGeometry();
+    final originalMaterial = flutter_scene.UnlitMaterial();
+    final root = flutter_scene.Node(
+      name: 'Fabric',
+      mesh: flutter_scene.Mesh(originalGeometry, originalMaterial),
+    );
+    final originalMesh = root.mesh;
+    final support = MaterialExtensionSupport(
+      backendKind: MaterialExtensionBackendKind.rendererNative,
+      features: <MaterialExtensionFeature, MaterialExtensionFeatureSupport>{
+        MaterialExtensionFeature.sheen:
+            MaterialExtensionFeatureSupport(available: true),
+      },
+    );
+
+    final diagnostics = await debugApplyMaterialPatchToRoot(
+      root,
+      PartAddress(nodePath: const <String>['Fabric'], primitiveIndex: 0),
+      const MaterialPatch(
+        sheenColorFactor: <double>[0.2, 0.4, 0.8],
+        visible: false,
+      ),
+      materialExtensionSupport: support,
+      runtimeAdapter: FlutterSceneRuntimeAdapter(
+        materialExtensionPolicy:
+            const ViewerMaterialExtensionPolicy.productionShaders(
+          enableSheen: true,
+        ),
+      ),
+    );
+
+    expect(diagnostics, hasLength(1));
+    expect(
+      diagnostics.single.code,
+      ViewerDiagnosticCode.unsupportedMaterialFeature,
+    );
+    expect(root.visible, isTrue);
+    expect(root.mesh, same(originalMesh));
+    expect(root.mesh!.primitives.single.geometry, same(originalGeometry));
+    expect(root.mesh!.primitives.single.material, same(originalMaterial));
+  });
+
+  test('native sheen sampler-limit combinations fail before texture decode',
+      () async {
+    final support = MaterialExtensionSupport(
+      backendKind: MaterialExtensionBackendKind.rendererNative,
+      features: <MaterialExtensionFeature, MaterialExtensionFeatureSupport>{
+        for (final feature in <MaterialExtensionFeature>[
+          MaterialExtensionFeature.transmission,
+          MaterialExtensionFeature.clearcoat,
+          MaterialExtensionFeature.sheen,
+        ])
+          feature: MaterialExtensionFeatureSupport(available: true),
+      },
+    );
+    final retainedClearcoatTexture = _StubTextureSource(
+      const flutter_scene.TextureSampling().toSamplerOptions(),
+    );
+    final cases = <({
+      String name,
+      flutter_scene.PhysicallyBasedMaterial source,
+      MaterialPatch patch,
+    })>[
+      (
+        name: 'same delta',
+        source: flutter_scene.PhysicallyBasedMaterial(),
+        patch: MaterialPatch(
+          transmission: 0.5,
+          sheenColorFactor: const <double>[0.2, 0.4, 0.8],
+          clearcoat: 0.7,
+          clearcoatTextureBinding: MaterialTextureBinding(
+            source: TextureSource.bytes(
+              _onePixelPng,
+              debugName: 'same-delta-clearcoat',
+            ),
+          ),
+        ),
+      ),
+      (
+        name: 'retained state',
+        source: flutter_scene.PhysicallyBasedMaterial()
+          ..transmissionFactor = 0.5
+          ..clearcoatFactor = 0.7
+          ..clearcoatTexture = retainedClearcoatTexture,
+        patch: const MaterialPatch(
+          sheenColorFactor: <double>[0.2, 0.4, 0.8],
+        ),
+      ),
+    ];
+
+    for (final entry in cases) {
+      final textureFactory = _RecordingTextureFactory();
+      final candidateBackend = _RecordingExtendedPbrBackend();
+      final root = flutter_scene.Node(
+        name: 'Fabric',
+        mesh: flutter_scene.Mesh(_UvStubGeometry(), entry.source),
+      );
+
+      final diagnostics = await debugApplyMaterialPatchToRoot(
+        root,
+        PartAddress(nodePath: const <String>['Fabric'], primitiveIndex: 0),
+        entry.patch,
+        materialExtensionSupport: support,
+        runtimeAdapter: FlutterSceneRuntimeAdapter(
+          materialExtensionPolicy:
+              const ViewerMaterialExtensionPolicy.productionShaders(
+            enableSheen: true,
+          ),
+          textureFactory: textureFactory,
+          extendedPbrBackend: candidateBackend,
+        ),
+      );
+
+      expect(diagnostics, hasLength(1), reason: entry.name);
+      expect(
+        diagnostics.single.details['limitation'],
+        'nativeSheenPortableSamplerLimit',
+        reason: entry.name,
+      );
+      expect(diagnostics.single.details['status'], 'blocked');
+      expect(diagnostics.single.details['decodedTextureCount'], 0);
+      expect(textureFactory.createdSources, isEmpty, reason: entry.name);
+      expect(candidateBackend.sheenRequests, isEmpty, reason: entry.name);
+      expect(
+        root.mesh!.primitives.single.material,
+        same(entry.source),
+        reason: entry.name,
+      );
+    }
+  });
+
+  test('disabled sheen preserves renderer native capability identity',
+      () async {
+    final adapter = FlutterSceneRuntimeAdapter(
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.productionShaders(),
+      extendedPbrBackend: _RecordingExtendedPbrBackend(),
+    );
+    final root = flutter_scene.Node(
+      name: 'Paint',
+      mesh: flutter_scene.Mesh(
+        _UvStubGeometry(),
+        flutter_scene.PhysicallyBasedMaterial(),
+      ),
+    );
+    final nativeSupport = MaterialExtensionSupport(
+      backendKind: MaterialExtensionBackendKind.rendererNative,
+      claimedReleaseTargets: const <MaterialExtensionTarget>{
+        MaterialExtensionTarget.iosSimulator,
+      },
+    );
+
+    final diagnostics = await debugApplyMaterialPatchToRoot(
+      root,
+      PartAddress(nodePath: const <String>['Paint'], primitiveIndex: 0),
+      const MaterialPatch(),
+      materialExtensionSupport: nativeSupport,
+      runtimeAdapter: adapter,
+    );
+
+    expect(diagnostics, isEmpty);
+    expect(
+      adapter.materialExtensionSupport.backendKind,
+      MaterialExtensionBackendKind.rendererNative,
+    );
+    expect(
+      adapter.materialExtensionSupport.claimedReleaseTargets,
+      const <MaterialExtensionTarget>{MaterialExtensionTarget.iosSimulator},
+    );
+    expect(adapter.materialExtensionSupport.sheen, isFalse);
+  });
+
+  test('import policy retains native sheen only for selected native support',
+      () {
+    flutter_scene.PhysicallyBasedMaterial material() =>
+        flutter_scene.PhysicallyBasedMaterial()
+          ..sheenColorFactor = vm.Vector3(0.2, 0.4, 0.8)
+          ..sheenColorTexture = _StubTextureSource(
+            const flutter_scene.TextureSampling().toSamplerOptions(),
+          )
+          ..sheenColorTextureTexCoord = 1
+          ..sheenColorTextureTransform =
+              const flutter_scene.MaterialTextureTransform(offsetX: 0.2)
+          ..sheenRoughnessFactor = 0.35
+          ..sheenRoughnessTexture = _StubTextureSource(
+            const flutter_scene.TextureSampling().toSamplerOptions(),
+          )
+          ..sheenRoughnessTextureTexCoord = 1
+          ..sheenRoughnessTextureTransform =
+              const flutter_scene.MaterialTextureTransform(scaleX: 0.5);
+
+    final retained = material();
+    final retainedRoot = flutter_scene.Node(
+      name: 'Retained',
+      mesh: flutter_scene.Mesh(_UvStubGeometry(), retained),
+    );
+    final stripped = material();
+    final strippedRoot = flutter_scene.Node(
+      name: 'Stripped',
+      mesh: flutter_scene.Mesh(_UvStubGeometry(), stripped),
+    );
+
+    debugApplyRendererNativeSheenImportPolicy(
+      retainedRoot,
+      retainRendererNativeSheen: true,
+    );
+    debugApplyRendererNativeSheenImportPolicy(
+      strippedRoot,
+      retainRendererNativeSheen: false,
+    );
+
+    expect(retained.sheenColorFactor.x, closeTo(0.2, 0.0001));
+    expect(retained.sheenColorTexture, isNotNull);
+    expect(retained.sheenColorTextureTexCoord, 1);
+    expect(retained.sheenColorTextureTransform.offsetX, 0.2);
+    expect(retained.sheenRoughnessFactor, 0.35);
+    expect(retained.sheenRoughnessTexture, isNotNull);
+    expect(retained.sheenRoughnessTextureTexCoord, 1);
+    expect(retained.sheenRoughnessTextureTransform.scaleX, 0.5);
+
+    expect(stripped.sheenColorFactor, vm.Vector3.zero());
+    expect(stripped.sheenColorTexture, isNull);
+    expect(stripped.sheenColorTextureTexCoord, 0);
+    expect(
+      stripped.sheenColorTextureTransform,
+      const flutter_scene.MaterialTextureTransform(),
+    );
+    expect(stripped.sheenRoughnessFactor, 0);
+    expect(stripped.sheenRoughnessTexture, isNull);
+    expect(stripped.sheenRoughnessTextureTexCoord, 0);
+    expect(
+      stripped.sheenRoughnessTextureTransform,
+      const flutter_scene.MaterialTextureTransform(),
+    );
+  });
+
+  test('authored core fallback neutralizes exact shared-material address', () {
+    final sheenColorTexture = _StubTextureSource(
+      const flutter_scene.TextureSampling().toSamplerOptions(),
+    );
+    final sheenRoughnessTexture = _StubTextureSource(
+      const flutter_scene.TextureSampling().toSamplerOptions(),
+    );
+    final clearcoatTexture = _StubTextureSource(
+      const flutter_scene.TextureSampling().toSamplerOptions(),
+    );
+    const colorTransform = flutter_scene.MaterialTextureTransform(
+      offsetX: 0.1,
+      offsetY: 0.2,
+      rotation: 0.3,
+      scaleX: 1.5,
+      scaleY: 0.75,
+    );
+    const roughnessTransform = flutter_scene.MaterialTextureTransform(
+      offsetX: 0.4,
+      offsetY: 0.5,
+      rotation: 0.6,
+      scaleX: 0.5,
+      scaleY: 2.0,
+    );
+    final sharedMaterial = flutter_scene.PhysicallyBasedMaterial()
+      ..sheenColorFactor = vm.Vector3(0.2, 0.4, 0.8)
+      ..sheenColorTexture = sheenColorTexture
+      ..sheenColorTextureTexCoord = 1
+      ..sheenColorTextureTransform = colorTransform
+      ..sheenRoughnessFactor = 0.35
+      ..sheenRoughnessTexture = sheenRoughnessTexture
+      ..sheenRoughnessTextureTexCoord = 1
+      ..sheenRoughnessTextureTransform = roughnessTransform
+      ..transmissionFactor = 0.5
+      ..clearcoatFactor = 0.7
+      ..clearcoatTexture = clearcoatTexture;
+    final fallbackNode = flutter_scene.Node(
+      name: 'FallbackFabric',
+      mesh: flutter_scene.Mesh(_UvStubGeometry(), sharedMaterial),
+    );
+    final validNode = flutter_scene.Node(
+      name: 'ValidFabric',
+      mesh: flutter_scene.Mesh(_UvStubGeometry(), sharedMaterial),
+    );
+    final root = flutter_scene.Node(name: 'Root')
+      ..add(fallbackNode)
+      ..add(validNode);
+    final fallbackAddress = PartAddress(
+      nodePath: const <String>['Root', 'FallbackFabric'],
+      primitiveIndex: 0,
+    );
+
+    debugApplyRendererNativeSheenImportPolicy(
+      root,
+      retainRendererNativeSheen: true,
+      coreFallbackAddresses: <PartAddress>{fallbackAddress},
+    );
+
+    final fallbackMaterial = fallbackNode.mesh!.primitives.single.material
+        as flutter_scene.PhysicallyBasedMaterial;
+    final validMaterial = validNode.mesh!.primitives.single.material
+        as flutter_scene.PhysicallyBasedMaterial;
+    expect(fallbackMaterial, isNot(same(sharedMaterial)));
+    expect(fallbackMaterial.sheenColorFactor, vm.Vector3.zero());
+    expect(fallbackMaterial.sheenColorTexture, isNull);
+    expect(fallbackMaterial.sheenColorTextureTexCoord, 0);
+    expect(
+      fallbackMaterial.sheenColorTextureTransform,
+      const flutter_scene.MaterialTextureTransform(),
+    );
+    expect(fallbackMaterial.sheenRoughnessFactor, 0);
+    expect(fallbackMaterial.sheenRoughnessTexture, isNull);
+    expect(fallbackMaterial.sheenRoughnessTextureTexCoord, 0);
+    expect(
+      fallbackMaterial.sheenRoughnessTextureTransform,
+      const flutter_scene.MaterialTextureTransform(),
+    );
+    expect(fallbackMaterial.transmissionFactor, 0.5);
+    expect(fallbackMaterial.clearcoatFactor, 0.7);
+    expect(fallbackMaterial.clearcoatTexture, same(clearcoatTexture));
+
+    expect(validMaterial, same(sharedMaterial));
+    expect(validMaterial.sheenColorFactor.x, closeTo(0.2, 0.0001));
+    expect(validMaterial.sheenColorTexture, same(sheenColorTexture));
+    expect(validMaterial.sheenColorTextureTexCoord, 1);
+    expect(validMaterial.sheenColorTextureTransform, colorTransform);
+    expect(validMaterial.sheenRoughnessFactor, 0.35);
+    expect(
+      validMaterial.sheenRoughnessTexture,
+      same(sheenRoughnessTexture),
+    );
+    expect(validMaterial.sheenRoughnessTextureTexCoord, 1);
+    expect(validMaterial.sheenRoughnessTextureTransform, roughnessTransform);
+    expect(validMaterial.transmissionFactor, 0.5);
+    expect(validMaterial.clearcoatFactor, 0.7);
+    expect(validMaterial.clearcoatTexture, same(clearcoatTexture));
   });
 
   group('texture binding renderer plan', () {
@@ -405,6 +1141,14 @@ void main() {
         ),
         MaterialTextureSlot.baseColor,
       );
+      final authoredAoUv1Plan = debugFlutterSceneTextureBindingPlan(
+        MaterialTextureBinding(
+          source: const TextureSource.asset('assets/ao.png'),
+          transform: TextureTransform(texCoordOverride: 1),
+        ),
+        MaterialTextureSlot.occlusion,
+        allowAuthoredOcclusionTexCoord1: true,
+      );
 
       expect(uv0Plan.diagnostic, isNull);
       expect(uv0Plan.sampling, isNotNull);
@@ -414,6 +1158,8 @@ void main() {
         'perSlotTextureCoordinateContractMissing',
       );
       expect(uv1Plan.diagnostic!.details['texCoord'], 1);
+      expect(authoredAoUv1Plan.diagnostic, isNull);
+      expect(authoredAoUv1Plan.sampling, isNotNull);
     });
 
     test('passes sampler through asset image and pixel creation paths',
@@ -573,17 +1319,13 @@ void main() {
       );
 
       expect(diagnostics, isEmpty);
-      // ignore: invalid_use_of_internal_member
       expect(material.baseColorTextureSource, same(factory.createdSources[0]));
-      // ignore: invalid_use_of_internal_member
       expect(material.normalTextureSource, same(factory.createdSources[1]));
       expect(
-        // ignore: invalid_use_of_internal_member
         material.baseColorTextureSource!.sampledSampler.widthAddressMode,
         flutter_scene_internal_gpu.SamplerAddressMode.repeat,
       );
       expect(
-        // ignore: invalid_use_of_internal_member
         material.normalTextureSource!.sampledSampler.widthAddressMode,
         flutter_scene_internal_gpu.SamplerAddressMode.clampToEdge,
       );
@@ -805,6 +1547,333 @@ void main() {
       expect(sourceMaterial.roughnessFactor, 0.7);
     });
 
+    test('authored AO UV1 core patch stays on the imported standard route',
+        () async {
+      final textureFactory = _RecordingTextureFactory();
+      final sourceMaterial = flutter_scene.PhysicallyBasedMaterial()
+        // The pinned importer records this only after validating TEXCOORD_1.
+        ..occlusionTextureTexCoord = 1;
+      final root = flutter_scene.Node(
+        name: 'Fabric',
+        mesh: flutter_scene.Mesh(_UvStubGeometry(), sourceMaterial),
+      );
+      final runtimeAdapter = FlutterSceneRuntimeAdapter(
+        textureFactory: textureFactory,
+      );
+      final address = PartAddress(
+        nodePath: const <String>['Fabric'],
+        primitiveIndex: 0,
+      );
+
+      final diagnostics = await debugApplyMaterialPatchToRoot(
+        root,
+        address,
+        MaterialPatch(
+          occlusionTextureBinding: MaterialTextureBinding(
+            source: TextureSource.bytes(
+              _onePixelPng,
+              debugName: 'authored-occlusion-uv1',
+            ),
+            texCoord: 1,
+          ),
+        ),
+        runtimeAdapter: runtimeAdapter,
+      );
+
+      expect(diagnostics, isEmpty);
+      expect(root.mesh!.primitives.single.material, same(sourceMaterial));
+      expect(sourceMaterial.occlusionTexture,
+          same(textureFactory.createdSources.single));
+      expect(sourceMaterial.occlusionTextureTexCoord, 1);
+    });
+
+    test('explicit black sheen retains textures transforms across sparse delta',
+        () async {
+      final textureFactory = _RecordingTextureFactory();
+      final extendedBackend = _RecordingExtendedPbrBackend();
+      final sourceMaterial = flutter_scene.PhysicallyBasedMaterial()
+        ..roughnessFactor = 0.8
+        ..occlusionTextureTexCoord = 1
+        ..occlusionTextureTransform =
+            const flutter_scene.MaterialTextureTransform(
+          offsetX: 0.2,
+          offsetY: 0.3,
+          rotation: 0.4,
+          scaleX: 1.5,
+          scaleY: 1.6,
+        );
+      final root = flutter_scene.Node(
+        name: 'Fabric',
+        mesh: flutter_scene.Mesh(_UvStubGeometry(), sourceMaterial),
+      );
+      final runtimeAdapter = FlutterSceneRuntimeAdapter(
+        materialExtensionPolicy:
+            const ViewerMaterialExtensionPolicy.experimentalShaders(
+          enableSheen: true,
+        ),
+        textureFactory: textureFactory,
+        extendedPbrBackend: extendedBackend,
+      );
+      final address = PartAddress(
+        nodePath: const <String>['Fabric'],
+        primitiveIndex: 0,
+      );
+      final colorBinding = MaterialTextureBinding(
+        source: TextureSource.bytes(_onePixelPng, debugName: 'sheen-color'),
+        transform: TextureTransform(
+          offset: const <double>[0.1, 0.2],
+          scale: const <double>[2, 3],
+        ),
+      );
+      final roughnessBinding = MaterialTextureBinding(
+        source: TextureSource.bytes(
+          _onePixelPng,
+          debugName: 'sheen-roughness',
+        ),
+        transform: TextureTransform(
+          offset: const <double>[0.4, 0.5],
+          scale: const <double>[0.5, 0.75],
+        ),
+      );
+      final occlusionBinding = MaterialTextureBinding(
+        source: TextureSource.bytes(_onePixelPng, debugName: 'occlusion'),
+        texCoord: 1,
+        transform: TextureTransform(
+          offset: const <double>[0.2, 0.3],
+          scale: const <double>[1.5, 1.6],
+          rotation: 0.4,
+        ),
+      );
+
+      final initialDiagnostics = await debugApplyMaterialPatchToRoot(
+        root,
+        address,
+        MaterialPatch(
+          sheenColorFactor: const <double>[0, 0, 0],
+          sheenColorTextureBinding: colorBinding,
+          sheenRoughness: 0.65,
+          sheenRoughnessTextureBinding: roughnessBinding,
+          occlusionTextureBinding: occlusionBinding,
+        ),
+        runtimeAdapter: runtimeAdapter,
+      );
+      final sparseDiagnostics = await debugApplyMaterialPatchToRoot(
+        root,
+        address,
+        const MaterialPatch(roughness: 0.25),
+        runtimeAdapter: runtimeAdapter,
+      );
+
+      expect(initialDiagnostics, isEmpty);
+      expect(sparseDiagnostics, isEmpty);
+      expect(extendedBackend.configs, hasLength(2));
+      expect(extendedBackend.sheenRequests, hasLength(2));
+      for (final request in extendedBackend.sheenRequests) {
+        expect(request.hasSheenColorTexture, isTrue);
+        expect(request.hasSheenRoughnessTexture, isTrue);
+        expect(request.hasSpecularFactorTexture, isFalse);
+        expect(request.hasSpecularColorTexture, isFalse);
+      }
+      final retained = extendedBackend.configs.last;
+      expect(retained.hasSheenIntent, isTrue);
+      expect(retained.sheenColorFactor, <double>[0, 0, 0]);
+      expect(retained.sheenRoughness, 0.65);
+      expect(
+          retained.sheenColorTexture, same(textureFactory.createdSources[1]));
+      expect(retained.sheenRoughnessTexture,
+          same(textureFactory.createdSources[2]));
+      expect(
+        retained.transforms[MaterialTextureSlot.sheenColor],
+        colorBinding.transform,
+      );
+      expect(
+        retained.transforms[MaterialTextureSlot.sheenRoughness],
+        roughnessBinding.transform,
+      );
+      expect(
+        retained.transforms[MaterialTextureSlot.occlusion],
+        occlusionBinding.transform,
+      );
+      expect(retained.source.roughnessFactor, 0.25);
+      for (final config in extendedBackend.configs) {
+        expect(config.source.occlusionTextureTexCoord, 1);
+        expect(config.source.occlusionTextureTransform.offsetX, 0.2);
+        expect(config.source.occlusionTextureTransform.offsetY, 0.3);
+        expect(config.source.occlusionTextureTransform.rotation, 0.4);
+        expect(config.source.occlusionTextureTransform.scaleX, 1.5);
+        expect(config.source.occlusionTextureTransform.scaleY, 1.6);
+      }
+      expect(textureFactory.contents, <flutter_scene.TextureContent>[
+        flutter_scene.TextureContent.data,
+        flutter_scene.TextureContent.color,
+        flutter_scene.TextureContent.data,
+      ]);
+    });
+
+    test('native clearcoat and local sheen select one combined candidate',
+        () async {
+      final extendedBackend = _RecordingExtendedPbrBackend();
+      final sourceMaterial = flutter_scene.PhysicallyBasedMaterial();
+      final root = flutter_scene.Node(
+        name: 'CoatedFabric',
+        mesh: flutter_scene.Mesh(_UvStubGeometry(), sourceMaterial),
+      );
+      final runtimeAdapter = FlutterSceneRuntimeAdapter(
+        materialExtensionPolicy:
+            const ViewerMaterialExtensionPolicy.productionShaders(
+          enableSheen: true,
+        ),
+        extendedPbrBackend: extendedBackend,
+      );
+      final nativeSupport = MaterialExtensionSupport(
+        backendKind: MaterialExtensionBackendKind.rendererNative,
+        features: <MaterialExtensionFeature, MaterialExtensionFeatureSupport>{
+          MaterialExtensionFeature.clearcoat:
+              MaterialExtensionFeatureSupport(available: true),
+        },
+      );
+      final address = PartAddress(
+        nodePath: const <String>['CoatedFabric'],
+        primitiveIndex: 0,
+      );
+
+      final diagnostics = await debugApplyMaterialPatchToRoot(
+        root,
+        address,
+        const MaterialPatch(
+          specular: 0.6,
+          specularColorFactor: <double>[0.8, 0.7, 0.6],
+          ior: 1.45,
+          sheenColorFactor: <double>[0.4, 0.3, 0.2],
+          sheenRoughness: 0.55,
+          clearcoat: 0.8,
+          clearcoatRoughness: 0.2,
+        ),
+        materialExtensionSupport: nativeSupport,
+        runtimeAdapter: runtimeAdapter,
+      );
+
+      expect(diagnostics, isEmpty);
+      expect(extendedBackend.sheenRequests, hasLength(1));
+      final request = extendedBackend.sheenRequests.single;
+      expect(request.hasSheen, isTrue);
+      expect(request.hasClearcoat, isTrue);
+      expect(request.hasSpecular, isTrue);
+      expect(request.hasSpecularFactorTexture, isFalse);
+      expect(request.hasSpecularColorTexture, isFalse);
+      expect(extendedBackend.configs, hasLength(1));
+      final config = extendedBackend.configs.single;
+      expect(config.specularFactor, 0.6);
+      expect(config.specularColorFactor, <double>[0.8, 0.7, 0.6]);
+      expect(config.ior, 1.45);
+      expect(config.hasSheenIntent, isTrue);
+      expect(config.source.clearcoatFactor, 0.8);
+      expect(config.source.clearcoatRoughnessFactor, 0.2);
+      expect(
+          root.mesh!.primitives.single.material, isNot(same(sourceMaterial)));
+      expect(
+        runtimeAdapter.materialExtensionSupport.backendKind,
+        MaterialExtensionBackendKind.packageLocalCandidate,
+      );
+    });
+
+    test('combined clearcoat sheen retains coat transforms across sparse delta',
+        () async {
+      final textureFactory = _RecordingTextureFactory();
+      final extendedBackend = _RecordingExtendedPbrBackend();
+      final sourceMaterial = flutter_scene.PhysicallyBasedMaterial();
+      final root = flutter_scene.Node(
+        name: 'CoatedFabric',
+        mesh: flutter_scene.Mesh(_UvStubGeometry(), sourceMaterial),
+      );
+      final runtimeAdapter = FlutterSceneRuntimeAdapter(
+        materialExtensionPolicy:
+            const ViewerMaterialExtensionPolicy.productionShaders(
+          enableSheen: true,
+        ),
+        textureFactory: textureFactory,
+        extendedPbrBackend: extendedBackend,
+      );
+      final nativeSupport = MaterialExtensionSupport(
+        backendKind: MaterialExtensionBackendKind.rendererNative,
+        features: <MaterialExtensionFeature, MaterialExtensionFeatureSupport>{
+          MaterialExtensionFeature.clearcoat:
+              MaterialExtensionFeatureSupport(available: true),
+        },
+      );
+      final address = PartAddress(
+        nodePath: const <String>['CoatedFabric'],
+        primitiveIndex: 0,
+      );
+      final clearcoatBinding = MaterialTextureBinding(
+        source: TextureSource.bytes(_onePixelPng, debugName: 'clearcoat'),
+        transform: TextureTransform(
+          offset: const <double>[0.1, 0.2],
+          scale: const <double>[2, 3],
+        ),
+      );
+      final roughnessBinding = MaterialTextureBinding(
+        source: TextureSource.bytes(
+          _onePixelPng,
+          debugName: 'clearcoat-roughness',
+        ),
+        transform: TextureTransform(
+          offset: const <double>[0.4, 0.5],
+          scale: const <double>[0.25, 0.75],
+        ),
+      );
+
+      final initialDiagnostics = await debugApplyMaterialPatchToRoot(
+        root,
+        address,
+        MaterialPatch(
+          sheenColorFactor: const <double>[0.4, 0.3, 0.2],
+          sheenRoughness: 0.55,
+          clearcoat: 0.8,
+          clearcoatTextureBinding: clearcoatBinding,
+          clearcoatRoughness: 0.2,
+          clearcoatRoughnessTextureBinding: roughnessBinding,
+        ),
+        materialExtensionSupport: nativeSupport,
+        runtimeAdapter: runtimeAdapter,
+      );
+      final sparseDiagnostics = await debugApplyMaterialPatchToRoot(
+        root,
+        address,
+        const MaterialPatch(roughness: 0.35),
+        materialExtensionSupport: nativeSupport,
+        runtimeAdapter: runtimeAdapter,
+      );
+
+      expect(initialDiagnostics, isEmpty);
+      expect(sparseDiagnostics, isEmpty);
+      expect(extendedBackend.configs, hasLength(2));
+      final retained = extendedBackend.configs.last;
+      expect(
+        retained.transforms[MaterialTextureSlot.clearcoat],
+        clearcoatBinding.transform,
+      );
+      expect(
+        retained.transforms[MaterialTextureSlot.clearcoatRoughness],
+        roughnessBinding.transform,
+      );
+      expect(
+        retained.source.clearcoatTexture,
+        same(textureFactory.createdSources[0]),
+      );
+      expect(
+        retained.source.clearcoatRoughnessTexture,
+        same(textureFactory.createdSources[1]),
+      );
+      expect(retained.source.clearcoatFactor, 0.8);
+      expect(retained.source.clearcoatRoughnessFactor, 0.2);
+      expect(retained.source.roughnessFactor, 0.35);
+
+      final resetDiagnostics = await runtimeAdapter.resetMaterial(address);
+      expect(resetDiagnostics, isEmpty);
+      expect(root.mesh!.primitives.single.material, same(sourceMaterial));
+    });
+
     test('native clearcoat delta keeps the active transformed PBR state',
         () async {
       final textureFactory = _RecordingTextureFactory();
@@ -875,6 +1944,639 @@ void main() {
         0.8,
       );
       expect(sourceMaterial.clearcoatFactor, 0.0);
+    });
+
+    test('native sheen delta keeps the active transformed PBR state', () async {
+      final textureFactory = _RecordingTextureFactory();
+      final extendedBackend = _RecordingExtendedPbrBackend();
+      final sourceMaterial = flutter_scene.PhysicallyBasedMaterial();
+      final root = flutter_scene.Node(
+        name: 'Fabric',
+        mesh: flutter_scene.Mesh(_UvStubGeometry(), sourceMaterial),
+      );
+      final runtimeAdapter = FlutterSceneRuntimeAdapter(
+        materialExtensionPolicy:
+            const ViewerMaterialExtensionPolicy.productionShaders(
+          enableSheen: true,
+        ),
+        textureFactory: textureFactory,
+        extendedPbrBackend: extendedBackend,
+      );
+      final address = PartAddress(
+        nodePath: const <String>['Fabric'],
+        primitiveIndex: 0,
+      );
+      final transformedBaseColor = MaterialTextureBinding(
+        source: TextureSource.bytes(_onePixelPng, debugName: 'repeat-2.5'),
+        transform: TextureTransform(scale: const <double>[2.5, 2.5]),
+      );
+      final support = MaterialExtensionSupport(
+        backendKind: MaterialExtensionBackendKind.rendererNative,
+        features: <MaterialExtensionFeature, MaterialExtensionFeatureSupport>{
+          MaterialExtensionFeature.sheen:
+              MaterialExtensionFeatureSupport(available: true),
+        },
+      );
+
+      final initialDiagnostics = await debugApplyMaterialPatchToRoot(
+        root,
+        address,
+        MaterialPatch(baseColorTextureBinding: transformedBaseColor),
+        materialExtensionSupport: support,
+        runtimeAdapter: runtimeAdapter,
+      );
+      final sheenDiagnostics = await debugApplyMaterialPatchToRoot(
+        root,
+        address,
+        const MaterialPatch(
+          sheenColorFactor: <double>[0.2, 0.4, 0.8],
+          sheenRoughness: 0.35,
+        ),
+        materialExtensionSupport: support,
+        runtimeAdapter: runtimeAdapter,
+      );
+
+      expect(initialDiagnostics, isEmpty);
+      expect(sheenDiagnostics, isEmpty);
+      expect(extendedBackend.configs, hasLength(2));
+      final retained = extendedBackend.configs.last;
+      expect(
+        retained.transforms[MaterialTextureSlot.baseColor],
+        transformedBaseColor.transform,
+      );
+      expect(retained.sheenColorFactor, <double>[0.2, 0.4, 0.8]);
+      expect(retained.sheenRoughness, 0.35);
+      final material = root.mesh!.primitives.single.material;
+      expect(material, isA<FlutterSceneExtendedPbrState>());
+      expect(
+        (material as FlutterSceneExtendedPbrState)
+            .transforms[MaterialTextureSlot.baseColor],
+        transformedBaseColor.transform,
+      );
+      expect(sourceMaterial.sheenColorFactor, vm.Vector3.zero());
+    });
+
+    test('native sheen source keeps complete state across package-owned routes',
+        () async {
+      const colorTransform = flutter_scene.MaterialTextureTransform(
+        offsetX: 0.1,
+        offsetY: 0.2,
+        rotation: 0.3,
+        scaleX: 1.5,
+        scaleY: 0.75,
+      );
+      const roughnessTransform = flutter_scene.MaterialTextureTransform(
+        offsetX: 0.4,
+        offsetY: 0.5,
+        rotation: 0.6,
+        scaleX: 0.5,
+        scaleY: 2.0,
+      );
+      final routes = <(String, MaterialPatch)>[
+        (
+          'transformedCore',
+          MaterialPatch(
+            baseColorTextureBinding: MaterialTextureBinding(
+              source: TextureSource.bytes(
+                _onePixelPng,
+                debugName: 'native-sheen-transformed-core',
+              ),
+              transform: TextureTransform(
+                scale: <double>[2.5, 2.5],
+              ),
+            ),
+          ),
+        ),
+        ('specular', const MaterialPatch(specular: 0.7)),
+        ('opaqueIor', const MaterialPatch(ior: 1.8)),
+      ];
+      final support = MaterialExtensionSupport(
+        backendKind: MaterialExtensionBackendKind.rendererNative,
+        features: <MaterialExtensionFeature, MaterialExtensionFeatureSupport>{
+          MaterialExtensionFeature.sheen:
+              MaterialExtensionFeatureSupport(available: true),
+        },
+      );
+
+      for (final (route, patch) in routes) {
+        final textureFactory = _RecordingTextureFactory();
+        final extendedBackend = _RecordingExtendedPbrBackend();
+        final sheenColorTexture = _StubTextureSource(
+          const flutter_scene.TextureSampling().toSamplerOptions(),
+        );
+        final sheenRoughnessTexture = _StubTextureSource(
+          const flutter_scene.TextureSampling().toSamplerOptions(),
+        );
+        final sourceMaterial = flutter_scene.PhysicallyBasedMaterial()
+          ..sheenColorFactor = vm.Vector3(0.2, 0.4, 0.8)
+          ..sheenColorTexture = sheenColorTexture
+          ..sheenColorTextureTexCoord = 0
+          ..sheenColorTextureTransform = colorTransform
+          ..sheenRoughnessFactor = 0.35
+          ..sheenRoughnessTexture = sheenRoughnessTexture
+          ..sheenRoughnessTextureTexCoord = 0
+          ..sheenRoughnessTextureTransform = roughnessTransform;
+        final root = flutter_scene.Node(
+          name: 'Fabric',
+          mesh: flutter_scene.Mesh(_UvStubGeometry(), sourceMaterial),
+        );
+        final runtimeAdapter = FlutterSceneRuntimeAdapter(
+          materialExtensionPolicy:
+              const ViewerMaterialExtensionPolicy.productionShaders(
+            enableSheen: true,
+          ),
+          textureFactory: textureFactory,
+          extendedPbrBackend: extendedBackend,
+        );
+        final address = PartAddress(
+          nodePath: const <String>['Fabric'],
+          primitiveIndex: 0,
+        );
+
+        final diagnostics = await debugApplyMaterialPatchToRoot(
+          root,
+          address,
+          patch,
+          materialExtensionSupport: support,
+          runtimeAdapter: runtimeAdapter,
+        );
+
+        expect(diagnostics, isEmpty, reason: route);
+        expect(extendedBackend.sheenRequests, hasLength(1), reason: route);
+        expect(
+          extendedBackend.sheenRequests.single.hasSheenColorTexture,
+          isTrue,
+          reason: route,
+        );
+        expect(
+          extendedBackend.sheenRequests.single.hasSheenRoughnessTexture,
+          isTrue,
+          reason: route,
+        );
+        expect(extendedBackend.configs, hasLength(1), reason: route);
+        final config = extendedBackend.configs.single;
+        expect(config.hasSheenIntent, isTrue, reason: route);
+        expect(config.sheenColorFactor[0], closeTo(0.2, 0.0001), reason: route);
+        expect(config.sheenColorFactor[1], closeTo(0.4, 0.0001), reason: route);
+        expect(config.sheenColorFactor[2], closeTo(0.8, 0.0001), reason: route);
+        expect(config.sheenRoughness, 0.35, reason: route);
+        expect(config.sheenColorTexture, same(sheenColorTexture),
+            reason: route);
+        expect(
+          config.sheenRoughnessTexture,
+          same(sheenRoughnessTexture),
+          reason: route,
+        );
+        expect(
+          config.transforms[MaterialTextureSlot.sheenColor]!.toJson(),
+          TextureTransform(
+            offset: <double>[0.1, 0.2],
+            rotation: 0.3,
+            scale: <double>[1.5, 0.75],
+          ).toJson(),
+          reason: route,
+        );
+        expect(
+          config.transforms[MaterialTextureSlot.sheenRoughness]!.toJson(),
+          TextureTransform(
+            offset: <double>[0.4, 0.5],
+            rotation: 0.6,
+            scale: <double>[0.5, 2.0],
+          ).toJson(),
+          reason: route,
+        );
+        final retained = root.mesh!.primitives.single.material;
+        expect(retained, isA<FlutterSceneExtendedPbrState>(), reason: route);
+        final retainedState = retained as FlutterSceneExtendedPbrState;
+        expect(retainedState.hasSheenIntent, isTrue, reason: route);
+        expect(
+          retainedState.sheenColorFactor[0],
+          closeTo(0.2, 0.0001),
+          reason: route,
+        );
+        expect(
+          retainedState.sheenColorFactor[1],
+          closeTo(0.4, 0.0001),
+          reason: route,
+        );
+        expect(
+          retainedState.sheenColorFactor[2],
+          closeTo(0.8, 0.0001),
+          reason: route,
+        );
+        expect(retainedState.sheenRoughness, 0.35, reason: route);
+        expect(
+          retainedState.sheenColorTexture,
+          same(sheenColorTexture),
+          reason: route,
+        );
+        expect(
+          retainedState.sheenRoughnessTexture,
+          same(sheenRoughnessTexture),
+          reason: route,
+        );
+        expect(
+          retainedState.transforms[MaterialTextureSlot.sheenColor]!.toJson(),
+          config.transforms[MaterialTextureSlot.sheenColor]!.toJson(),
+          reason: route,
+        );
+        expect(
+          retainedState.transforms[MaterialTextureSlot.sheenRoughness]!
+              .toJson(),
+          config.transforms[MaterialTextureSlot.sheenRoughness]!.toJson(),
+          reason: route,
+        );
+        expect(sourceMaterial.sheenColorTexture, same(sheenColorTexture));
+        expect(
+          sourceMaterial.sheenRoughnessTexture,
+          same(sheenRoughnessTexture),
+        );
+      }
+    });
+
+    test('native sheen UV1 rejects package-owned routing atomically', () async {
+      final support = MaterialExtensionSupport(
+        backendKind: MaterialExtensionBackendKind.rendererNative,
+        features: <MaterialExtensionFeature, MaterialExtensionFeatureSupport>{
+          MaterialExtensionFeature.sheen:
+              MaterialExtensionFeatureSupport(available: true),
+        },
+      );
+
+      for (final slot in <MaterialTextureSlot>[
+        MaterialTextureSlot.sheenColor,
+        MaterialTextureSlot.sheenRoughness,
+      ]) {
+        final textureFactory = _RecordingTextureFactory();
+        final extendedBackend = _RecordingExtendedPbrBackend();
+        final sheenTexture = _StubTextureSource(
+          const flutter_scene.TextureSampling().toSamplerOptions(),
+        );
+        final sourceMaterial = flutter_scene.PhysicallyBasedMaterial()
+          ..sheenColorFactor = vm.Vector3(0.2, 0.4, 0.8);
+        if (slot == MaterialTextureSlot.sheenColor) {
+          sourceMaterial
+            ..sheenColorTexture = sheenTexture
+            ..sheenColorTextureTexCoord = 1;
+        } else {
+          sourceMaterial
+            ..sheenRoughnessTexture = sheenTexture
+            ..sheenRoughnessTextureTexCoord = 1;
+        }
+        final root = flutter_scene.Node(
+          name: 'Fabric',
+          mesh: flutter_scene.Mesh(_UvStubGeometry(), sourceMaterial),
+        );
+        final runtimeAdapter = FlutterSceneRuntimeAdapter(
+          materialExtensionPolicy:
+              const ViewerMaterialExtensionPolicy.productionShaders(
+            enableSheen: true,
+          ),
+          textureFactory: textureFactory,
+          extendedPbrBackend: extendedBackend,
+        );
+        final address = PartAddress(
+          nodePath: const <String>['Fabric'],
+          primitiveIndex: 0,
+        );
+
+        final diagnostics = await debugApplyMaterialPatchToRoot(
+          root,
+          address,
+          MaterialPatch(
+            baseColorTextureBinding: MaterialTextureBinding(
+              source: TextureSource.bytes(
+                _onePixelPng,
+                debugName: 'must-not-decode-${slot.name}',
+              ),
+              transform: TextureTransform(scale: const <double>[2, 2]),
+            ),
+          ),
+          materialExtensionSupport: support,
+          runtimeAdapter: runtimeAdapter,
+        );
+
+        expect(diagnostics, hasLength(1), reason: slot.name);
+        expect(
+          diagnostics.single.details['limitation'],
+          'perSlotTextureCoordinateContractMissing',
+          reason: slot.name,
+        );
+        expect(diagnostics.single.details['slot'], slot.name);
+        expect(diagnostics.single.details['texCoord'], 1);
+        expect(diagnostics.single.details['decodedTextureCount'], 0);
+        expect(diagnostics.single.details['materialReplaced'], isFalse);
+        expect(textureFactory.createdSources, isEmpty, reason: slot.name);
+        expect(extendedBackend.sheenRequests, isEmpty, reason: slot.name);
+        expect(extendedBackend.configs, isEmpty, reason: slot.name);
+        expect(root.mesh!.primitives.single.material, same(sourceMaterial));
+      }
+    });
+
+    test('same-delta sheen UV1 rejects package-owned routing atomically',
+        () async {
+      final support = MaterialExtensionSupport(
+        backendKind: MaterialExtensionBackendKind.rendererNative,
+        features: <MaterialExtensionFeature, MaterialExtensionFeatureSupport>{
+          MaterialExtensionFeature.sheen:
+              MaterialExtensionFeatureSupport(available: true),
+        },
+      );
+
+      for (final slot in <MaterialTextureSlot>[
+        MaterialTextureSlot.sheenColor,
+        MaterialTextureSlot.sheenRoughness,
+      ]) {
+        final textureFactory = _RecordingTextureFactory();
+        final extendedBackend = _RecordingExtendedPbrBackend();
+        final sourceMaterial = flutter_scene.PhysicallyBasedMaterial();
+        final root = flutter_scene.Node(
+          name: 'Fabric',
+          mesh: flutter_scene.Mesh(_UvStubGeometry(), sourceMaterial),
+        );
+        final runtimeAdapter = FlutterSceneRuntimeAdapter(
+          materialExtensionPolicy:
+              const ViewerMaterialExtensionPolicy.productionShaders(
+            enableSheen: true,
+          ),
+          textureFactory: textureFactory,
+          extendedPbrBackend: extendedBackend,
+        );
+        final baseColorBinding = MaterialTextureBinding(
+          source: TextureSource.bytes(
+            _onePixelPng,
+            debugName: 'must-not-decode-base-${slot.name}',
+          ),
+          transform: TextureTransform(scale: const <double>[2, 2]),
+        );
+        final sheenBinding = MaterialTextureBinding(
+          source: TextureSource.bytes(
+            _onePixelPng,
+            debugName: 'must-not-decode-${slot.name}',
+          ),
+          texCoord: 1,
+        );
+        final patch = switch (slot) {
+          MaterialTextureSlot.sheenColor => MaterialPatch(
+              baseColorTextureBinding: baseColorBinding,
+              sheenColorFactor: const <double>[0.2, 0.4, 0.8],
+              sheenColorTextureBinding: sheenBinding,
+            ),
+          MaterialTextureSlot.sheenRoughness => MaterialPatch(
+              baseColorTextureBinding: baseColorBinding,
+              sheenColorFactor: const <double>[0.2, 0.4, 0.8],
+              sheenRoughness: 0.35,
+              sheenRoughnessTextureBinding: sheenBinding,
+            ),
+          _ => throw StateError('unexpected sheen slot'),
+        };
+
+        final diagnostics = await debugApplyMaterialPatchToRoot(
+          root,
+          PartAddress(
+            nodePath: const <String>['Fabric'],
+            primitiveIndex: 0,
+          ),
+          patch,
+          materialExtensionSupport: support,
+          runtimeAdapter: runtimeAdapter,
+        );
+
+        expect(diagnostics, hasLength(1), reason: slot.name);
+        expect(
+          diagnostics.single.details['limitation'],
+          'perSlotTextureCoordinateContractMissing',
+          reason: slot.name,
+        );
+        expect(diagnostics.single.details['slot'], slot.name);
+        expect(diagnostics.single.details['texCoord'], 1);
+        expect(textureFactory.createdSources, isEmpty, reason: slot.name);
+        expect(extendedBackend.configs, isEmpty, reason: slot.name);
+        expect(root.mesh!.primitives.single.material, same(sourceMaterial));
+      }
+    });
+
+    test('renderer-native sheen UV1 requires an authored UV1 channel',
+        () async {
+      final support = MaterialExtensionSupport(
+        backendKind: MaterialExtensionBackendKind.rendererNative,
+        features: <MaterialExtensionFeature, MaterialExtensionFeatureSupport>{
+          MaterialExtensionFeature.sheen:
+              MaterialExtensionFeatureSupport(available: true),
+        },
+      );
+
+      for (final slot in <MaterialTextureSlot>[
+        MaterialTextureSlot.sheenColor,
+        MaterialTextureSlot.sheenRoughness,
+      ]) {
+        final textureFactory = _RecordingTextureFactory();
+        final extendedBackend = _RecordingExtendedPbrBackend();
+        final sourceMaterial = flutter_scene.PhysicallyBasedMaterial();
+        final root = flutter_scene.Node(
+          name: 'Fabric',
+          mesh: flutter_scene.Mesh(_UvStubGeometry(), sourceMaterial),
+        );
+        final runtimeAdapter = FlutterSceneRuntimeAdapter(
+          materialExtensionPolicy:
+              const ViewerMaterialExtensionPolicy.productionShaders(
+            enableSheen: true,
+          ),
+          textureFactory: textureFactory,
+          extendedPbrBackend: extendedBackend,
+        );
+        final binding = MaterialTextureBinding(
+          source: TextureSource.bytes(
+            _onePixelPng,
+            debugName: 'must-not-decode-${slot.name}',
+          ),
+          texCoord: 1,
+        );
+        final patch = switch (slot) {
+          MaterialTextureSlot.sheenColor => MaterialPatch(
+              sheenColorFactor: const <double>[0.2, 0.4, 0.8],
+              sheenColorTextureBinding: binding,
+            ),
+          MaterialTextureSlot.sheenRoughness => MaterialPatch(
+              sheenColorFactor: const <double>[0.2, 0.4, 0.8],
+              sheenRoughness: 0.35,
+              sheenRoughnessTextureBinding: binding,
+            ),
+          _ => throw StateError('unexpected sheen slot'),
+        };
+
+        final diagnostics = await debugApplyMaterialPatchToRoot(
+          root,
+          PartAddress(
+            nodePath: const <String>['Fabric'],
+            primitiveIndex: 0,
+          ),
+          patch,
+          materialExtensionSupport: support,
+          runtimeAdapter: runtimeAdapter,
+        );
+
+        expect(diagnostics, hasLength(1), reason: slot.name);
+        expect(
+          diagnostics.single.code,
+          ViewerDiagnosticCode.missingUvSet,
+          reason: slot.name,
+        );
+        expect(diagnostics.single.details['uvSet'], 1, reason: slot.name);
+        expect(diagnostics.single.details['slot'], slot.name);
+        expect(diagnostics.single.details['status'], 'blocked');
+        expect(diagnostics.single.details['decodedTextureCount'], 0);
+        expect(diagnostics.single.details['materialReplaced'], isFalse);
+        expect(textureFactory.createdSources, isEmpty, reason: slot.name);
+        expect(extendedBackend.sheenRequests, isEmpty, reason: slot.name);
+        expect(extendedBackend.configs, isEmpty, reason: slot.name);
+        expect(root.mesh!.primitives.single.material, same(sourceMaterial));
+      }
+    });
+
+    test('native sheen UV1 allows same-slot UV0 replacement', () async {
+      final textureFactory = _RecordingTextureFactory();
+      final extendedBackend = _RecordingExtendedPbrBackend();
+      final retainedTexture = _StubTextureSource(
+        const flutter_scene.TextureSampling().toSamplerOptions(),
+      );
+      final sourceMaterial = flutter_scene.PhysicallyBasedMaterial()
+        ..sheenColorFactor = vm.Vector3(0.2, 0.4, 0.8)
+        ..sheenColorTexture = retainedTexture
+        ..sheenColorTextureTexCoord = 1;
+      final root = flutter_scene.Node(
+        name: 'Fabric',
+        mesh: flutter_scene.Mesh(_UvStubGeometry(), sourceMaterial),
+      );
+      final runtimeAdapter = FlutterSceneRuntimeAdapter(
+        materialExtensionPolicy:
+            const ViewerMaterialExtensionPolicy.productionShaders(
+          enableSheen: true,
+        ),
+        textureFactory: textureFactory,
+        extendedPbrBackend: extendedBackend,
+      );
+      final support = MaterialExtensionSupport(
+        backendKind: MaterialExtensionBackendKind.rendererNative,
+        features: <MaterialExtensionFeature, MaterialExtensionFeatureSupport>{
+          MaterialExtensionFeature.sheen:
+              MaterialExtensionFeatureSupport(available: true),
+        },
+      );
+      final replacementBinding = MaterialTextureBinding(
+        source: TextureSource.bytes(
+          _onePixelPng,
+          debugName: 'replacement-sheen-color',
+        ),
+        texCoord: 0,
+        transform: TextureTransform(offset: const <double>[0.25, 0.5]),
+      );
+
+      final diagnostics = await debugApplyMaterialPatchToRoot(
+        root,
+        PartAddress(
+          nodePath: const <String>['Fabric'],
+          primitiveIndex: 0,
+        ),
+        MaterialPatch(
+          specular: 0.7,
+          sheenColorTextureBinding: replacementBinding,
+        ),
+        materialExtensionSupport: support,
+        runtimeAdapter: runtimeAdapter,
+      );
+
+      expect(diagnostics, isEmpty);
+      expect(textureFactory.createdSources, hasLength(1));
+      expect(extendedBackend.configs, hasLength(1));
+      expect(
+        extendedBackend.configs.single.sheenColorTexture,
+        same(textureFactory.createdSources.single),
+      );
+      expect(
+        extendedBackend
+            .configs.single.transforms[MaterialTextureSlot.sheenColor],
+        same(replacementBinding.transform),
+      );
+      expect(sourceMaterial.sheenColorTexture, same(retainedTexture));
+      expect(sourceMaterial.sheenColorTextureTexCoord, 1);
+    });
+
+    test('native material copy preserves complete authored sheen state',
+        () async {
+      final sheenColorTexture = _StubTextureSource(
+        const flutter_scene.TextureSampling().toSamplerOptions(),
+      );
+      final sheenRoughnessTexture = _StubTextureSource(
+        const flutter_scene.TextureSampling().toSamplerOptions(),
+      );
+      const colorTransform = flutter_scene.MaterialTextureTransform(
+        offsetX: 0.1,
+        offsetY: 0.2,
+        rotation: 0.3,
+        scaleX: 1.5,
+        scaleY: 0.75,
+      );
+      const roughnessTransform = flutter_scene.MaterialTextureTransform(
+        offsetX: 0.4,
+        offsetY: 0.5,
+        rotation: 0.6,
+        scaleX: 0.5,
+        scaleY: 2.0,
+      );
+      final sourceMaterial = flutter_scene.PhysicallyBasedMaterial()
+        ..sheenColorFactor = vm.Vector3(0.2, 0.4, 0.8)
+        ..sheenColorTexture = sheenColorTexture
+        ..sheenColorTextureTexCoord = 1
+        ..sheenColorTextureTransform = colorTransform
+        ..sheenRoughnessFactor = 0.35
+        ..sheenRoughnessTexture = sheenRoughnessTexture
+        ..sheenRoughnessTextureTexCoord = 0
+        ..sheenRoughnessTextureTransform = roughnessTransform;
+      final root = flutter_scene.Node(
+        name: 'CoatedFabric',
+        mesh: flutter_scene.Mesh(_UvStubGeometry(), sourceMaterial),
+      );
+      final support = MaterialExtensionSupport(
+        backendKind: MaterialExtensionBackendKind.rendererNative,
+        features: <MaterialExtensionFeature, MaterialExtensionFeatureSupport>{
+          for (final feature in <MaterialExtensionFeature>[
+            MaterialExtensionFeature.clearcoat,
+            MaterialExtensionFeature.sheen,
+          ])
+            feature: MaterialExtensionFeatureSupport(available: true),
+        },
+      );
+
+      final diagnostics = await debugApplyMaterialPatchToRoot(
+        root,
+        PartAddress(
+          nodePath: const <String>['CoatedFabric'],
+          primitiveIndex: 0,
+        ),
+        const MaterialPatch(clearcoat: 0.7),
+        materialExtensionPolicy:
+            const ViewerMaterialExtensionPolicy.productionShaders(
+          enableSheen: true,
+        ),
+        materialExtensionSupport: support,
+      );
+
+      expect(diagnostics, isEmpty);
+      final copied = root.mesh!.primitives.single.material
+          as flutter_scene.PhysicallyBasedMaterial;
+      expect(copied, isNot(same(sourceMaterial)));
+      expect(copied.sheenColorFactor.x, closeTo(0.2, 0.0001));
+      expect(copied.sheenColorFactor.y, closeTo(0.4, 0.0001));
+      expect(copied.sheenColorFactor.z, closeTo(0.8, 0.0001));
+      expect(copied.sheenColorTexture, same(sheenColorTexture));
+      expect(copied.sheenColorTextureTexCoord, 1);
+      expect(copied.sheenColorTextureTransform, colorTransform);
+      expect(copied.sheenRoughnessFactor, 0.35);
+      expect(copied.sheenRoughnessTexture, same(sheenRoughnessTexture));
+      expect(copied.sheenRoughnessTextureTexCoord, 0);
+      expect(copied.sheenRoughnessTextureTransform, roughnessTransform);
+      expect(copied.clearcoatFactor, 0.7);
     });
 
     test('failed native clearcoat composition keeps transformed state atomic',
@@ -1202,6 +2904,217 @@ void main() {
         'extendedPbrShaderUnavailable');
     expect(factory.paths, isEmpty);
     expect(root.mesh!.primitives.single.material, same(originalMaterial));
+  });
+
+  test('sheen resource preflight fails before texture decode and mutation',
+      () async {
+    final factory = _RecordingTextureFactory();
+    final extendedBackend = _UnavailableSheenExtendedPbrBackend();
+    final originalMaterial = flutter_scene.PhysicallyBasedMaterial()
+      ..roughnessFactor = 0.8;
+    final root = flutter_scene.Node(
+      name: 'Fabric',
+      mesh: flutter_scene.Mesh(_UvStubGeometry(), originalMaterial),
+    );
+    final address = PartAddress(
+      nodePath: const <String>['Fabric'],
+      primitiveIndex: 0,
+    );
+    final runtimeAdapter = FlutterSceneRuntimeAdapter(
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.experimentalShaders(
+        enableSheen: true,
+      ),
+      textureFactory: factory,
+      extendedPbrBackend: extendedBackend,
+    );
+
+    final diagnostics = await debugApplyMaterialPatchToRoot(
+      root,
+      address,
+      MaterialPatch(
+        baseColorTextureBinding: MaterialTextureBinding(
+          source: const TextureSource.asset('assets/base-color.png'),
+        ),
+        sheenColorFactor: const <double>[0.4, 0.5, 0.6],
+        sheenColorTextureBinding: MaterialTextureBinding(
+          source: const TextureSource.asset('assets/sheen-color.png'),
+        ),
+        sheenRoughness: 0.7,
+        sheenRoughnessTextureBinding: MaterialTextureBinding(
+          source: const TextureSource.asset('assets/sheen-roughness.png'),
+        ),
+      ),
+      runtimeAdapter: runtimeAdapter,
+    );
+
+    expect(diagnostics, hasLength(1));
+    expect(
+      diagnostics.single.details['limitation'],
+      'sheenDirectionalAlbedoResourceUnavailable',
+    );
+    expect(diagnostics.single.details['decodedTextureCount'], 0);
+    expect(diagnostics.single.details['materialReplaced'], isFalse);
+    expect(extendedBackend.requests, hasLength(1));
+    expect(extendedBackend.requests.single.hasSheenColorTexture, isTrue);
+    expect(extendedBackend.requests.single.hasSheenRoughnessTexture, isTrue);
+    expect(factory.paths, isEmpty);
+    expect(root.mesh!.primitives.single.material, same(originalMaterial));
+    expect(originalMaterial.roughnessFactor, 0.8);
+  });
+
+  test('combined sheen reports retained transmission volume before decode',
+      () async {
+    final factory = _RecordingTextureFactory();
+    final originalMaterial = flutter_scene.PhysicallyBasedMaterial()
+      ..clearcoatFactor = 0.8
+      ..transmissionFactor = 0.5
+      ..thicknessFactor = 0.25;
+    final root = flutter_scene.Node(
+      name: 'CoatedGlassFabric',
+      mesh: flutter_scene.Mesh(_UvStubGeometry(), originalMaterial),
+    );
+    final address = PartAddress(
+      nodePath: const <String>['CoatedGlassFabric'],
+      primitiveIndex: 0,
+    );
+    final runtimeAdapter = FlutterSceneRuntimeAdapter(
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.productionShaders(
+        enableSheen: true,
+      ),
+      textureFactory: factory,
+      extendedPbrBackend: FlutterSceneExtendedPbrBackend(
+        loadShader: (_, __) async =>
+            throw StateError('resource diagnostic must precede shader load'),
+      ),
+    );
+    final nativeSupport = MaterialExtensionSupport(
+      backendKind: MaterialExtensionBackendKind.rendererNative,
+      features: <MaterialExtensionFeature, MaterialExtensionFeatureSupport>{
+        for (final feature in <MaterialExtensionFeature>[
+          MaterialExtensionFeature.transmission,
+          MaterialExtensionFeature.ior,
+          MaterialExtensionFeature.volume,
+          MaterialExtensionFeature.clearcoat,
+        ])
+          feature: MaterialExtensionFeatureSupport(available: true),
+      },
+    );
+
+    final diagnostics = await debugApplyMaterialPatchToRoot(
+      root,
+      address,
+      MaterialPatch(
+        baseColorTextureBinding: MaterialTextureBinding(
+          source: const TextureSource.asset('assets/base-color.png'),
+        ),
+        sheenColorFactor: const <double>[0.4, 0.5, 0.6],
+        sheenRoughness: 0.7,
+      ),
+      materialExtensionSupport: nativeSupport,
+      runtimeAdapter: runtimeAdapter,
+    );
+
+    expect(diagnostics, hasLength(1));
+    final diagnostic = diagnostics.single;
+    expect(
+      diagnostic.details['limitation'],
+      'sheenCompositionStateIncompatible',
+    );
+    expect(
+      diagnostic.details['selectedVariant'],
+      'FSViewerClearcoatSheenExtendedPbr',
+    );
+    expect(diagnostic.details['portableLimit'], 16);
+    expect(diagnostic.details['requestedSamplerCount'], 12);
+    expect(
+      diagnostic.details['incompatibleState'],
+      <String>['transmission', 'volume'],
+    );
+    expect(diagnostic.details['decodedTextureCount'], 0);
+    expect(diagnostic.details['materialReplaced'], isFalse);
+    expect(factory.paths, isEmpty);
+    expect(root.mesh!.primitives.single.material, same(originalMaterial));
+    expect(originalMaterial.transmissionFactor, 0.5);
+    expect(originalMaterial.thicknessFactor, 0.25);
+  });
+
+  test('combined sheen reports same-delta transmission volume before decode',
+      () async {
+    final factory = _RecordingTextureFactory();
+    final backend = _ResourceCheckingSheenExtendedPbrBackend();
+    final originalMaterial = flutter_scene.PhysicallyBasedMaterial();
+    final root = flutter_scene.Node(
+      name: 'CoatedGlassFabric',
+      mesh: flutter_scene.Mesh(_UvStubGeometry(), originalMaterial),
+    );
+    final address = PartAddress(
+      nodePath: const <String>['CoatedGlassFabric'],
+      primitiveIndex: 0,
+    );
+    final runtimeAdapter = FlutterSceneRuntimeAdapter(
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.productionShaders(
+        enableSheen: true,
+      ),
+      textureFactory: factory,
+      extendedPbrBackend: backend,
+    );
+    final nativeSupport = MaterialExtensionSupport(
+      backendKind: MaterialExtensionBackendKind.rendererNative,
+      features: <MaterialExtensionFeature, MaterialExtensionFeatureSupport>{
+        for (final feature in <MaterialExtensionFeature>[
+          MaterialExtensionFeature.transmission,
+          MaterialExtensionFeature.ior,
+          MaterialExtensionFeature.volume,
+          MaterialExtensionFeature.clearcoat,
+        ])
+          feature: MaterialExtensionFeatureSupport(available: true),
+      },
+    );
+
+    final diagnostics = await debugApplyMaterialPatchToRoot(
+      root,
+      address,
+      MaterialPatch(
+        baseColorTextureBinding: MaterialTextureBinding(
+          source: const TextureSource.asset('assets/base-color.png'),
+        ),
+        sheenColorFactor: const <double>[0.4, 0.5, 0.6],
+        sheenRoughness: 0.7,
+        clearcoat: 0.8,
+        transmission: 0.5,
+        thickness: 0.25,
+      ),
+      materialExtensionSupport: nativeSupport,
+      runtimeAdapter: runtimeAdapter,
+    );
+
+    expect(diagnostics, hasLength(1));
+    final diagnostic = diagnostics.single;
+    expect(
+      diagnostic.details['limitation'],
+      'sheenCompositionStateIncompatible',
+    );
+    expect(
+      diagnostic.details['selectedVariant'],
+      'FSViewerClearcoatSheenExtendedPbr',
+    );
+    expect(
+      diagnostic.details['incompatibleState'],
+      <String>['transmission', 'volume'],
+    );
+    expect(diagnostic.details['decodedTextureCount'], 0);
+    expect(diagnostic.details['materialReplaced'], isFalse);
+    expect(backend.requests, hasLength(1));
+    expect(backend.requests.single.hasTransmissionState, isTrue);
+    expect(backend.requests.single.hasVolumeState, isTrue);
+    expect(factory.paths, isEmpty);
+    expect(root.mesh!.primitives.single.material, same(originalMaterial));
+    expect(originalMaterial.clearcoatFactor, 0);
+    expect(originalMaterial.transmissionFactor, 0);
+    expect(originalMaterial.thicknessFactor, 0);
   });
 
   test(
@@ -1535,7 +3448,6 @@ void main() {
     // The clearcoat overlay keeps its independent coat-normal input separate.
     expect(capturedConfig!.normalTexture, same(factory.createdSources[2]));
     expect(capturedConfig!.patch.normalScale, closeTo(0.5, 0.0001));
-    // ignore: invalid_use_of_internal_member
     expect(baseMaterial.normalTextureSource, same(factory.createdSources[2]));
     expect(baseMaterial.normalScale, closeTo(0.5, 0.0001));
     final overlayParams = overlayMaterial.getUniformBlock('MaterialParams')!;
@@ -1558,7 +3470,6 @@ void main() {
     expect(root.mesh!.primitives, hasLength(1));
     expect(root.mesh!.primitives.single.material, same(originalMaterial));
     expect(
-      // ignore: invalid_use_of_internal_member
       originalMaterial.normalTextureSource,
       same(factory.createdSources[2]),
     );
@@ -1602,7 +3513,6 @@ void main() {
 
     expect(diagnostics, isEmpty);
     expect(
-      // ignore: invalid_use_of_internal_member
       originalMaterial.normalTextureSource,
       same(factory.createdSources.single),
     );
@@ -1675,7 +3585,6 @@ void main() {
 
     expect(combinedDiagnostics, isEmpty);
     expect(zeroDiagnostics, isEmpty);
-    // ignore: invalid_use_of_internal_member
     expect(material.normalTextureSource, same(normalB));
     expect(material.normalScale, closeTo(0.5, 0.0001));
 
@@ -1697,7 +3606,6 @@ void main() {
     expect(configs.last.normalTexture, same(normalB));
     expect(configs.last.sourceNormalTexture, same(normalB));
     expect(configs.last.sourceNormalScale, closeTo(0.5, 0.0001));
-    // ignore: invalid_use_of_internal_member
     expect(material.normalTextureSource, same(normalB));
     expect(material.normalScale, closeTo(0.5, 0.0001));
 
@@ -1705,7 +3613,6 @@ void main() {
 
     expect(resetDiagnostics, isEmpty);
     // Explicit adapter reset remains distinct from factor zero and restores A.
-    // ignore: invalid_use_of_internal_member
     expect(material.normalTextureSource, same(modelNormal));
     expect(material.normalScale, closeTo(0.8, 0.0001));
   });
@@ -1759,7 +3666,6 @@ void main() {
     expect(configs.single.sourceNormalScale, closeTo(0.8, 0.0001));
     final overlayParams = overlays.single.getUniformBlock('MaterialParams')!;
     expect(overlayParams.getFloat32(32, Endian.host), closeTo(0.8, 0.0001));
-    // ignore: invalid_use_of_internal_member
     expect(material.normalTextureSource, same(normalB));
     expect(material.normalScale, closeTo(0.8, 0.0001));
 
@@ -1776,7 +3682,6 @@ void main() {
     );
 
     expect(zeroDiagnostics, isEmpty);
-    // ignore: invalid_use_of_internal_member
     expect(material.normalTextureSource, same(normalB));
     expect(material.normalScale, closeTo(0.8, 0.0001));
   });
@@ -1857,7 +3762,6 @@ void main() {
       coreOverlayParams.getFloat32(32, Endian.host),
       closeTo(0.25, 0.0001),
     );
-    // ignore: invalid_use_of_internal_member
     expect(material.normalTextureSource, same(normalC));
     expect(material.normalScale, closeTo(0.25, 0.0001));
 
@@ -1878,7 +3782,6 @@ void main() {
     expect(configs.last.normalTexture, same(normalC));
     expect(configs.last.sourceNormalTexture, same(normalC));
     expect(configs.last.sourceNormalScale, closeTo(0.25, 0.0001));
-    // ignore: invalid_use_of_internal_member
     expect(material.normalTextureSource, same(normalC));
     expect(material.normalScale, closeTo(0.25, 0.0001));
 
@@ -1895,7 +3798,6 @@ void main() {
     );
 
     expect(zeroDiagnostics, isEmpty);
-    // ignore: invalid_use_of_internal_member
     expect(material.normalTextureSource, same(normalC));
     expect(material.normalScale, closeTo(0.25, 0.0001));
 
@@ -1903,7 +3805,6 @@ void main() {
       node: root,
       primitive: root.mesh!.primitives.first,
     );
-    // ignore: invalid_use_of_internal_member
     expect(material.normalTextureSource, same(normalC));
     expect(material.normalScale, closeTo(0.25, 0.0001));
   });
@@ -1980,7 +3881,6 @@ void main() {
           ),
       closeTo(0.5, 0.0001),
     );
-    // ignore: invalid_use_of_internal_member
     expect(material.normalTextureSource, same(normalC));
     expect(material.normalScale, closeTo(0.5, 0.0001));
 
@@ -1997,7 +3897,6 @@ void main() {
     );
 
     expect(zeroDiagnostics, isEmpty);
-    // ignore: invalid_use_of_internal_member
     expect(material.normalTextureSource, same(normalC));
     expect(material.normalScale, closeTo(0.5, 0.0001));
 
@@ -2016,7 +3915,6 @@ void main() {
     expect(positiveDiagnostics, isEmpty);
     expect(configs.last.sourceNormalTexture, same(normalC));
     expect(configs.last.sourceNormalScale, closeTo(0.5, 0.0001));
-    // ignore: invalid_use_of_internal_member
     expect(material.normalTextureSource, same(normalC));
     expect(material.normalScale, closeTo(0.5, 0.0001));
   });
@@ -2091,7 +3989,6 @@ void main() {
     expect(coreDiagnostics.single.details['feature'], 'clearcoat');
     expect(coreDiagnostics.single.details['status'], 'shaderUnavailable');
     expect(root.mesh!.primitives.last.material, same(originalOverlay));
-    // ignore: invalid_use_of_internal_member
     expect(material.normalTextureSource, same(normalB));
     expect(material.normalScale, closeTo(0.5, 0.0001));
 
@@ -2108,7 +4005,6 @@ void main() {
     );
 
     expect(zeroDiagnostics, isEmpty);
-    // ignore: invalid_use_of_internal_member
     expect(material.normalTextureSource, same(normalB));
     expect(material.normalScale, closeTo(0.5, 0.0001));
   });
@@ -2357,13 +4253,10 @@ void main() {
     expect(originalMaterial.baseColorFactor.x, closeTo(0.2, 0.0001));
     expect(originalMaterial.baseColorFactor.y, closeTo(0.3, 0.0001));
     expect(originalMaterial.baseColorFactor.z, closeTo(0.4, 0.0001));
-    // ignore: invalid_use_of_internal_member
     expect(originalMaterial.baseColorTextureSource,
         same(factory.createdSources[0]));
     expect(
-        // ignore: invalid_use_of_internal_member
-        originalMaterial.normalTextureSource,
-        same(factory.createdSources[1]));
+        originalMaterial.normalTextureSource, same(factory.createdSources[1]));
     expect(originalMaterial.normalScale, closeTo(1.0, 0.0001));
     expect(originalMaterial.roughnessFactor, closeTo(0.35, 0.0001));
   });
@@ -2657,13 +4550,10 @@ void main() {
     expect(root.layers, 0x10);
     expect(sceneViews, isEmpty);
     expect(originalMaterial.baseColorFactor.x, closeTo(0.4, 0.0001));
-    // ignore: invalid_use_of_internal_member
     expect(originalMaterial.baseColorTextureSource,
         same(factory.createdSources[0]));
     expect(
-        // ignore: invalid_use_of_internal_member
-        originalMaterial.normalTextureSource,
-        same(factory.createdSources[1]));
+        originalMaterial.normalTextureSource, same(factory.createdSources[1]));
     expect(originalMaterial.normalScale, closeTo(1.0, 0.0001));
     expect(originalMaterial.roughnessFactor, closeTo(0.6, 0.0001));
   });
@@ -2772,6 +4662,10 @@ void main() {
     expect(diagnostics.single.details['limitation'],
         'pinnedStandardPbrOpaqueIorContractMissing');
     expect(diagnostics.single.details['feature'], 'opaqueIor');
+    expect(
+      diagnostics.single.details['upstreamRevision'],
+      '766351c865c621e8720c726f9aa51173ce76e786',
+    );
     expect(factory.paths, isEmpty);
     expect(shaderCreationCount, 0);
     expect(backend.debugActivePatchCount, 0);
@@ -3111,7 +5005,6 @@ void main() {
     final params = shaderMaterial.getUniformBlock('MaterialParams')!;
     expect(params.getFloat32(32, Endian.host), closeTo(0.5, 0.0001));
     expect(
-      // ignore: invalid_use_of_internal_member
       originalMaterial.normalTextureSource,
       same(factory.createdSources.single),
     );
@@ -3671,8 +5564,12 @@ final class _StubTextureSource implements flutter_scene.TextureSource {
 }
 
 final class _RecordingExtendedPbrBackend
-    implements FlutterSceneExtendedPbrMaterialBackend {
+    implements
+        FlutterSceneExtendedPbrMaterialBackend,
+        FlutterSceneSheenMaterialBackend {
   int preflightCount = 0;
+  final List<FlutterSceneExtendedPbrResourceRequest> sheenRequests =
+      <FlutterSceneExtendedPbrResourceRequest>[];
   final List<FlutterSceneExtendedPbrMaterialConfig> configs =
       <FlutterSceneExtendedPbrMaterialConfig>[];
   final List<flutter_scene.PhysicallyBasedMaterial> createdMaterials =
@@ -3682,8 +5579,21 @@ final class _RecordingExtendedPbrBackend
   bool get isReady => true;
 
   @override
+  bool get isSheenReady => true;
+
+  @override
   Future<ViewerDiagnostic?> preflight(PartAddress address) async {
     preflightCount += 1;
+    return null;
+  }
+
+  @override
+  Future<ViewerDiagnostic?> preflightSheen(
+    PartAddress address, {
+    required FlutterSceneExtendedPbrResourceRequest request,
+  }) async {
+    preflightCount += 1;
+    sheenRequests.add(request);
     return null;
   }
 
@@ -3709,8 +5619,14 @@ final class _TestExtendedPbrMaterial extends flutter_scene
           config.specularColorFactor,
         ),
         specularFactorTexture = config.specularFactorTexture,
-        specularColorTexture = config.specularColorTexture {
+        specularColorTexture = config.specularColorTexture,
+        hasSheenIntent = config.hasSheenIntent,
+        retainedSheenColorFactor =
+            List<double>.unmodifiable(config.sheenColorFactor),
+        sheenRoughness = config.sheenRoughness {
     ior = config.ior;
+    sheenColorTexture = config.sheenColorTexture;
+    sheenRoughnessTexture = config.sheenRoughnessTexture;
     baseColorFactor = config.source.baseColorFactor.clone();
     baseColorTexture = config.source.baseColorTexture;
     metallicRoughnessTexture = config.source.metallicRoughnessTexture;
@@ -3720,6 +5636,8 @@ final class _TestExtendedPbrMaterial extends flutter_scene
     emissiveFactor = config.source.emissiveFactor.clone();
     occlusionTexture = config.source.occlusionTexture;
     occlusionStrength = config.source.occlusionStrength;
+    occlusionTextureTexCoord = config.source.occlusionTextureTexCoord;
+    occlusionTextureTransform = config.source.occlusionTextureTransform;
     clearcoatTexture = config.source.clearcoatTexture;
     clearcoatFactor = config.source.clearcoatFactor;
     clearcoatRoughnessTexture = config.source.clearcoatRoughnessTexture;
@@ -3747,6 +5665,12 @@ final class _TestExtendedPbrMaterial extends flutter_scene
   final flutter_scene.TextureSource? specularFactorTexture;
   @override
   final flutter_scene.TextureSource? specularColorTexture;
+  @override
+  final bool hasSheenIntent;
+  @override
+  final List<double> retainedSheenColorFactor;
+  @override
+  final double sheenRoughness;
 }
 
 final class _InvalidExtendedPbrBackend
@@ -3812,9 +5736,121 @@ final class _UnavailableExtendedPbrBackend
       throw StateError('createMaterial must not run after failed preflight');
 }
 
+final class _UnavailableSheenExtendedPbrBackend
+    implements
+        FlutterSceneExtendedPbrMaterialBackend,
+        FlutterSceneSheenMaterialBackend {
+  final List<FlutterSceneExtendedPbrResourceRequest> requests =
+      <FlutterSceneExtendedPbrResourceRequest>[];
+
+  @override
+  bool get isReady => false;
+
+  @override
+  bool get isSheenReady => false;
+
+  @override
+  Future<ViewerDiagnostic?> preflight(PartAddress address) async => null;
+
+  @override
+  Future<ViewerDiagnostic?> preflightSheen(
+    PartAddress address, {
+    required FlutterSceneExtendedPbrResourceRequest request,
+  }) async {
+    requests.add(request);
+    return ViewerDiagnostic(
+      code: ViewerDiagnosticCode.unsupportedMaterialFeature,
+      message: 'Sheen directional-albedo resource unavailable for test.',
+      details: <String, Object?>{
+        'part': address.debugPath,
+        'feature': 'FSViewerSheenExtendedPbr',
+        'extension': 'KHR_materials_sheen',
+        'limitation': 'sheenDirectionalAlbedoResourceUnavailable',
+        'status': 'blocked',
+        'maturity': 'candidate-only',
+        'renderingEvidence': 'not run',
+        'materialReplaced': false,
+        'decodedTextureCount': 0,
+        'encodedBytesModified': false,
+      },
+    );
+  }
+
+  @override
+  Future<flutter_scene.PhysicallyBasedMaterial> createMaterial(
+    FlutterSceneExtendedPbrMaterialConfig config,
+  ) =>
+      throw StateError('createMaterial must not run after failed preflight');
+}
+
+final class _ResourceCheckingSheenExtendedPbrBackend
+    implements
+        FlutterSceneExtendedPbrMaterialBackend,
+        FlutterSceneSheenMaterialBackend {
+  final List<FlutterSceneExtendedPbrResourceRequest> requests =
+      <FlutterSceneExtendedPbrResourceRequest>[];
+
+  @override
+  bool get isReady => true;
+
+  @override
+  bool get isSheenReady => true;
+
+  @override
+  Future<ViewerDiagnostic?> preflight(PartAddress address) async => null;
+
+  @override
+  Future<ViewerDiagnostic?> preflightSheen(
+    PartAddress address, {
+    required FlutterSceneExtendedPbrResourceRequest request,
+  }) async {
+    requests.add(request);
+    return debugFlutterSceneExtendedPbrResourceDiagnostic(address, request);
+  }
+
+  @override
+  Future<flutter_scene.PhysicallyBasedMaterial> createMaterial(
+    FlutterSceneExtendedPbrMaterialConfig config,
+  ) =>
+      throw StateError('Incompatible state must fail before construction.');
+}
+
+final class _SheenReadyExtendedPbrBackend
+    implements
+        FlutterSceneExtendedPbrMaterialBackend,
+        FlutterSceneSheenMaterialBackend {
+  final List<FlutterSceneExtendedPbrResourceRequest> requests =
+      <FlutterSceneExtendedPbrResourceRequest>[];
+  bool _isSheenReady = false;
+
+  @override
+  bool get isReady => false;
+
+  @override
+  bool get isSheenReady => _isSheenReady;
+
+  @override
+  Future<ViewerDiagnostic?> preflight(PartAddress address) async => null;
+
+  @override
+  Future<ViewerDiagnostic?> preflightSheen(
+    PartAddress address, {
+    required FlutterSceneExtendedPbrResourceRequest request,
+  }) async {
+    requests.add(request);
+    _isSheenReady = true;
+    return null;
+  }
+
+  @override
+  Future<flutter_scene.PhysicallyBasedMaterial> createMaterial(
+    FlutterSceneExtendedPbrMaterialConfig config,
+  ) =>
+      throw StateError('Material construction is outside this preflight test.');
+}
+
 final class _UvStubGeometry extends _StubGeometry {
   @override
-  // ignore: invalid_use_of_internal_member
   ({
     ByteData? vertices,
     Float32List? positions,
@@ -3837,6 +5873,13 @@ final class _UvStubGeometry extends _StubGeometry {
       indexCount: 0,
     );
   }
+}
+
+final class _Uv1StubGeometry extends _UvStubGeometry {
+  @override
+  flutter_scene_internal_vertex_layout.VertexLayoutDescriptor?
+      get instancedVertexLayout =>
+          flutter_scene_internal_geometry.kUnskinnedSoAUV1ColorLayout;
 }
 
 MaterialExtensionSupport _materialExtensionSupport(

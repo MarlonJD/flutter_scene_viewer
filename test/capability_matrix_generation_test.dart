@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 const _sourcePath =
@@ -12,6 +13,16 @@ const _historicalSnapshotPath =
 const _historicalSourcePath =
     'tools/capability_matrix/history/plan014_selected_extension_capabilities.json';
 const _generatorPath = 'tools/generate_capability_matrix.py';
+const _plan018RendererNativeEvidencePath =
+    'tools/out/material_extension_acceptance/plan018_controlled_comparison/'
+    'ios_simulator/renderer-native-run-05/evidence.json';
+const _plan018RendererNativeEvidenceSha256 =
+    '9f4d3e1b2c561174c9426ad0da653f09c8c3d8ab7494bdfa7dcdf06d121f74da';
+const _plan018HistoricalCandidateEvidencePath =
+    'tools/out/material_extension_acceptance/plan018_controlled_comparison/'
+    'ios_simulator/candidate-run-14/evidence.json';
+const _plan018HistoricalCandidateEvidenceSha256 =
+    '87cb87f7ecce3b5916ae72896d1b7980ca6d950ef18a2aed2165734cb8d05cbb';
 const _artifactRoot = 'tools/out/plan017_decoder_mip_acceptance';
 const _artifactPayloadSha256 =
     '2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881';
@@ -28,6 +39,7 @@ const _features = <String>[
   'KHR_draco_mesh_compression',
   'EXT_meshopt_compression',
   'KHR_texture_basisu',
+  'KHR_materials_sheen',
 ];
 
 const _targets = <String>[
@@ -87,6 +99,287 @@ const _expectedPlan014LiveDifferences = <Object?>[
 ];
 
 void main() {
+  test('Plan 018 sheen source separates target axes and evidence provenance',
+      () {
+    final source = jsonDecode(File(_sourcePath).readAsStringSync()) as Map;
+
+    expect(source['schemaVersion'], 3);
+    final evidence = Map<String, Object?>.from(
+      source['plan018SheenEvidence']! as Map,
+    );
+    expect(
+      evidence,
+      <String, Object?>{
+        'rendererNative': <String, Object?>{
+          'path': _plan018RendererNativeEvidencePath,
+          'sha256': _plan018RendererNativeEvidenceSha256,
+          'applicationKind': 'rendererNative',
+          'visualEvidence': 'verified locally',
+          'runtimeAvailability': 'available',
+          'maturity': 'release pending',
+          'targetEvidence': 'verified locally',
+        },
+        'historicalCandidate': <String, Object?>{
+          'path': _plan018HistoricalCandidateEvidencePath,
+          'sha256': _plan018HistoricalCandidateEvidenceSha256,
+          'applicationKind': 'packageLocalCandidate',
+          'executionEvidence': 'verified locally',
+          'visualEvidence': 'not run',
+          'maturity': 'candidate-only',
+          'targetEvidence': 'not run',
+        },
+      },
+    );
+
+    final nativeEvidenceFile = File(_plan018RendererNativeEvidencePath);
+    if (nativeEvidenceFile.existsSync()) {
+      expect(
+        sha256.convert(nativeEvidenceFile.readAsBytesSync()).toString(),
+        _plan018RendererNativeEvidenceSha256,
+      );
+      final nativeEvidence =
+          jsonDecode(nativeEvidenceFile.readAsStringSync()) as Map;
+      expect(nativeEvidence['application'], <String, Object?>{
+        'sheenOff': 'none',
+        'sheenOn': 'rendererNative',
+      });
+      expect(nativeEvidence['visualEvidence'], 'verified locally');
+      expect(nativeEvidence['runtimeAvailability'], 'available');
+      expect(nativeEvidence['featureMaturity'], 'release pending');
+      expect(nativeEvidence['targetEvidence'], 'verified locally');
+      expect(nativeEvidence['physicalIos'], 'not run');
+      expect(nativeEvidence['android'], 'not run');
+      expect(nativeEvidence['web'], 'not run');
+      expect(nativeEvidence['physicalCorrectness'], 'not run');
+      expect(nativeEvidence['generalPixelParity'], 'not run');
+      expect(nativeEvidence['productionReadiness'], 'not run');
+    }
+
+    final candidateEvidenceFile = File(_plan018HistoricalCandidateEvidencePath);
+    if (candidateEvidenceFile.existsSync()) {
+      expect(
+        sha256.convert(candidateEvidenceFile.readAsBytesSync()).toString(),
+        _plan018HistoricalCandidateEvidenceSha256,
+      );
+      final candidateEvidence =
+          jsonDecode(candidateEvidenceFile.readAsStringSync()) as Map;
+      expect(candidateEvidence['status'], 'candidate-only');
+      expect(candidateEvidence['featureMaturity'], 'candidate-only');
+      expect(candidateEvidence['executionEvidence'], 'verified locally');
+      expect(candidateEvidence['referenceComparison'], 'not run');
+    }
+
+    final sheen = (source['features'] as List).cast<Map>().singleWhere(
+          (feature) => feature['id'] == 'KHR_materials_sheen',
+        );
+    final targets = sheen['targets'] as Map;
+    expect(
+      Map<String, Object?>.from(targets['ios_simulator']! as Map),
+      <String, Object?>{
+        'applicationKind': 'rendererNative',
+        'applied': 'verified locally',
+        'visuallyVerified': 'verified locally',
+        'runtimeCapability': 'available',
+        'releaseMaturity': 'release pending',
+        'targetEvidence': 'verified locally',
+        'blocker': 'renderer-local scalar sheen on/off evidence is recorded at '
+            '$_plan018RendererNativeEvidencePath; release and production-ready '
+            'evidence remain not run',
+      },
+    );
+    for (final target in <String>['ios_physical', 'android', 'web']) {
+      final row = Map<String, Object?>.from(targets[target]! as Map);
+      expect(row['applicationKind'], 'not run', reason: target);
+      expect(row['applied'], 'not run', reason: target);
+      expect(row['visuallyVerified'], 'not run', reason: target);
+      expect(row['runtimeCapability'], 'not run', reason: target);
+      expect(row['releaseMaturity'], 'release pending', reason: target);
+      expect(row['targetEvidence'], 'not run', reason: target);
+      expect(row['blocker'], contains('no '), reason: target);
+    }
+  });
+
+  test('generator validates the exact Plan 018 sheen evidence promotion',
+      () async {
+    final summary = await Process.run(
+      'python3',
+      <String>[
+        _generatorPath,
+        '--summary-json',
+        '--features',
+        'KHR_materials_sheen',
+      ],
+      environment: <String, String>{
+        ...Platform.environment,
+        'PYTHONDONTWRITEBYTECODE': '1',
+      },
+    );
+    expect(summary.exitCode, 0, reason: '${summary.stdout}\n${summary.stderr}');
+    expect(
+      jsonDecode(summary.stdout as String),
+      <String, Object?>{
+        'featureSet': <Object?>['KHR_materials_sheen'],
+        'targetSet': <Object?>[
+          'ios_simulator',
+          'ios_physical',
+          'android',
+          'web',
+        ],
+        'allApplied': false,
+        'allVisuallyVerified': false,
+        'allTargetEvidenceVerified': false,
+        'productionReady': false,
+      },
+    );
+
+    final mutations = <void Function(Map)>[
+      (source) => (source['plan018SheenEvidence'] as Map)['rendererNative'] =
+          <String, Object?>{},
+      (source) => _targetRow(
+            source,
+            'KHR_materials_sheen',
+            'ios_simulator',
+          )['applicationKind'] = 'packageLocalCandidate',
+      (source) => _targetRow(
+            source,
+            'KHR_materials_sheen',
+            'ios_simulator',
+          )['visuallyVerified'] = 'not run',
+      (source) => _targetRow(
+            source,
+            'KHR_materials_sheen',
+            'ios_physical',
+          )['runtimeCapability'] = 'available',
+    ];
+    for (final mutate in mutations) {
+      final source = jsonDecode(File(_sourcePath).readAsStringSync()) as Map;
+      mutate(source);
+      final result = await _validateMutatedSource(source);
+      expect(result.exitCode, isNot(0),
+          reason: '${result.stdout}\n${result.stderr}');
+      expect(result.stderr, contains('Plan 018 sheen'));
+    }
+  });
+
+  test('Plan 018 evidence verifier is portable and fails closed when present',
+      () async {
+    final scratch = Directory.systemTemp.createTempSync('plan018_matrix_');
+    try {
+      final absent = await Process.run(
+        'python3',
+        <String>[
+          '-c',
+          'import pathlib,sys; '
+              'from tools.generate_capability_matrix import '
+              'validate_plan018_sheen_artifacts; '
+              'validate_plan018_sheen_artifacts(pathlib.Path(sys.argv[1]))',
+          scratch.path,
+        ],
+        environment: <String, String>{
+          ...Platform.environment,
+          'PYTHONDONTWRITEBYTECODE': '1',
+        },
+      );
+      expect(absent.exitCode, 0, reason: '${absent.stdout}\n${absent.stderr}');
+
+      final tampered = File(
+        '${scratch.path}/$_plan018RendererNativeEvidencePath',
+      )
+        ..createSync(recursive: true)
+        ..writeAsStringSync('{}');
+      expect(tampered.existsSync(), isTrue);
+      final present = await Process.run(
+        'python3',
+        <String>[
+          '-c',
+          'import pathlib,sys; '
+              'from tools.generate_capability_matrix import '
+              'validate_plan018_sheen_artifacts; '
+              'validate_plan018_sheen_artifacts(pathlib.Path(sys.argv[1]))',
+          scratch.path,
+        ],
+        environment: <String, String>{
+          ...Platform.environment,
+          'PYTHONDONTWRITEBYTECODE': '1',
+        },
+      );
+      expect(present.exitCode, isNot(0),
+          reason: '${present.stdout}\n${present.stderr}');
+      expect(present.stderr, contains('Plan 018 sheen renderer-native'));
+    } finally {
+      scratch.deleteSync(recursive: true);
+    }
+  });
+
+  test('generated matrix renders separate Plan 018 sheen evidence axes', () {
+    final generated =
+        File('docs/generated/capability_matrix.md').readAsStringSync();
+
+    expect(generated, contains('## Plan 018 sheen evidence boundary'));
+    expect(
+      generated,
+      contains(
+        '| Evidence | Application kind | Visual evidence | Runtime availability '
+        '| Maturity | Target evidence | Source |',
+      ),
+    );
+    expect(
+      generated,
+      contains(
+        '| Renderer-native current | rendererNative | verified locally | '
+        'available | release pending | verified locally | '
+        '`$_plan018RendererNativeEvidencePath` '
+        '(`$_plan018RendererNativeEvidenceSha256`) |',
+      ),
+    );
+    expect(
+      generated,
+      contains(
+        '| Historical package-local candidate | packageLocalCandidate | '
+        'not run | not recorded | candidate-only | not run | '
+        '`$_plan018HistoricalCandidateEvidencePath` '
+        '(`$_plan018HistoricalCandidateEvidenceSha256`) |',
+      ),
+    );
+    expect(
+      generated,
+      contains(
+        '| Feature | Target | Application kind | Applied | Visual evidence | '
+        'Runtime availability | Maturity | Target evidence | Exact blocker |',
+      ),
+    );
+    expect(
+      generated,
+      contains(
+        '| `KHR_materials_sheen` | iOS Simulator | rendererNative | '
+        'verified locally | verified locally | available | release pending | '
+        'verified locally |',
+      ),
+    );
+    for (final target in <String>['physical iOS', 'Android', 'Web']) {
+      expect(
+        generated,
+        contains(
+          '| `KHR_materials_sheen` | $target | not run | not run | not run | '
+          'not run | release pending | not run |',
+        ),
+      );
+    }
+    final sheenLines = generated
+        .split('\n')
+        .where((line) => line.contains('KHR_materials_sheen'))
+        .join('\n');
+    expect(sheenLines, isNot(contains('| production-ready |')));
+    expect(
+      generated,
+      contains(
+        'A renderer capture does not automatically establish visual evidence, '
+        'physical correctness, general pixel parity, release, or '
+        'production-ready status.',
+      ),
+    );
+  });
+
   test('generated capability matrix has explicit feature-target truth',
       () async {
     expect(File(_sourcePath).existsSync(), isTrue);
@@ -98,7 +391,7 @@ void main() {
     final source = Map<String, Object?>.from(
       jsonDecode(File(_sourcePath).readAsStringSync()) as Map,
     );
-    expect(source['schemaVersion'], 2);
+    expect(source['schemaVersion'], 3);
     expect(source['featureSet'], _features);
     expect(source['targetSet'], _targets);
     expect(
@@ -138,6 +431,7 @@ void main() {
         expect(
           row.keys,
           orderedEquals(<String>[
+            'applicationKind',
             'applied',
             'visuallyVerified',
             'runtimeCapability',
@@ -147,8 +441,12 @@ void main() {
           ]),
           reason: '${feature['id']} / $target',
         );
-        final isVerifiedSimulatorRow = target == 'ios_simulator' &&
+        final isHistoricalVerifiedSimulatorRow = target == 'ios_simulator' &&
             _verifiedIosSimulatorFeatures.contains(feature['id']);
+        final isPlan018VerifiedSimulatorRow =
+            target == 'ios_simulator' && feature['id'] == 'KHR_materials_sheen';
+        final isVerifiedSimulatorRow =
+            isHistoricalVerifiedSimulatorRow || isPlan018VerifiedSimulatorRow;
         expect(
           row['applied'],
           isVerifiedSimulatorRow
@@ -163,9 +461,19 @@ void main() {
           row['targetEvidence'],
           isVerifiedSimulatorRow ? 'verified locally' : 'not run',
         );
-        if (isVerifiedSimulatorRow) {
+        if (isHistoricalVerifiedSimulatorRow) {
           expect(row['releaseMaturity'], 'candidate-only');
           expect(row['blocker'], contains(_plan014IosSimulatorEvidence));
+        }
+        if (isPlan018VerifiedSimulatorRow) {
+          expect(row['applicationKind'], 'rendererNative');
+          expect(row['runtimeCapability'], 'available');
+          expect(row['releaseMaturity'], 'release pending');
+          expect(row['blocker'], contains(_plan018RendererNativeEvidencePath));
+        } else if (feature['id'] == 'KHR_materials_sheen') {
+          expect(row['applicationKind'], 'not run');
+        } else {
+          expect(row['applicationKind'], 'not recorded');
         }
         expect(row['releaseMaturity'], isNot('production-ready'));
       }

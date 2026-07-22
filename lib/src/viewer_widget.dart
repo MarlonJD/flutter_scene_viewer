@@ -112,7 +112,7 @@ class _FlutterSceneViewerState extends State<FlutterSceneViewer>
   Completer<void>? _pendingFitCamera;
   double? _viewportAspectRatio;
   var _renderGeneration = 0;
-  var _frameCallbackScheduled = false;
+  int? _renderFrameCallbackId;
   var _pendingFitCameraFrameScheduled = false;
   var _lastPanZoomScale = 1.0;
   var _debugFrameCount = 0;
@@ -201,6 +201,13 @@ class _FlutterSceneViewerState extends State<FlutterSceneViewer>
 
   @override
   void dispose() {
+    final renderFrameCallbackId = _renderFrameCallbackId;
+    if (renderFrameCallbackId != null) {
+      SchedulerBinding.instance.cancelFrameCallbackWithId(
+        renderFrameCallbackId,
+      );
+      _renderFrameCallbackId = null;
+    }
     _debugStatsTimer?.cancel();
     _completePendingFitCamera();
     _detachController();
@@ -860,12 +867,12 @@ class _FlutterSceneViewerState extends State<FlutterSceneViewer>
   }
 
   void _scheduleRenderFrame() {
-    if (!_renderScheduler.shouldRender || _frameCallbackScheduled) {
+    if (!_renderScheduler.shouldRender || _renderFrameCallbackId != null) {
       return;
     }
-    _frameCallbackScheduled = true;
-    SchedulerBinding.instance.scheduleFrameCallback((timestamp) {
-      _frameCallbackScheduled = false;
+    _renderFrameCallbackId =
+        SchedulerBinding.instance.scheduleFrameCallback((timestamp) {
+      _renderFrameCallbackId = null;
       if (!mounted || !_renderScheduler.shouldRender) {
         return;
       }

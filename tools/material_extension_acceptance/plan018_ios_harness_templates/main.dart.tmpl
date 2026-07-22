@@ -1,0 +1,1522 @@
+// ignore_for_file: invalid_use_of_visible_for_testing_member
+
+import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:crypto/crypto.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
+import 'package:flutter_scene_viewer/flutter_scene_viewer.dart';
+// ignore: implementation_imports
+import 'package:flutter_scene_viewer/src/internal/flutter_scene_adapter.dart';
+// ignore: implementation_imports
+import 'package:flutter_scene_viewer/src/internal/flutter_scene_extended_pbr_material.dart';
+// ignore: implementation_imports
+import 'package:flutter_scene_viewer/src/internal/glb_imported_texture_patch_reader.dart';
+// ignore: implementation_imports
+import 'package:flutter_scene_viewer/src/internal/glb_material_extension_reader.dart';
+// ignore: implementation_imports
+import 'package:flutter_scene_viewer/src/internal/material_extension_patch_group.dart';
+
+import 'plan018_generated_contract.dart';
+
+const String _selectedModel = String.fromEnvironment('PLAN018_MODEL_ID');
+const ViewerMaterialExtensionPolicy _materialExtensionPolicy =
+    ViewerMaterialExtensionPolicy.productionShaders(
+  enableTransmission: true,
+  enableClearcoat: true,
+  enableSheen: true,
+);
+
+final Plan018HarnessControl plan018HarnessControl = Plan018HarnessControl._();
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await SystemChrome.setPreferredOrientations(
+    const <DeviceOrientation>[DeviceOrientation.portraitUp],
+  );
+  await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+  runApp(const Plan018HarnessApp());
+}
+
+final class Plan018HarnessApp extends StatefulWidget {
+  const Plan018HarnessApp({super.key});
+
+  @override
+  State<Plan018HarnessApp> createState() => _Plan018HarnessAppState();
+}
+
+final class _Plan018HarnessAppState extends State<Plan018HarnessApp> {
+  final FlutterSceneViewerController _controller =
+      FlutterSceneViewerController();
+  Map<String, Object?>? _state;
+  String? _stateSha256;
+  Map<String, Object?>? _model;
+  Uint8List? _modelBytes;
+  ModelSource? _modelSource;
+  ViewerEnvironment? _environment;
+  FlutterSceneRuntimeAdapter? _adapter;
+  GlbImportedTexturePatchResult? _corePatchResult;
+  GlbMaterialExtensionReaderResult? _readerResult;
+  _GlbDocument? _document;
+  Object? _failure;
+  String _activePass = 'directOnly';
+  String? _activeView;
+  List<double>? _activeCameraPosition;
+  var _postCameraFrames = 0;
+  final List<ViewerStatsSnapshot> _stageStats = <ViewerStatsSnapshot>[];
+  final Set<String> _reportedReadyStages = <String>{};
+  final List<String> _readyPayloads = <String>[];
+  Size? _logicalSize;
+  double? _devicePixelRatio;
+  Map<String, Object?>? _modelReadiness;
+
+  bool get assetsReady => _modelSource != null && _adapter != null;
+  Object? get failure => _failure;
+
+  Map<String, Object?> get state => _state!;
+  Map<String, Object?> get model => _model!;
+  FlutterSceneRuntimeAdapter get adapter => _adapter!;
+
+  List<String> get renderPasses =>
+      (state['renderPasses']! as List<Object?>).cast<String>();
+
+  List<String> get readyPayloads => List<String>.unmodifiable(_readyPayloads);
+
+  List<String> get captureViews {
+    final result = Map<String, Object?>.from(model['cameras']! as Map)
+        .keys
+        .toList(growable: true);
+    final context = model['context'];
+    if (context is Map && context['camera'] is Map) {
+      result.add('context');
+    }
+    return List<String>.unmodifiable(result);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    plan018HarnessControl._attach(this);
+    unawaited(_prepareAssets());
+  }
+
+  @override
+  void dispose() {
+    plan018HarnessControl._detach(this);
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _prepareAssets() async {
+    try {
+      if (_selectedModel.isEmpty ||
+          !plan018ModelAssetPaths.containsKey(_selectedModel)) {
+        throw StateError(
+          'PLAN018_MODEL_ID must select one generated corpus model.',
+        );
+      }
+      final stateAssetPath = plan018ModelStateAssetPaths[_selectedModel]!;
+      final expectedStateSha256 =
+          plan018StateSha256ByAssetPath[stateAssetPath]!;
+      final stateBytes = await _loadAssetBytes(stateAssetPath);
+      _requireHash('controlled state', stateBytes, expectedStateSha256);
+      final decoded = jsonDecode(utf8.decode(stateBytes));
+      if (decoded is! Map) {
+        throw StateError('Controlled state must decode to an object.');
+      }
+      final nextState = Map<String, Object?>.from(decoded);
+      _assertFixedState(nextState);
+      final models = Map<String, Object?>.from(nextState['models']! as Map);
+      final nextModel = Map<String, Object?>.from(
+        models[_selectedModel]! as Map,
+      );
+      final modelBytes = await _loadAssetBytes(
+        plan018ModelAssetPaths[_selectedModel]!,
+      );
+      _requireHash(
+        '$_selectedModel GLB',
+        modelBytes,
+        nextModel['sha256']! as String,
+      );
+      if (modelBytes.lengthInBytes != nextModel['byteLength']) {
+        throw StateError('$_selectedModel GLB byte length drifted.');
+      }
+      final environmentBytes = await _loadAssetBytes(
+        'assets/plan018_controlled_studio.hdr',
+      );
+      final environmentState =
+          Map<String, Object?>.from(nextState['environment']! as Map);
+      _requireHash(
+        'controlled HDR',
+        environmentBytes,
+        environmentState['sha256']! as String,
+      );
+      final corePatchResult = readGlbImportedTexturePatches(
+        modelBytes,
+        debugName: _selectedModel,
+      );
+      if (corePatchResult.diagnostics.isNotEmpty) {
+        throw StateError(
+          'Authored core texture reader diagnostics: '
+          '${corePatchResult.diagnostics.join(', ')}',
+        );
+      }
+      final readerResult = readGlbMaterialExtensionIntent(
+        modelBytes,
+        debugName: _selectedModel,
+      );
+      if (readerResult.diagnostics.isNotEmpty) {
+        throw StateError(
+          'Authored extension reader diagnostics: '
+          '${readerResult.diagnostics.join(', ')}',
+        );
+      }
+      final document = _GlbDocument.fromBytes(modelBytes);
+      final authoredSheen = document.authoredMaterialIndices(
+        'KHR_materials_sheen',
+      );
+      final expectedAuthoredSheen =
+          (nextModel['sheenMaterialIndices']! as List<Object?>).cast<int>();
+      if (!_sameInts(authoredSheen, expectedAuthoredSheen)) {
+        throw StateError('Authored sheen dependency inventory drifted.');
+      }
+      final adapter = FlutterSceneRuntimeAdapter(
+        materialExtensionPolicy: _materialExtensionPolicy,
+      );
+      final source = ModelSource.bytes(
+        modelBytes,
+        debugName: 'plan018_$_selectedModel.glb',
+      );
+      final environment = ViewerEnvironment.rawBytes(
+        environmentBytes,
+        debugName: 'plan018_controlled_studio.hdr',
+        format: ViewerEnvironmentFileFormat.hdr,
+        intensity: (environmentState['intensity']! as num).toDouble(),
+        rotationRadians:
+            (environmentState['rotationRadians']! as num).toDouble(),
+        showSkybox: environmentState['showSkybox']! as bool,
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _state = nextState;
+        _stateSha256 = expectedStateSha256;
+        _model = nextModel;
+        _modelBytes = modelBytes;
+        _corePatchResult = corePatchResult;
+        _readerResult = readerResult;
+        _document = document;
+        _adapter = adapter;
+        _modelSource = source;
+        _environment = environment;
+      });
+    } on Object catch (error, stackTrace) {
+      _recordFailure(error, stackTrace);
+    }
+  }
+
+  void _recordFailure(Object error, StackTrace stackTrace) {
+    _failure = error;
+    print(
+      'PLAN018_DIAGNOSTIC ${jsonEncode(<String, Object?>{
+            'status': 'blocked',
+            'scope': 'iOS Simulator harness',
+            'error': error.toString(),
+            'stack': stackTrace.toString(),
+          })}',
+    );
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = _state;
+    final source = _modelSource;
+    final environment = _environment;
+    final adapter = _adapter;
+    final background = state == null
+        ? const Color(0xFF121118)
+        : _colorFromHex(
+            Map<String, Object?>.from(state['background']! as Map)['srgbHex']!
+                as String,
+          );
+    return Directionality(
+      textDirection: TextDirection.ltr,
+      child: ColoredBox(
+        color: background,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            _logicalSize = Size(
+              constraints.maxWidth,
+              constraints.maxHeight,
+            );
+            _devicePixelRatio = View.of(context).devicePixelRatio;
+            if (source == null || environment == null || adapter == null) {
+              return const SizedBox.expand();
+            }
+            return FlutterSceneViewer.test(
+              source: source,
+              adapter: adapter,
+              controller: _controller,
+              renderPolicy: RenderPolicy.always,
+              lighting: _lightingForPass(_activePass),
+              environment: environment,
+              materialShadingPolicy: MaterialShadingPolicy.authored,
+              materialExtensionPolicy: _materialExtensionPolicy,
+              autoOrbit: false,
+              debugShowStatsOverlay: false,
+              onStats: _recordStats,
+              loadingBuilder: (_) => const SizedBox.expand(),
+              errorBuilder: (_, diagnostic) => const SizedBox.expand(),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  ViewerLighting _lightingForPass(String pass) {
+    final lighting = Map<String, Object?>.from(state['lighting']! as Map);
+    final direct = pass != 'iblOnly';
+    final ibl = pass != 'directOnly';
+    return ViewerLighting.studio(
+      exposure: (lighting['exposure']! as num).toDouble(),
+      ambientOcclusion: lighting['ambientOcclusion']! as bool,
+      environmentIntensity:
+          ibl ? (stateEnvironment['intensity']! as num).toDouble() : 0,
+      keyLightIntensity:
+          direct ? (lighting['keyLightIntensity']! as num).toDouble() : 0,
+      keyLightColor:
+          _doubleList(lighting['keyLightColorLinear']! as List<Object?>),
+      keyLightDirection: _doubleList(
+        lighting['keyLightDirectionFlutterSceneWorld']! as List<Object?>,
+      ),
+      keyLightCastsShadow: lighting['keyLightCastsShadow']! as bool,
+    );
+  }
+
+  Map<String, Object?> get stateEnvironment =>
+      Map<String, Object?>.from(state['environment']! as Map);
+
+  void _recordStats(ViewerStatsSnapshot snapshot) {
+    if (_activeView != null) {
+      _stageStats.add(snapshot);
+      if (_stageStats.length > 8) {
+        _stageStats.removeAt(0);
+      }
+    }
+  }
+
+  bool get canProbeModelReadiness {
+    if (!assetsReady || _failure != null) {
+      return false;
+    }
+    final scene = adapter.debugScene;
+    return _controller.loadState.status == ViewerLoadStatus.success &&
+        scene != null &&
+        scene.environment != null &&
+        _logicalSize != null &&
+        _devicePixelRatio != null;
+  }
+
+  Future<void> requireModelReadiness() async {
+    if (_modelReadiness != null) {
+      return;
+    }
+    try {
+      if (!canProbeModelReadiness) {
+        throw StateError('Model readiness was requested before load settled.');
+      }
+      _assertViewport();
+      _assertRuntimeScene();
+      _assertRendererNativeSupport();
+      for (final diagnostic in _controller.diagnostics) {
+        print(
+          'PLAN018_DIAGNOSTIC ${jsonEncode(<String, Object?>{
+                'code': diagnostic.code.name,
+                'message': diagnostic.message,
+                'details': diagnostic.details,
+              })}',
+        );
+      }
+      final blocking = _blockingDiagnostics();
+      if (blocking.isNotEmpty) {
+        throw StateError(
+          'Blocking diagnostics remain: ${blocking.map((item) => item.code.name).join(',')}',
+        );
+      }
+      final materialProbe = _probeInstalledMaterials();
+      final application = materialProbe['application']! as String;
+      final featureMaturity = materialProbe['featureMaturity']! as String;
+      _modelReadiness = <String, Object?>{
+        'status': featureMaturity,
+        'application': application,
+        'runtimeAvailability': 'available',
+        'featureMaturity': featureMaturity,
+        'targetEvidence': 'not run',
+        'visualEvidence': 'not run',
+        'comparisonBoundary': state['comparisonBoundary'],
+        'modelId': _selectedModel,
+        'stateSha256': _stateSha256,
+        'rootPubspecSha256': plan018RootPubspecSha256,
+        'rootLockSha256': plan018RootLockSha256,
+        'flutterSceneRef': plan018FlutterSceneRef,
+        'flutterSceneResolvedRef': plan018FlutterSceneResolvedRef,
+        'modelSha256': model['sha256'],
+        'environmentSha256': stateEnvironment['sha256'],
+        'authoredDependencyInventory': _document!.authoredDependencyInventory(),
+        'defaultSceneInventory': _document!.defaultSceneInventory(),
+        'installedMaterialProbe': materialProbe,
+        'blockingDiagnostics': 0,
+        'showSkybox': false,
+        'toneMapping': state['toneMapping'],
+        'outputColorSpace': state['outputColorSpace'],
+      };
+    } on Object catch (error, stackTrace) {
+      _recordFailure(error, stackTrace);
+      rethrow;
+    }
+  }
+
+  void _assertViewport() {
+    final viewport = Map<String, Object?>.from(state['viewport']! as Map);
+    final size = _logicalSize!;
+    final dpr = _devicePixelRatio!;
+    if (!_near(size.width, (viewport['logicalWidth']! as num).toDouble()) ||
+        !_near(size.height, (viewport['logicalHeight']! as num).toDouble()) ||
+        !_near(dpr, (viewport['devicePixelRatio']! as num).toDouble()) ||
+        (size.width * dpr).round() != 1206 ||
+        (size.height * dpr).round() != 2622) {
+      throw StateError(
+        'Viewport mismatch: ${size.width}x${size.height} @ $dpr.',
+      );
+    }
+  }
+
+  void _assertRuntimeScene() {
+    final dynamic scene = adapter.debugScene;
+    if (scene == null || scene.environment == null) {
+      throw StateError('Configured environment is unavailable.');
+    }
+    if (scene.skybox != null) {
+      throw StateError('Skybox must remain hidden.');
+    }
+    final Object? toneMapping = scene.toneMapping;
+    if (toneMapping is! Enum ||
+        toneMapping.name != 'pbrNeutral' ||
+        state['toneMapping'] != 'pbrNeutral') {
+      throw StateError('PBR Neutral tone mapping is not active.');
+    }
+    if (state['outputColorSpace'] != 'sRGB') {
+      throw StateError('Display output contract must remain sRGB.');
+    }
+  }
+
+  void _assertRendererNativeSupport() {
+    final support = adapter.materialExtensionSupport;
+    final sheen = support.supportFor(MaterialExtensionFeature.sheen);
+    if (support.backendKind != MaterialExtensionBackendKind.rendererNative ||
+        !sheen.available ||
+        sheen.maturityFor(MaterialExtensionTarget.iosSimulator) !=
+            MaterialExtensionMaturity.releasePending ||
+        sheen.evidenceFor(MaterialExtensionTarget.iosSimulator) !=
+            MaterialExtensionEvidenceStatus.verifiedLocally) {
+      throw StateError(
+        'iOS Simulator renderer-native sheen support contract drifted.',
+      );
+    }
+  }
+
+  List<ViewerDiagnostic> _blockingDiagnostics() =>
+      _controller.diagnostics.where((diagnostic) {
+        if (diagnostic.details['blocking'] == false) {
+          return false;
+        }
+        if (diagnostic.details['blocking'] == true ||
+            diagnostic.details['status'] == 'blocked') {
+          return true;
+        }
+        return switch (diagnostic.code) {
+          ViewerDiagnosticCode.adapterFailure ||
+          ViewerDiagnosticCode.adapterUnavailable ||
+          ViewerDiagnosticCode.assetLoadFailure ||
+          ViewerDiagnosticCode.environmentDecodeFailure ||
+          ViewerDiagnosticCode.environmentInvalidDimensions ||
+          ViewerDiagnosticCode.environmentSourceUnavailable ||
+          ViewerDiagnosticCode.environmentUnsupportedEncoding =>
+            true,
+          _ => false,
+        };
+      }).toList(growable: false);
+
+  bool _requiresPackageCandidateForSheen(PartAddress address) {
+    final groups = _readerResult!.patches[address];
+    if (groups?.containsKey(MaterialExtensionPatchGroup.specular) ?? false) {
+      return true;
+    }
+    final corePatch = _corePatchResult!.patches[address];
+    if (corePatch == null) {
+      return false;
+    }
+    return const <MaterialTextureSlot>[
+      MaterialTextureSlot.baseColor,
+      MaterialTextureSlot.metallicRoughness,
+      MaterialTextureSlot.normal,
+      MaterialTextureSlot.occlusion,
+      MaterialTextureSlot.emissive,
+    ].any((slot) {
+      final binding = corePatch.textureBindingFor(slot);
+      return binding != null && !_isIdentityTransform(binding.transform);
+    });
+  }
+
+  bool _hasInstalledSheenIntent(Object material) {
+    if (material is FlutterSceneExtendedPbrMaterial) {
+      return material.hasSheenIntent;
+    }
+    final dynamic nativeMaterial = material;
+    try {
+      final dynamic color = nativeMaterial.sheenColorFactor;
+      return nativeMaterial.usesRendererNativeSheen == true ||
+          (color.x as num).toDouble() != 0 ||
+          (color.y as num).toDouble() != 0 ||
+          (color.z as num).toDouble() != 0 ||
+          (nativeMaterial.sheenRoughnessFactor as num).toDouble() != 0 ||
+          nativeMaterial.sheenColorTexture != null ||
+          nativeMaterial.sheenRoughnessTexture != null;
+    } on NoSuchMethodError {
+      return false;
+    } on TypeError {
+      return false;
+    }
+  }
+
+  Map<String, Object?> _probeInstalledMaterials() {
+    final reader = _readerResult!;
+    final runtime = _runtimePrimitives(adapter.rootNode);
+    final runtimeByAddress = <PartAddress, _RuntimePrimitive>{
+      for (final primitive in runtime) primitive.address: primitive,
+    };
+    final expectedSheen = <PartAddress, MaterialPatch>{};
+    final groupAddresses = <MaterialExtensionPatchGroup, Set<PartAddress>>{
+      for (final group in MaterialExtensionPatchGroup.values)
+        group: <PartAddress>{},
+    };
+    for (final entry in reader.patches.entries) {
+      for (final groupEntry in entry.value.entries) {
+        groupAddresses[groupEntry.key]!.add(entry.key);
+      }
+      final sheen = entry.value[MaterialExtensionPatchGroup.sheen];
+      if (sheen != null) {
+        expectedSheen[entry.key] = sheen;
+      }
+    }
+    final installed = <Map<String, Object?>>[];
+    final expectedConcrete = <PartAddress>{};
+    var rendererNativeCount = 0;
+    var packageLocalCandidateCount = 0;
+    for (final entry in expectedSheen.entries) {
+      final resolved = _controller.partTree.resolvePart(entry.key);
+      if (resolved == null) {
+        throw StateError('Authored sheen address did not suffix-resolve.');
+      }
+      final concrete = resolved.address;
+      final runtimePrimitive = runtimeByAddress[concrete];
+      if (runtimePrimitive == null) {
+        throw StateError(
+            'Resolved sheen address is absent from runtime graph.');
+      }
+      expectedConcrete.add(concrete);
+      final material = runtimePrimitive.material;
+      final patch = entry.value;
+      final expectedColor = patch.sheenColorFactor ?? const <double>[0, 0, 0];
+      final expectedRoughness = patch.sheenRoughness ?? 0;
+      final expectsColorTexture = patch.sheenColorTexture != null ||
+          patch.sheenColorTextureBinding != null;
+      final expectsRoughnessTexture = patch.sheenRoughnessTexture != null ||
+          patch.sheenRoughnessTextureBinding != null;
+      final expectedColorTransform =
+          patch.sheenColorTextureBinding?.transform ??
+              TextureTransform.identity;
+      final expectedRoughnessTransform =
+          patch.sheenRoughnessTextureBinding?.transform ??
+              TextureTransform.identity;
+      final expectedColorUvSet =
+          patch.sheenColorTextureBinding?.effectiveTexCoord ?? 0;
+      final expectedRoughnessUvSet =
+          patch.sheenRoughnessTextureBinding?.effectiveTexCoord ?? 0;
+      final requiresCandidateBridge =
+          _requiresPackageCandidateForSheen(entry.key);
+      late final String application;
+      late final String maturity;
+      late final List<double> actualColor;
+      late final double actualRoughness;
+      late final Object? actualColorTexture;
+      late final Object? actualRoughnessTexture;
+      late final int actualColorUvSet;
+      late final int actualRoughnessUvSet;
+      late final Map<String, Object?> actualColorTransform;
+      late final Map<String, Object?> actualRoughnessTransform;
+      late final bool usesPackageSheenShader;
+      late final bool usesPackageClearcoatSheenShader;
+      if (requiresCandidateBridge) {
+        if (material is! FlutterSceneExtendedPbrMaterial ||
+            !material.hasSheenIntent ||
+            !material.usesSheenShader) {
+          throw StateError(
+            'Resolved sheen primitive lacks the required package candidate.',
+          );
+        }
+        application = 'packageLocalCandidate';
+        maturity = 'candidate-only';
+        actualColor = material.retainedSheenColorFactor;
+        actualRoughness = material.sheenRoughness;
+        actualColorTexture = material.sheenColorTexture;
+        actualRoughnessTexture = material.sheenRoughnessTexture;
+        actualColorUvSet = expectedColorUvSet;
+        actualRoughnessUvSet = expectedRoughnessUvSet;
+        final colorTransform =
+            material.transforms[MaterialTextureSlot.sheenColor] ??
+                TextureTransform.identity;
+        final roughnessTransform =
+            material.transforms[MaterialTextureSlot.sheenRoughness] ??
+                TextureTransform.identity;
+        _requireTransform(
+          'sheen color',
+          colorTransform,
+          expectedColorTransform,
+        );
+        _requireTransform(
+          'sheen roughness',
+          roughnessTransform,
+          expectedRoughnessTransform,
+        );
+        actualColorTransform = colorTransform.toJson();
+        actualRoughnessTransform = roughnessTransform.toJson();
+        usesPackageSheenShader = material.usesSheenShader;
+        usesPackageClearcoatSheenShader = material.usesClearcoatShader;
+        packageLocalCandidateCount += 1;
+      } else {
+        if (material is FlutterSceneExtendedPbrMaterial) {
+          throw StateError(
+            'Pure authored sheen unexpectedly used the package candidate.',
+          );
+        }
+        final dynamic nativeMaterial = material;
+        try {
+          if (nativeMaterial.usesRendererNativeSheen != true) {
+            throw StateError(
+              'Pure authored sheen is not using the renderer-native shader.',
+            );
+          }
+          final dynamic color = nativeMaterial.sheenColorFactor;
+          actualColor = <double>[
+            (color.x as num).toDouble(),
+            (color.y as num).toDouble(),
+            (color.z as num).toDouble(),
+          ];
+          actualRoughness =
+              (nativeMaterial.sheenRoughnessFactor as num).toDouble();
+          actualColorTexture = nativeMaterial.sheenColorTexture as Object?;
+          actualRoughnessTexture =
+              nativeMaterial.sheenRoughnessTexture as Object?;
+          actualColorUvSet =
+              (nativeMaterial.sheenColorTextureTexCoord as num).toInt();
+          actualRoughnessUvSet =
+              (nativeMaterial.sheenRoughnessTextureTexCoord as num).toInt();
+          final Object colorTransform =
+              nativeMaterial.sheenColorTextureTransform as Object;
+          final Object roughnessTransform =
+              nativeMaterial.sheenRoughnessTextureTransform as Object;
+          _requireNativeTransform(
+            'sheen color',
+            colorTransform,
+            expectedColorTransform,
+          );
+          _requireNativeTransform(
+            'sheen roughness',
+            roughnessTransform,
+            expectedRoughnessTransform,
+          );
+          actualColorTransform = _nativeTransformJson(colorTransform);
+          actualRoughnessTransform = _nativeTransformJson(roughnessTransform);
+        } on Object catch (error) {
+          throw StateError(
+            'Resolved pure sheen primitive lacks renderer-native state: $error',
+          );
+        }
+        application = 'rendererNative';
+        maturity = 'release pending';
+        usesPackageSheenShader = false;
+        usesPackageClearcoatSheenShader = false;
+        rendererNativeCount += 1;
+      }
+      if (!_nearLists(actualColor, expectedColor) ||
+          !_near(actualRoughness, expectedRoughness)) {
+        throw StateError('Installed sheen factor or roughness drifted.');
+      }
+      if (actualColorUvSet != expectedColorUvSet ||
+          actualRoughnessUvSet != expectedRoughnessUvSet) {
+        throw StateError('Installed sheen texture coordinate drifted.');
+      }
+      _requireInstalledTexture(
+        'sheen color',
+        actualColorTexture,
+        expectsColorTexture,
+      );
+      _requireInstalledTexture(
+        'sheen roughness',
+        actualRoughnessTexture,
+        expectsRoughnessTexture,
+      );
+      final expectsCombined = reader.patches[entry.key]!
+          .containsKey(MaterialExtensionPatchGroup.clearcoat);
+      if (requiresCandidateBridge &&
+          usesPackageClearcoatSheenShader != expectsCombined) {
+        throw StateError('Combined clearcoat-above-sheen selection drifted.');
+      }
+      installed.add(<String, Object?>{
+        'authoredAddress': entry.key.toJson(),
+        'concreteAddress': concrete.toJson(),
+        'materialType': material.runtimeType.toString(),
+        'application': application,
+        'runtimeAvailability': 'available',
+        'maturity': maturity,
+        'targetEvidence': 'not run',
+        'visualEvidence': 'not run',
+        'hasSheenIntent': true,
+        'usesSheenShader': usesPackageSheenShader,
+        'usesClearcoatShader': usesPackageClearcoatSheenShader,
+        'sheenColorFactor': actualColor,
+        'sheenRoughness': actualRoughness,
+        'sheenColorTextureExpected': expectsColorTexture,
+        'sheenColorTextureGpuBacked':
+            _sampledTextureAvailable(actualColorTexture),
+        'sheenColorTextureUvSet': actualColorUvSet,
+        'sheenColorTextureTransform': actualColorTransform,
+        'sheenRoughnessTextureExpected': expectsRoughnessTexture,
+        'sheenRoughnessTextureGpuBacked':
+            _sampledTextureAvailable(actualRoughnessTexture),
+        'sheenRoughnessTextureUvSet': actualRoughnessUvSet,
+        'sheenRoughnessTextureTransform': actualRoughnessTransform,
+      });
+    }
+    final actualConcrete = <PartAddress>{
+      for (final primitive in runtime)
+        if (_hasInstalledSheenIntent(primitive.material)) primitive.address,
+    };
+    if (!_sameAddresses(actualConcrete, expectedConcrete)) {
+      throw StateError('Runtime graph has missing or extra sheen primitives.');
+    }
+    final genericRoles = _probeGenericExtensionRoles(
+      groupAddresses,
+      runtimeByAddress,
+    );
+    final application =
+        switch ((rendererNativeCount, packageLocalCandidateCount)) {
+      (> 0, 0) => 'rendererNative',
+      (0, > 0) => 'packageLocalCandidate',
+      (> 0, > 0) => 'hybrid',
+      _ => 'none',
+    };
+    final featureMaturity =
+        packageLocalCandidateCount > 0 ? 'candidate-only' : 'release pending';
+    final authoredExpectedApplication = model['expectedApplication'];
+    if (authoredExpectedApplication != null &&
+        authoredExpectedApplication != application) {
+      throw StateError(
+        'Installed material application differs from the control contract.',
+      );
+    }
+    return <String, Object?>{
+      'application': application,
+      'expectedApplication': application,
+      'featureMaturity': featureMaturity,
+      'authoredDefaultSceneSheenCount': expectedSheen.length,
+      'installedDefaultSceneSheenCount': installed.length,
+      'installedDefaultSceneSheen': installed,
+      'rendererNativeCount': rendererNativeCount,
+      'packageLocalCandidateCount': packageLocalCandidateCount,
+      'noExtraRuntimeSheen': true,
+      'genericSeparateExtensionRoles': genericRoles,
+      'nonDefaultDependencyBoundary':
+          'Authored dependency indices are recorded separately; only '
+              'default-scene suffix-resolved primitives are installed and rendered.',
+    };
+  }
+
+  Map<String, Object?>? _probeGenericExtensionRoles(
+    Map<MaterialExtensionPatchGroup, Set<PartAddress>> groupAddresses,
+    Map<PartAddress, _RuntimePrimitive> runtimeByAddress,
+  ) {
+    final defaultInventory = _document!.defaultSceneInventory();
+    final sheenIndices = Set<int>.from(
+      defaultInventory['KHR_materials_sheen'] ?? const <int>[],
+    );
+    final clearcoatIndices = Set<int>.from(
+      defaultInventory['KHR_materials_clearcoat'] ?? const <int>[],
+    );
+    final transmissionIndices = Set<int>.from(
+      <int>[
+        ...?defaultInventory['KHR_materials_transmission'],
+        ...?defaultInventory['KHR_materials_volume'],
+      ],
+    );
+    if (sheenIndices.isEmpty ||
+        clearcoatIndices.isEmpty ||
+        transmissionIndices.isEmpty) {
+      return null;
+    }
+    if (sheenIndices.intersection(clearcoatIndices).isNotEmpty ||
+        sheenIndices.intersection(transmissionIndices).isNotEmpty ||
+        clearcoatIndices.intersection(transmissionIndices).isNotEmpty) {
+      throw StateError(
+          'Authored extension groups are not materially distinct.');
+    }
+    Map<PartAddress, MaterialPatch> resolveGroup(
+      MaterialExtensionPatchGroup group,
+    ) {
+      final concrete = <PartAddress, MaterialPatch>{};
+      for (final address in groupAddresses[group]!) {
+        final resolved = _controller.partTree.resolvePart(address);
+        if (resolved == null ||
+            !runtimeByAddress.containsKey(resolved.address)) {
+          throw StateError(
+              'Generic extension group did not resolve at runtime.');
+        }
+        final patch = _readerResult!.patches[address]?[group];
+        if (patch == null || concrete.containsKey(resolved.address)) {
+          throw StateError('Generic authored extension patch is ambiguous.');
+        }
+        concrete[resolved.address] = patch;
+      }
+      return concrete;
+    }
+
+    final sheen = resolveGroup(MaterialExtensionPatchGroup.sheen);
+    final clearcoat = resolveGroup(MaterialExtensionPatchGroup.clearcoat);
+    final transmission =
+        resolveGroup(MaterialExtensionPatchGroup.transmissionVolume);
+    final sheenAddresses = sheen.keys.toSet();
+    final clearcoatAddresses = clearcoat.keys.toSet();
+    final transmissionAddresses = transmission.keys.toSet();
+    if (sheen.isEmpty ||
+        clearcoat.isEmpty ||
+        transmission.isEmpty ||
+        sheenAddresses.intersection(clearcoatAddresses).isNotEmpty ||
+        sheenAddresses.intersection(transmissionAddresses).isNotEmpty ||
+        clearcoatAddresses.intersection(transmissionAddresses).isNotEmpty) {
+      throw StateError('Installed generic extension roles are not distinct.');
+    }
+    final sheenMaterials = Set<Object>.identity()
+      ..addAll(
+        sheenAddresses.map((address) => runtimeByAddress[address]!.material),
+      );
+    final clearcoatMaterials = Set<Object>.identity()
+      ..addAll(
+        clearcoatAddresses.map(
+          (address) => runtimeByAddress[address]!.material,
+        ),
+      );
+    final transmissionMaterials = Set<Object>.identity()
+      ..addAll(
+        transmissionAddresses.map(
+          (address) => runtimeByAddress[address]!.material,
+        ),
+      );
+    if (sheenMaterials.any(clearcoatMaterials.contains) ||
+        sheenMaterials.any(transmissionMaterials.contains) ||
+        clearcoatMaterials.any(transmissionMaterials.contains)) {
+      throw StateError(
+          'Installed generic extension roles share material identity.');
+    }
+    final clearcoatFactors = <Map<String, Object?>>[
+      for (final entry in clearcoat.entries)
+        () {
+          final address = entry.key;
+          final patch = entry.value;
+          final dynamic material = runtimeByAddress[address]!.material;
+          final clearcoatFactor = (material.clearcoatFactor as num).toDouble();
+          final expectedClearcoatFactor = patch.clearcoat ?? 0.0;
+          if (!_near(clearcoatFactor, expectedClearcoatFactor)) {
+            throw StateError(
+                'Installed clearcoat factor differs from authored intent.');
+          }
+          return <String, Object?>{
+            'address': address.toJson(),
+            'expected': expectedClearcoatFactor,
+            'actual': clearcoatFactor,
+          };
+        }(),
+    ];
+    final transmissionFactors = <Map<String, Object?>>[
+      for (final entry in transmission.entries)
+        () {
+          final address = entry.key;
+          final patch = entry.value;
+          final dynamic material = runtimeByAddress[address]!.material;
+          final transmissionFactor =
+              (material.transmissionFactor as num).toDouble();
+          final expectedTransmissionFactor = patch.transmission ?? 0.0;
+          if (!_near(transmissionFactor, expectedTransmissionFactor)) {
+            throw StateError(
+              'Installed transmission factor differs from authored intent.',
+            );
+          }
+          return <String, Object?>{
+            'address': address.toJson(),
+            'expected': expectedTransmissionFactor,
+            'actual': transmissionFactor,
+          };
+        }(),
+    ];
+    return <String, Object?>{
+      'selection': 'authored extension-group identity only',
+      'sheenAddresses': sheenAddresses.map((value) => value.toJson()).toList(),
+      'clearcoatAddresses':
+          clearcoatAddresses.map((value) => value.toJson()).toList(),
+      'transmissionVolumeAddresses':
+          transmissionAddresses.map((value) => value.toJson()).toList(),
+      'distinctPrimitiveAddresses': true,
+      'distinctMaterialIdentity': true,
+      'clearcoatFactors': clearcoatFactors,
+      'transmissionFactors': transmissionFactors,
+    };
+  }
+
+  Future<void> selectStage(String view, String pass) async {
+    if (_modelReadiness == null) {
+      throw StateError('Model readiness must precede stage selection.');
+    }
+    if (!captureViews.contains(view) || !renderPasses.contains(pass)) {
+      throw StateError('Unknown Plan 018 capture stage.');
+    }
+    final camera = _cameraForView(view);
+    final position = _doubleList(camera['position']! as List<Object?>);
+    final target = _doubleList(camera['target']! as List<Object?>);
+    _stageStats.clear();
+    _postCameraFrames = 0;
+    _activeView = view;
+    _activeCameraPosition = position;
+    setState(() {
+      _activePass = pass;
+    });
+    await _controller.setCameraPosition(position: position, target: target);
+  }
+
+  Map<String, Object?> _cameraForView(String view) {
+    if (view == 'context') {
+      final context = Map<String, Object?>.from(model['context']! as Map);
+      return Map<String, Object?>.from(context['camera']! as Map);
+    }
+    final cameras = Map<String, Object?>.from(model['cameras']! as Map);
+    return Map<String, Object?>.from(cameras[view]! as Map);
+  }
+
+  void recordPostCameraFrame() {
+    _postCameraFrames += 1;
+  }
+
+  bool get stageReady {
+    if (_activeView == null || _postCameraFrames < 12) {
+      return false;
+    }
+    final compatible = _compatibleStats();
+    return compatible.length >= 2 && _lastTwoStatsAreStable(compatible);
+  }
+
+  bool _lastTwoStatsAreStable(List<ViewerStatsSnapshot> compatible) {
+    final left = compatible[compatible.length - 2];
+    final right = compatible.last;
+    return left.framesPerSecond > 0 &&
+        right.framesPerSecond > 0 &&
+        left.renderPolicyActive &&
+        right.renderPolicyActive &&
+        _near(left.cameraDistance, right.cameraDistance) &&
+        left.diagnosticsCount == right.diagnosticsCount &&
+        right.diagnosticsCount == _controller.diagnostics.length;
+  }
+
+  List<ViewerStatsSnapshot> _compatibleStats() {
+    final expectedCamera = _activeCameraPosition;
+    if (expectedCamera == null) {
+      return const <ViewerStatsSnapshot>[];
+    }
+    return _stageStats
+        .where(
+          (snapshot) =>
+              snapshot.autoTick &&
+              !snapshot.autoOrbit &&
+              _nearLists(snapshot.cameraPosition, expectedCamera) &&
+              snapshot.modelByteSize == _modelBytes!.lengthInBytes &&
+              snapshot.nodeCount != null &&
+              snapshot.meshCount != null &&
+              snapshot.materialCount != null &&
+              snapshot.primitiveCount != null,
+        )
+        .toList(growable: false);
+  }
+
+  String requireStageReadiness() {
+    if (!stageReady) {
+      throw StateError(
+          'Stage lacks frame-tail or two compatible stats samples.');
+    }
+    _assertViewport();
+    _assertRuntimeScene();
+    final appliedLighting = _assertAppliedStageLighting();
+    if (_blockingDiagnostics().isNotEmpty) {
+      throw StateError('A blocking diagnostic appeared before capture.');
+    }
+    final name = '${_selectedModel}_${_activeView}_$_activePass';
+    final expectedNames =
+        plan018ExpectedScreenshotNamesByModel[_selectedModel]!;
+    if (!expectedNames.contains(name)) {
+      throw StateError('Stage is outside its generated model inventory.');
+    }
+    if (_reportedReadyStages.add(name)) {
+      final compatible = _compatibleStats();
+      final record = <String, Object?>{
+        ...?_modelReadiness,
+        'stage': name,
+        'view': _activeView,
+        'pass': _activePass,
+        'logicalWidth': _logicalSize!.width,
+        'logicalHeight': _logicalSize!.height,
+        'devicePixelRatio': _devicePixelRatio,
+        'physicalWidth': (_logicalSize!.width * _devicePixelRatio!).round(),
+        'physicalHeight': (_logicalSize!.height * _devicePixelRatio!).round(),
+        'postCameraFrameTail': _postCameraFrames,
+        'freshCompatibleStatsSamples': compatible.length,
+        'cameraPosition': compatible.last.cameraPosition,
+        'renderPolicyAlways': compatible.last.autoTick,
+        'framesPerSecond': compatible.last.framesPerSecond,
+        'renderPolicyActive': compatible.last.renderPolicyActive,
+        'appliedEnvironmentIntensity': appliedLighting['environmentIntensity'],
+        'appliedKeyLightIntensity': appliedLighting['keyLightIntensity'],
+        'appliedStageLighting': appliedLighting,
+      };
+      final payload = jsonEncode(record);
+      final payloadBytes = utf8.encode(payload);
+      _readyPayloads.add(payload);
+      print(
+        'PLAN018_READY ${jsonEncode(<String, Object?>{
+              'stage': name,
+              'sha256': sha256.convert(payloadBytes).toString(),
+              'byteLength': payloadBytes.length,
+            })}',
+      );
+    }
+    return name;
+  }
+
+  Map<String, Object?> _assertAppliedStageLighting() {
+    final dynamic scene = adapter.debugScene;
+    if (scene == null || scene.environment == null) {
+      throw StateError('Applied stage has no configured environment.');
+    }
+    final expectedEnvironmentIntensity =
+        _activePass == 'directOnly' ? 0.0 : 1.0;
+    final expectedKeyLightIntensity = _activePass == 'iblOnly' ? 0.0 : 3.0;
+    final environmentIntensity = (scene.environmentIntensity as num).toDouble();
+    final dynamic light = scene.directionalLight;
+    if (!_near(environmentIntensity, expectedEnvironmentIntensity) ||
+        light == null) {
+      throw StateError('Applied environment/direct-light presence drifted.');
+    }
+    final keyLightIntensity = (light.intensity as num).toDouble();
+    final lighting = Map<String, Object?>.from(state['lighting']! as Map);
+    final expectedDirection = _doubleList(
+      lighting['keyLightDirectionFlutterSceneWorld']! as List<Object?>,
+    );
+    final expectedColor =
+        _doubleList(lighting['keyLightColorLinear']! as List<Object?>);
+    final dynamic direction = light.direction;
+    final dynamic color = light.color;
+    final actualDirection = <double>[
+      (direction.x as num).toDouble(),
+      (direction.y as num).toDouble(),
+      (direction.z as num).toDouble(),
+    ];
+    final actualColor = <double>[
+      (color.x as num).toDouble(),
+      (color.y as num).toDouble(),
+      (color.z as num).toDouble(),
+    ];
+    if (!_near(keyLightIntensity, expectedKeyLightIntensity) ||
+        !_nearLists(actualDirection, expectedDirection) ||
+        !_nearLists(actualColor, expectedColor) ||
+        light.castsShadow != lighting['keyLightCastsShadow'] ||
+        scene.ambientOcclusion.enabled != lighting['ambientOcclusion'] ||
+        !_near(
+          (scene.exposure as num).toDouble(),
+          (lighting['exposure']! as num).toDouble(),
+        )) {
+      throw StateError('Applied stage lighting state drifted.');
+    }
+    return <String, Object?>{
+      'environmentPresent': true,
+      'environmentIntensity': environmentIntensity,
+      'keyLightPresent': true,
+      'keyLightIntensity': keyLightIntensity,
+      'keyLightDirection': actualDirection,
+      'keyLightColor': actualColor,
+      'keyLightCastsShadow': light.castsShadow,
+      'ambientOcclusion': scene.ambientOcclusion.enabled,
+      'exposure': scene.exposure,
+    };
+  }
+
+  void completeModel(List<String> capturedNames) {
+    final expected = <String>[
+      for (final view in captureViews)
+        for (final pass in renderPasses) '${_selectedModel}_${view}_$pass',
+    ];
+    if (!_sameStrings(capturedNames, expected) ||
+        !_sameStrings(_reportedReadyStages.toList(), expected)) {
+      throw StateError('Model screenshot inventory is incomplete.');
+    }
+    print(
+      'PLAN018_COMPLETE ${jsonEncode(<String, Object?>{
+            'status': _modelReadiness!['featureMaturity'],
+            'application': _modelReadiness!['application'],
+            'integrationPath': 'executed by flutter drive',
+            'modelId': _selectedModel,
+            'screenshots': capturedNames,
+            'count': capturedNames.length,
+            'comparisonBoundary': state['comparisonBoundary'],
+          })}',
+    );
+  }
+
+  String get featureMaturity =>
+      _modelReadiness?['featureMaturity'] as String? ?? 'not run';
+
+  String get materialApplication =>
+      _modelReadiness?['application'] as String? ?? 'not run';
+
+  String get comparisonBoundary => state['comparisonBoundary']! as String;
+}
+
+final class Plan018HarnessControl {
+  Plan018HarnessControl._();
+
+  _Plan018HarnessAppState? _state;
+
+  void _attach(_Plan018HarnessAppState state) {
+    if (_state != null && !identical(_state, state)) {
+      throw StateError('Only one Plan 018 harness app may be attached.');
+    }
+    _state = state;
+  }
+
+  void _detach(_Plan018HarnessAppState state) {
+    if (identical(_state, state)) {
+      _state = null;
+    }
+  }
+
+  _Plan018HarnessAppState get _attached =>
+      _state ?? (throw StateError('Plan 018 harness is not attached.'));
+
+  bool get assetsReady => _state?.assetsReady ?? false;
+  bool get canProbeModelReadiness => _state?.canProbeModelReadiness ?? false;
+  bool get stageReady => _state?.stageReady ?? false;
+  Object? get failure => _state?.failure;
+  String get selectedModelId => _selectedModel;
+  List<String> get captureViews => _attached.captureViews;
+  List<String> get renderPasses => _attached.renderPasses;
+  List<String> get readyPayloads => _attached.readyPayloads;
+  String get featureMaturity => _attached.featureMaturity;
+  String get materialApplication => _attached.materialApplication;
+  String get comparisonBoundary => _attached.comparisonBoundary;
+
+  Future<void> requireModelReadiness() => _attached.requireModelReadiness();
+
+  Future<void> selectStage(String view, String pass) =>
+      _attached.selectStage(view, pass);
+
+  void recordPostCameraFrame() => _attached.recordPostCameraFrame();
+
+  String requireStageReadiness() => _attached.requireStageReadiness();
+
+  void completeModel(List<String> capturedNames) =>
+      _attached.completeModel(capturedNames);
+}
+
+final class _RuntimePrimitive {
+  const _RuntimePrimitive({
+    required this.address,
+    required this.material,
+  });
+
+  final PartAddress address;
+  final Object material;
+}
+
+List<_RuntimePrimitive> _runtimePrimitives(dynamic root) {
+  if (root == null) {
+    throw StateError('Runtime scene root is unavailable.');
+  }
+  final result = <_RuntimePrimitive>[];
+  void visit(dynamic node, List<String> parentPath) {
+    final name = node.name as String;
+    final nodePath = <String>[...parentPath, name];
+    final dynamic mesh = node.mesh;
+    if (mesh != null) {
+      final primitives = (mesh.primitives as Iterable).toList(growable: false);
+      for (var index = 0; index < primitives.length; index += 1) {
+        final dynamic primitive = primitives[index];
+        result.add(
+          _RuntimePrimitive(
+            address: PartAddress(
+              nodePath: nodePath,
+              primitiveIndex: index,
+            ),
+            material: primitive.material as Object,
+          ),
+        );
+      }
+    }
+    for (final dynamic child in node.children as Iterable) {
+      visit(child, nodePath);
+    }
+  }
+
+  visit(root, const <String>[]);
+  return List<_RuntimePrimitive>.unmodifiable(result);
+}
+
+final class _GlbDocument {
+  const _GlbDocument(this.json);
+
+  final Map<String, Object?> json;
+
+  factory _GlbDocument.fromBytes(Uint8List bytes) {
+    if (bytes.lengthInBytes < 20) {
+      throw StateError('GLB is too short for dependency inventory.');
+    }
+    final data = ByteData.sublistView(bytes);
+    if (data.getUint32(0, Endian.little) != 0x46546c67 ||
+        data.getUint32(4, Endian.little) != 2) {
+      throw StateError('Dependency inventory requires a GLB 2 container.');
+    }
+    var offset = 12;
+    while (offset + 8 <= bytes.lengthInBytes) {
+      final length = data.getUint32(offset, Endian.little);
+      final type = data.getUint32(offset + 4, Endian.little);
+      offset += 8;
+      if (offset + length > bytes.lengthInBytes) {
+        throw StateError('GLB dependency inventory chunk is truncated.');
+      }
+      if (type == 0x4e4f534a) {
+        final decoded = jsonDecode(
+          utf8.decode(bytes.sublist(offset, offset + length)).trimRight(),
+        );
+        if (decoded is! Map) {
+          throw StateError('GLB JSON chunk is not an object.');
+        }
+        return _GlbDocument(Map<String, Object?>.from(decoded));
+      }
+      offset += length;
+    }
+    throw StateError('GLB JSON chunk was not found.');
+  }
+
+  List<int> authoredMaterialIndices(String extension) {
+    final materials =
+        (json['materials'] as List<Object?>?) ?? const <Object?>[];
+    return <int>[
+      for (var index = 0; index < materials.length; index += 1)
+        if (_materialExtensions(index).contains(extension)) index,
+    ];
+  }
+
+  Map<String, List<int>> authoredDependencyInventory() =>
+      _extensionInventory(const <int>[], defaultSceneOnly: false);
+
+  Map<String, List<int>> defaultSceneInventory() {
+    final used = <int>{};
+    final scenes = (json['scenes'] as List<Object?>?) ?? const <Object?>[];
+    if (scenes.isEmpty) {
+      return _extensionInventory(const <int>[], defaultSceneOnly: true);
+    }
+    final sceneIndex = (json['scene'] as int?) ?? 0;
+    if (sceneIndex < 0 || sceneIndex >= scenes.length) {
+      throw StateError('Default scene index is outside the GLB scene list.');
+    }
+    final scene = Map<String, Object?>.from(scenes[sceneIndex]! as Map);
+    final roots = (scene['nodes'] as List<Object?>?) ?? const <Object?>[];
+    for (final root in roots.cast<int>()) {
+      _collectNodeMaterials(root, used, <int>{});
+    }
+    return _extensionInventory(used.toList()..sort(), defaultSceneOnly: true);
+  }
+
+  Map<String, List<int>> _extensionInventory(
+    List<int> used, {
+    required bool defaultSceneOnly,
+  }) {
+    const extensions = <String>[
+      'KHR_materials_sheen',
+      'KHR_materials_clearcoat',
+      'KHR_materials_transmission',
+      'KHR_materials_volume',
+      'KHR_materials_ior',
+      'KHR_materials_specular',
+    ];
+    final indices = defaultSceneOnly
+        ? used
+        : List<int>.generate(
+            (json['materials'] as List<Object?>?)?.length ?? 0,
+            (index) => index,
+          );
+    return <String, List<int>>{
+      for (final extension in extensions)
+        extension: <int>[
+          for (final index in indices)
+            if (_materialExtensions(index).contains(extension)) index,
+        ],
+    };
+  }
+
+  Set<String> _materialExtensions(int materialIndex) {
+    final materials =
+        (json['materials'] as List<Object?>?) ?? const <Object?>[];
+    if (materialIndex < 0 || materialIndex >= materials.length) {
+      return const <String>{};
+    }
+    final material =
+        Map<String, Object?>.from(materials[materialIndex]! as Map);
+    final raw = material['extensions'];
+    if (raw is! Map) {
+      return const <String>{};
+    }
+    return Set<String>.from(raw.keys.cast<String>());
+  }
+
+  void _collectNodeMaterials(
+    int nodeIndex,
+    Set<int> materialIndices,
+    Set<int> stack,
+  ) {
+    final nodes = (json['nodes'] as List<Object?>?) ?? const <Object?>[];
+    if (nodeIndex < 0 || nodeIndex >= nodes.length || !stack.add(nodeIndex)) {
+      return;
+    }
+    final node = Map<String, Object?>.from(nodes[nodeIndex]! as Map);
+    final meshIndex = node['mesh'];
+    if (meshIndex is int) {
+      final meshes = (json['meshes'] as List<Object?>?) ?? const <Object?>[];
+      if (meshIndex >= 0 && meshIndex < meshes.length) {
+        final mesh = Map<String, Object?>.from(meshes[meshIndex]! as Map);
+        final primitives =
+            (mesh['primitives'] as List<Object?>?) ?? const <Object?>[];
+        for (final rawPrimitive in primitives) {
+          final primitive = Map<String, Object?>.from(rawPrimitive! as Map);
+          final material = primitive['material'];
+          if (material is int) {
+            materialIndices.add(material);
+          }
+        }
+      }
+    }
+    final children = (node['children'] as List<Object?>?) ?? const <Object?>[];
+    for (final child in children.cast<int>()) {
+      _collectNodeMaterials(child, materialIndices, stack);
+    }
+    stack.remove(nodeIndex);
+  }
+}
+
+Future<Uint8List> _loadAssetBytes(String path) async {
+  final data = await rootBundle.load(path);
+  return data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
+}
+
+void _requireHash(String label, Uint8List bytes, String expected) {
+  final actual = sha256.convert(bytes).toString();
+  if (actual != expected) {
+    throw StateError('$label SHA-256 mismatch: $actual != $expected');
+  }
+}
+
+void _assertFixedState(Map<String, Object?> state) {
+  final identity = (
+    state['name'],
+    state['comparisonBoundary'],
+  );
+  if (identity !=
+          (
+            'plan018_khr_materials_sheen_controlled_comparison',
+            'direction/conformance-only',
+          ) &&
+      identity !=
+          (
+            'plan018_renderer_native_scalar_sheen_control',
+            'renderer-local sheen on/off control only',
+          )) {
+    throw StateError('Plan 018 controlled state identity drifted.');
+  }
+  if (state['toneMapping'] != 'pbrNeutral' ||
+      state['outputColorSpace'] != 'sRGB') {
+    throw StateError('Plan 018 controlled output contract drifted.');
+  }
+  final passes = (state['renderPasses']! as List<Object?>).cast<String>();
+  if (!_sameStrings(
+    passes,
+    const <String>['directOnly', 'iblOnly', 'combined'],
+  )) {
+    throw StateError('Plan 018 render passes drifted.');
+  }
+  final viewport = Map<String, Object?>.from(state['viewport']! as Map);
+  if (viewport['logicalWidth'] != 402 ||
+      viewport['logicalHeight'] != 874 ||
+      viewport['devicePixelRatio'] != 3) {
+    throw StateError('Plan 018 viewport drifted.');
+  }
+  final camera = Map<String, Object?>.from(state['camera']! as Map);
+  if (camera['verticalFovDegrees'] != 60.0 ||
+      camera['near'] != 0.1 ||
+      camera['far'] != 1000.0 ||
+      !_nearLists(
+        _doubleList(camera['up']! as List<Object?>),
+        const <double>[0, 1, 0],
+      )) {
+    throw StateError('Plan 018 camera projection contract drifted.');
+  }
+  final environment = Map<String, Object?>.from(state['environment']! as Map);
+  if (environment['showSkybox'] != false ||
+      environment['intensity'] != 1.0 ||
+      environment['rotationRadians'] != 0.0) {
+    throw StateError('Plan 018 environment contract drifted.');
+  }
+  final lighting = Map<String, Object?>.from(state['lighting']! as Map);
+  if (lighting['exposure'] != 1.0 ||
+      lighting['ambientOcclusion'] != false ||
+      lighting['keyLightIntensity'] != 3.0 ||
+      lighting['keyLightCastsShadow'] != false) {
+    throw StateError('Plan 018 lighting contract drifted.');
+  }
+}
+
+void _requireInstalledTexture(String label, Object? source, bool expected) {
+  if ((source != null) != expected) {
+    throw StateError('$label texture presence drifted.');
+  }
+  if (expected && !_sampledTextureAvailable(source)) {
+    throw StateError('$label texture is not GPU-backed.');
+  }
+}
+
+bool _sampledTextureAvailable(Object? source) {
+  if (source == null) {
+    return false;
+  }
+  final dynamic inferredSource = source;
+  return inferredSource.sampledTexture != null;
+}
+
+bool _isIdentityTransform(TextureTransform transform) =>
+    transform.offsetX == 0 &&
+    transform.offsetY == 0 &&
+    transform.scaleX == 1 &&
+    transform.scaleY == 1 &&
+    transform.rotation == 0;
+
+void _requireTransform(
+  String label,
+  TextureTransform actual,
+  TextureTransform expected,
+) {
+  if (!_near(actual.offsetX, expected.offsetX) ||
+      !_near(actual.offsetY, expected.offsetY) ||
+      !_near(actual.scaleX, expected.scaleX) ||
+      !_near(actual.scaleY, expected.scaleY) ||
+      !_near(actual.rotation, expected.rotation) ||
+      actual.texCoordOverride != expected.texCoordOverride) {
+    throw StateError('$label texture transform drifted.');
+  }
+}
+
+void _requireNativeTransform(
+  String label,
+  Object actual,
+  TextureTransform expected,
+) {
+  final values = _nativeTransformJson(actual);
+  if (!_near(values['offsetX']! as double, expected.offsetX) ||
+      !_near(values['offsetY']! as double, expected.offsetY) ||
+      !_near(values['scaleX']! as double, expected.scaleX) ||
+      !_near(values['scaleY']! as double, expected.scaleY) ||
+      !_near(values['rotation']! as double, expected.rotation)) {
+    throw StateError('$label native texture transform drifted.');
+  }
+}
+
+Map<String, Object?> _nativeTransformJson(Object value) {
+  final dynamic transform = value;
+  return <String, Object?>{
+    'offsetX': (transform.offsetX as num).toDouble(),
+    'offsetY': (transform.offsetY as num).toDouble(),
+    'scaleX': (transform.scaleX as num).toDouble(),
+    'scaleY': (transform.scaleY as num).toDouble(),
+    'rotation': (transform.rotation as num).toDouble(),
+  };
+}
+
+Color _colorFromHex(String value) {
+  if (!RegExp(r'^#[0-9a-fA-F]{6}$').hasMatch(value)) {
+    throw StateError('Background must be a six-digit sRGB hex color.');
+  }
+  return Color(0xff000000 | int.parse(value.substring(1), radix: 16));
+}
+
+List<double> _doubleList(List<Object?> values) => List<double>.unmodifiable(
+    values.map((value) => (value! as num).toDouble()));
+
+bool _near(double left, double right) => (left - right).abs() <= 1e-6;
+
+bool _nearLists(List<double> left, List<double> right) {
+  if (left.length != right.length) {
+    return false;
+  }
+  for (var index = 0; index < left.length; index += 1) {
+    if (!_near(left[index], right[index])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool _sameStrings(List<String> left, List<String> right) {
+  if (left.length != right.length) {
+    return false;
+  }
+  for (var index = 0; index < left.length; index += 1) {
+    if (left[index] != right[index]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool _sameInts(List<int> left, List<int> right) {
+  if (left.length != right.length) {
+    return false;
+  }
+  for (var index = 0; index < left.length; index += 1) {
+    if (left[index] != right[index]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool _sameAddresses(Set<PartAddress> left, Set<PartAddress> right) =>
+    left.length == right.length && left.containsAll(right);

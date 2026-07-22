@@ -5,6 +5,7 @@ import 'package:flutter_scene_viewer/src/diagnostics.dart';
 import 'package:flutter_scene_viewer/src/internal/glb_material_extension_reader.dart';
 import 'package:flutter_scene_viewer/src/internal/material_extension_patch_group.dart';
 import 'package:flutter_scene_viewer/src/part_address.dart';
+import 'package:flutter_scene_viewer/src/texture_binding.dart';
 import 'package:flutter_scene_viewer/src/texture_source.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -877,6 +878,36 @@ void main() {
     expect(result.diagnostics.single.details['debugPath'], 'Root/GlassPanel');
   });
 
+  test('valid ambiguous sheen exposes required fallback semantics', () {
+    for (final required in <bool>[false, true]) {
+      final result = readGlbMaterialExtensionIntent(
+        _singleSheenGlb(
+          sheen: <String, Object?>{
+            'sheenColorFactor': <Object?>[0.2, 0.4, 0.8],
+          },
+          required: required,
+          duplicateFabricPath: true,
+        ),
+      );
+
+      expect(result.patches, isEmpty);
+      expect(result.hasAmbiguousSheenPatchAddresses, isTrue);
+      final diagnostic = result.diagnostics.single;
+      expect(diagnostic.code, ViewerDiagnosticCode.ambiguousNodePath);
+      expect(diagnostic.details['extension'], 'KHR_materials_sheen');
+      expect(diagnostic.details['required'], required);
+      expect(diagnostic.details['blocking'], required);
+      expect(
+        diagnostic.details['status'],
+        required ? 'malformedAsset' : 'optionalExtensionIgnored',
+      );
+      expect(
+        diagnostic.details['fallback'],
+        required ? 'none' : 'coreMaterial',
+      );
+    }
+  });
+
   test('reports missing UV0 for texture-bearing authored extensions', () {
     final textureBytes = <Uint8List>[
       Uint8List.fromList(<int>[31, 32])
@@ -1107,6 +1138,402 @@ void main() {
       1.45,
     );
   });
+
+  test('reads sheen defaults as an independent authored patch group', () {
+    final result = readGlbMaterialExtensionIntent(
+      _singleMaterialExtensionsGlb(<String, Object?>{
+        'KHR_materials_sheen': <String, Object?>{},
+      }),
+      debugName: 'sheen-defaults.glb',
+    );
+
+    final sheen =
+        result.patches.values.single[MaterialExtensionPatchGroup.sheen]!;
+    expect(result.diagnostics, isEmpty);
+    expect(sheen.sheenColorFactor, <double>[0, 0, 0]);
+    expect(sheen.sheenRoughness, 0);
+    expect(sheen.hasSheenOverride, isTrue);
+  });
+
+  test('reads embedded sheen textures with sampler and transform metadata', () {
+    final colorBytes = Uint8List.fromList(<int>[10, 20, 30]);
+    final roughnessBytes = Uint8List.fromList(<int>[40, 50]);
+    final result = readGlbMaterialExtensionIntent(
+      _glbWithBin(<String, Object?>{
+        'asset': <String, Object?>{'version': '2.0'},
+        'extensionsUsed': <Object?>[
+          'KHR_materials_sheen',
+          'KHR_texture_transform',
+        ],
+        'scene': 0,
+        'scenes': <Object?>[
+          <String, Object?>{
+            'nodes': <Object?>[0]
+          },
+        ],
+        'nodes': <Object?>[
+          <String, Object?>{'name': 'Fabric', 'mesh': 0},
+        ],
+        'meshes': <Object?>[
+          <String, Object?>{
+            'primitives': <Object?>[
+              <String, Object?>{
+                'attributes': <String, Object?>{
+                  'POSITION': 0,
+                  'TEXCOORD_0': 1,
+                },
+                'material': 0,
+              },
+            ],
+          },
+        ],
+        'materials': <Object?>[
+          <String, Object?>{
+            'extensions': <String, Object?>{
+              'KHR_materials_sheen': <String, Object?>{
+                'sheenColorFactor': <Object?>[0.2, 0.4, 0.8],
+                'sheenColorTexture': <String, Object?>{
+                  'index': 0,
+                  'extensions': <String, Object?>{
+                    'KHR_texture_transform': <String, Object?>{
+                      'offset': <Object?>[0.1, 0.2],
+                      'scale': <Object?>[2, 3],
+                      'rotation': 0.25,
+                    },
+                  },
+                },
+                'sheenRoughnessFactor': 0.6,
+                'sheenRoughnessTexture': <String, Object?>{'index': 1},
+              },
+            },
+          },
+        ],
+        'textures': <Object?>[
+          <String, Object?>{'source': 0, 'sampler': 0},
+          <String, Object?>{'source': 1, 'sampler': 1},
+        ],
+        'samplers': <Object?>[
+          <String, Object?>{
+            'wrapS': 33071,
+            'wrapT': 33071,
+            'magFilter': 9728,
+          },
+          <String, Object?>{'minFilter': 9987},
+        ],
+        'images': <Object?>[
+          <String, Object?>{'mimeType': 'image/png', 'bufferView': 0},
+          <String, Object?>{'mimeType': 'image/png', 'bufferView': 1},
+        ],
+        'bufferViews': <Object?>[
+          <String, Object?>{
+            'buffer': 0,
+            'byteOffset': 0,
+            'byteLength': colorBytes.length,
+          },
+          <String, Object?>{
+            'buffer': 0,
+            'byteOffset': colorBytes.length,
+            'byteLength': roughnessBytes.length,
+          },
+        ],
+        'buffers': <Object?>[
+          <String, Object?>{
+            'byteLength': colorBytes.length + roughnessBytes.length,
+          },
+        ],
+      }, <Uint8List>[
+        colorBytes,
+        roughnessBytes
+      ]),
+      debugName: 'fabric.glb',
+    );
+
+    final sheen =
+        result.patches.values.single[MaterialExtensionPatchGroup.sheen]!;
+    final color = sheen.sheenColorTextureBinding!;
+    final roughness = sheen.sheenRoughnessTextureBinding!;
+    expect(result.diagnostics, isEmpty);
+    expect(sheen.sheenColorFactor, <double>[0.2, 0.4, 0.8]);
+    expect(sheen.sheenRoughness, 0.6);
+    expect((color.source as BytesTextureSource).encodedBytes, colorBytes);
+    expect(color.sampler.wrapS, TextureWrapMode.clampToEdge);
+    expect(color.sampler.magFilter, TextureMagFilter.nearest);
+    expect(color.transform.offset, <double>[0.1, 0.2]);
+    expect(color.transform.scale, <double>[2, 3]);
+    expect(color.transform.rotation, 0.25);
+    expect(
+      (roughness.source as BytesTextureSource).encodedBytes,
+      roughnessBytes,
+    );
+    expect(roughness.sampler.minFilter, TextureMinFilter.linearMipmapLinear);
+  });
+
+  test('invalid sheen never discards valid extension siblings', () {
+    final invalidValues = <Object?>[
+      'malformed',
+      <String, Object?>{
+        'sheenColorFactor': <Object?>[1, 1]
+      },
+      <String, Object?>{
+        'sheenColorFactor': <Object?>[1.01, 0, 0]
+      },
+      <String, Object?>{'sheenRoughnessFactor': -0.01},
+    ];
+
+    for (final invalidSheen in invalidValues) {
+      final result = readGlbMaterialExtensionIntent(
+        _singleMaterialExtensionsGlb(<String, Object?>{
+          'KHR_materials_sheen': invalidSheen,
+          'KHR_materials_specular': <String, Object?>{'specularFactor': 0.7},
+          'KHR_materials_clearcoat': <String, Object?>{
+            'clearcoatFactor': 0.8,
+          },
+        }),
+      );
+      final groups = result.patches.values.single;
+
+      expect(groups, isNot(contains(MaterialExtensionPatchGroup.sheen)));
+      expect(groups[MaterialExtensionPatchGroup.specular]!.specular, 0.7);
+      expect(groups[MaterialExtensionPatchGroup.clearcoat]!.clearcoat, 0.8);
+      final diagnostic = result.diagnostics.singleWhere(
+        (item) => item.details['extension'] == 'KHR_materials_sheen',
+      );
+      expect(diagnostic.code, ViewerDiagnosticCode.invalidMaterialOverride);
+      expect(diagnostic.details['required'], isFalse);
+      expect(diagnostic.details['blocking'], isTrue);
+      expect(diagnostic.details['status'], 'malformedAsset');
+      expect(diagnostic.details['fallback'], 'none');
+      expect(
+        result.rejectedSheenPatchAddresses,
+        <PartAddress>{
+          PartAddress(
+            nodePath: const <String>['Material'],
+            primitiveIndex: 0,
+          ),
+        },
+      );
+    }
+  });
+
+  test('sheen rejects unlit and specular-glossiness combinations', () {
+    for (final conflict in <String>[
+      'KHR_materials_unlit',
+      'KHR_materials_pbrSpecularGlossiness',
+    ]) {
+      for (final required in <bool>[false, true]) {
+        final result = readGlbMaterialExtensionIntent(
+          _singleSheenGlb(
+            sheen: <String, Object?>{
+              'sheenColorFactor': <Object?>[0.2, 0.3, 0.4],
+            },
+            siblingExtension: conflict,
+            required: required,
+          ),
+        );
+
+        expect(result.patches, isEmpty);
+        final diagnostic = result.diagnostics.single;
+        expect(diagnostic.code, ViewerDiagnosticCode.invalidMaterialOverride);
+        expect(diagnostic.details['extension'], 'KHR_materials_sheen');
+        expect(diagnostic.details['conflict'], conflict);
+        expect(diagnostic.details['required'], required);
+        final runtimeFatal = conflict == 'KHR_materials_unlit';
+        expect(diagnostic.details['blocking'], runtimeFatal || required);
+        expect(
+          diagnostic.details['status'],
+          runtimeFatal || required
+              ? 'malformedAsset'
+              : 'optionalExtensionIgnored',
+        );
+        expect(
+          diagnostic.details['fallback'],
+          runtimeFatal || required ? 'none' : 'coreMaterial',
+        );
+        expect(
+          result.rejectedSheenPatchAddresses,
+          <PartAddress>{
+            PartAddress(
+              nodePath: const <String>['Fabric'],
+              primitiveIndex: 0,
+            ),
+          },
+        );
+      }
+    }
+  });
+
+  test('sheen textures require authored UV0 even when UV1 exists', () {
+    final textureBytes = Uint8List.fromList(<int>[1, 2, 3]);
+    for (final attributes in <Map<String, Object?>>[
+      <String, Object?>{'POSITION': 0},
+      <String, Object?>{'POSITION': 0, 'TEXCOORD_1': 1},
+    ]) {
+      final result = readGlbMaterialExtensionIntent(
+        _singleSheenTextureGlb(textureBytes, attributes: attributes),
+      );
+
+      expect(result.patches, isEmpty);
+      final diagnostic = result.diagnostics.single;
+      if (attributes.containsKey('TEXCOORD_1')) {
+        expect(
+          diagnostic.code,
+          ViewerDiagnosticCode.unsupportedModelFeature,
+        );
+        expect(diagnostic.details['limitation'], 'authoredUv0Only');
+        expect(diagnostic.details['uvSet'], 1);
+        expect(diagnostic.details['blocking'], isFalse);
+        expect(diagnostic.details['fallback'], 'coreMaterial');
+      } else {
+        expect(diagnostic.code, ViewerDiagnosticCode.missingUvSet);
+        expect(diagnostic.details['uvSet'], 0);
+        expect(diagnostic.details['blocking'], isTrue);
+        expect(diagnostic.details['status'], 'malformedAsset');
+        expect(diagnostic.details['fallback'], 'none');
+      }
+    }
+  });
+
+  test('required sheen makes missing UV0 diagnostic blocking', () {
+    final result = readGlbMaterialExtensionIntent(
+      _singleSheenTextureGlb(
+        Uint8List.fromList(<int>[1, 2, 3]),
+        attributes: <String, Object?>{'POSITION': 0},
+        required: true,
+      ),
+    );
+
+    expect(result.patches, isEmpty);
+    final diagnostic = result.diagnostics.single;
+    expect(diagnostic.code, ViewerDiagnosticCode.missingUvSet);
+    expect(diagnostic.details['extension'], 'KHR_materials_sheen');
+    expect(diagnostic.details['required'], isTrue);
+    expect(diagnostic.details['blocking'], isTrue);
+    expect(diagnostic.details['fallback'], 'none');
+  });
+
+  test('optional sheen keeps malformed generic binding blocking', () {
+    final result = readGlbMaterialExtensionIntent(
+      _singleSheenTextureGlb(
+        Uint8List.fromList(<int>[1, 2, 3]),
+        attributes: <String, Object?>{
+          'POSITION': 0,
+          'TEXCOORD_0': 1,
+        },
+        textureTexCoord: 'invalid',
+      ),
+    );
+
+    expect(result.patches, isEmpty);
+    final diagnostic = result.diagnostics.single;
+    expect(diagnostic.details['extension'], 'KHR_materials_sheen');
+    expect(diagnostic.details['required'], isFalse);
+    expect(diagnostic.details['blocking'], isTrue);
+    expect(diagnostic.details['status'], 'malformedAsset');
+    expect(diagnostic.details['fallback'], 'none');
+  });
+}
+
+Uint8List _singleSheenGlb({
+  required Object? sheen,
+  String? siblingExtension,
+  bool required = false,
+  bool duplicateFabricPath = false,
+}) {
+  return _glb(<String, Object?>{
+    'asset': <String, Object?>{'version': '2.0'},
+    'extensionsUsed': <Object?>[
+      'KHR_materials_sheen',
+      if (siblingExtension != null) siblingExtension,
+    ],
+    if (required) 'extensionsRequired': <Object?>['KHR_materials_sheen'],
+    'scene': 0,
+    'scenes': <Object?>[
+      <String, Object?>{
+        'nodes': <Object?>[0, if (duplicateFabricPath) 1]
+      },
+    ],
+    'nodes': <Object?>[
+      <String, Object?>{'name': 'Fabric', 'mesh': 0},
+      if (duplicateFabricPath) <String, Object?>{'name': 'Fabric', 'mesh': 0},
+    ],
+    'meshes': <Object?>[
+      <String, Object?>{
+        'primitives': <Object?>[
+          <String, Object?>{
+            'attributes': <String, Object?>{'POSITION': 0},
+            'material': 0,
+          },
+        ],
+      },
+    ],
+    'materials': <Object?>[
+      <String, Object?>{
+        'extensions': <String, Object?>{
+          'KHR_materials_sheen': sheen,
+          if (siblingExtension != null) siblingExtension: <String, Object?>{},
+        },
+      },
+    ],
+  });
+}
+
+Uint8List _singleSheenTextureGlb(
+  Uint8List textureBytes, {
+  required Map<String, Object?> attributes,
+  bool required = false,
+  Object? textureTexCoord,
+}) {
+  return _glbWithBin(<String, Object?>{
+    'asset': <String, Object?>{'version': '2.0'},
+    'extensionsUsed': <Object?>['KHR_materials_sheen'],
+    if (required) 'extensionsRequired': <Object?>['KHR_materials_sheen'],
+    'scene': 0,
+    'scenes': <Object?>[
+      <String, Object?>{
+        'nodes': <Object?>[0]
+      },
+    ],
+    'nodes': <Object?>[
+      <String, Object?>{'name': 'Fabric', 'mesh': 0},
+    ],
+    'meshes': <Object?>[
+      <String, Object?>{
+        'primitives': <Object?>[
+          <String, Object?>{'attributes': attributes, 'material': 0},
+        ],
+      },
+    ],
+    'materials': <Object?>[
+      <String, Object?>{
+        'extensions': <String, Object?>{
+          'KHR_materials_sheen': <String, Object?>{
+            'sheenColorTexture': <String, Object?>{
+              'index': 0,
+              'texCoord': textureTexCoord ??
+                  (attributes.containsKey('TEXCOORD_1') ? 1 : 0),
+            },
+          },
+        },
+      },
+    ],
+    'textures': <Object?>[
+      <String, Object?>{'source': 0},
+    ],
+    'images': <Object?>[
+      <String, Object?>{'mimeType': 'image/png', 'bufferView': 0},
+    ],
+    'bufferViews': <Object?>[
+      <String, Object?>{
+        'buffer': 0,
+        'byteLength': textureBytes.length,
+      },
+    ],
+    'buffers': <Object?>[
+      <String, Object?>{'byteLength': textureBytes.length},
+    ],
+  }, <Uint8List>[
+    textureBytes
+  ]);
 }
 
 Map<String, Object?> _meshWithTransmissionPrimitive() {

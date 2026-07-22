@@ -13,7 +13,7 @@ import 'package:vector_math/vector_math.dart' as vm;
 
 const String _shaderName = 'FSViewerAuthoredMipProbe';
 const String _pinnedFlutterSceneCommit =
-    '5dcf6fce7dc36719e64e536faba9538fe9fa1022';
+    '766351c865c621e8720c726f9aa51173ce76e786';
 const List<String> _shaderBundleCandidates = <String>[
   'flutter_gpu_shaders/shaderbundles/fsviewer_extended_pbr.shaderbundle',
   'packages/flutter_scene_viewer/flutter_gpu_shaders/shaderbundles/fsviewer_extended_pbr.shaderbundle',

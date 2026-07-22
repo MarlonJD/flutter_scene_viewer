@@ -1,0 +1,126 @@
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:integration_test/integration_test_driver_extended.dart';
+import 'package:plan018_flutter_ios_harness/plan018_generated_contract.dart';
+
+const List<int> pngSignature = <int>[137, 80, 78, 71, 13, 10, 26, 10];
+const int _expectedWidth = 1206;
+const int _expectedHeight = 2622;
+
+Future<void> main() async {
+  final capturedNames = <String>[];
+  await integrationDriver(
+    onScreenshot: (
+      String name,
+      List<int> image, [
+      Map<String, Object?>? args,
+    ]) async {
+      if (!plan018IsExpectedScreenshotName(name) ||
+          capturedNames.contains(name)) {
+        return false;
+      }
+      final bytes = List<int>.unmodifiable(image);
+      if (!_hasPngSignature(bytes) ||
+          _pngUint32(bytes, 16) != _expectedWidth ||
+          _pngUint32(bytes, 20) != _expectedHeight) {
+        return false;
+      }
+      final output = Directory(
+        Platform.environment['PLAN018_SCREENSHOT_OUTPUT'] ??
+            '$testOutputsDirectory/plan018_ios_simulator',
+      )..createSync(recursive: true);
+      File('${output.path}/$name.png').writeAsBytesSync(bytes, flush: true);
+      capturedNames.add(name);
+      return true;
+    },
+    responseDataCallback: (data) async {
+      final modelId = data?['modelId'];
+      if (modelId is! String || !plan018ModelAssetPaths.containsKey(modelId)) {
+        throw StateError('Response data has no known Plan 018 model id.');
+      }
+      final expected = (data?['expectedScreenshotNames'] as List<dynamic>?)
+              ?.cast<String>() ??
+          const <String>[];
+      final generatedExpected = plan018ExpectedScreenshotNamesByModel[modelId]!;
+      if (expected.isEmpty ||
+          !_sameOrderedStrings(expected, generatedExpected) ||
+          expected.length != capturedNames.length ||
+          !_sameOrderedStrings(expected, capturedNames)) {
+        throw StateError(
+          'Screenshot inventory mismatch: '
+          '${jsonEncode(<String, Object?>{
+                'expected': expected,
+                'captured': capturedNames,
+              })}',
+        );
+      }
+      final readyPayloads =
+          (data?['readyPayloads'] as List<dynamic>?)?.cast<String>() ??
+              const <String>[];
+      if (readyPayloads.length != expected.length) {
+        throw StateError('Ready payload inventory mismatch.');
+      }
+      for (var index = 0; index < readyPayloads.length; index += 1) {
+        final payload = readyPayloads[index];
+        final decoded = jsonDecode(payload);
+        if (decoded is! Map ||
+            decoded['stage'] != expected[index] ||
+            decoded['featureMaturity'] != data?['status'] ||
+            decoded['application'] != data?['application'] ||
+            decoded['comparisonBoundary'] != data?['comparisonBoundary']) {
+          throw StateError('Ready payload inventory mismatch.');
+        }
+      }
+      if (!const <String>{'candidate-only', 'release pending'}
+              .contains(data?['status']) ||
+          !const <String>{
+            'rendererNative',
+            'packageLocalCandidate',
+            'hybrid',
+            'none',
+          }.contains(data?['application']) ||
+          !const <String>{
+            'direction/conformance-only',
+            'renderer-local sheen on/off control only',
+          }.contains(data?['comparisonBoundary'])) {
+        throw StateError('Plan 018 evidence scope is invalid.');
+      }
+      await writeResponseData(
+        data,
+        testOutputFilename: 'plan018_integration_response_$modelId',
+        destinationDirectory: Platform.environment['PLAN018_SCREENSHOT_OUTPUT'],
+      );
+    },
+  );
+}
+
+bool _hasPngSignature(List<int> bytes) {
+  if (bytes.length < 24) {
+    return false;
+  }
+  for (var index = 0; index < pngSignature.length; index += 1) {
+    if (bytes[index] != pngSignature[index]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+int _pngUint32(List<int> bytes, int offset) =>
+    (bytes[offset] << 24) |
+    (bytes[offset + 1] << 16) |
+    (bytes[offset + 2] << 8) |
+    bytes[offset + 3];
+
+bool _sameOrderedStrings(List<String> left, List<String> right) {
+  if (left.length != right.length) {
+    return false;
+  }
+  for (var index = 0; index < left.length; index += 1) {
+    if (left[index] != right[index]) {
+      return false;
+    }
+  }
+  return true;
+}

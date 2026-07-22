@@ -1,8 +1,9 @@
 # Material Extension Acceptance Corpus
 
-This folder defines the real-asset acceptance corpus required before glass and
-clearcoat can be treated as production support for the repo-owned custom shader
-backend.
+This folder defines source, fixture, comparison, and target-evidence contracts
+for selected glTF material extensions. Historical package-local glass,
+clearcoat, and sheen runs remain `candidate-only`; renderer-native evidence is
+recorded separately and does not imply release or `production-ready` status.
 
 The manifest is intentionally metadata-first. The listed GLBs are not vendored
 in this repository. Test or release tooling must explicitly stage each asset,
@@ -16,6 +17,9 @@ wording beyond the verified target scope.
 - `clearcoat_only`: exercises `KHR_materials_clearcoat`.
 - `combined_glass_clearcoat`: exercises authored glass and clearcoat in one
   real asset.
+- Plan 018 additionally records SheenChair and SheenCloth for sheen-only
+  coverage, GlamVelvetSofa for sheen plus specular, and ToyCar for separate
+  Fabric sheen, body clearcoat, and Glass transmission materials.
 
 ## Source And License
 
@@ -26,6 +30,8 @@ The initial corpus points to Khronos glTF Sample Models entries:
 - `ToyCar` for combined glass and clearcoat.
 - `ClearCoatTest` for clearcoat-only behavior.
 - `TransmissionTest` for glass/transmission behavior.
+- `SheenChair`, `SheenCloth`, and `GlamVelvetSofa` for scalar, textured, and
+  specular-composed sheen behavior.
 
 The manifest records the source URL, license, vendoring status, required glTF
 extensions, reference viewer URL where applicable, and minimum evidence for
@@ -83,11 +89,11 @@ enough when the renderers use different world handedness.
 ## Evidence Rules
 
 Passing the manifest coverage test only proves the corpus roles are defined.
-Production promotion for the current scope requires
-`backendKind: flutterSceneCustomShader` iOS Simulator metrics, three.js or
-Khronos Sample Viewer directional reference comparison, and clear evidence
-labels for any target beyond iOS Simulator. Physical iOS remains not run until
-device evidence is collected.
+It does not establish runtime application, visual evidence, target evidence,
+release maturity, or production readiness. Each evidence record must state its
+application (`rendererNative`, `packageLocalCandidate`, or `none`), runtime
+availability, visual result, target result, and maturity independently.
+Physical iOS remains `not run` until device evidence is collected.
 
 Every capture must record the reference-state schema version, camera view,
 pinned `flutter_scene` revision, target, renderer backend, tone-mapping mode,
@@ -141,3 +147,39 @@ blur, and brightness differences remain expected because stock Three.js bends
 rough reflections toward the normal and uses its own PMREM implementation,
 while flutter_scene uses its own GGX prefilter and reflection-direction path.
 This is controlled directional evidence, not pixel parity.
+
+## Plan 018 Sheen Evidence
+
+Plan 018 deliberately retains two independent histories:
+
+- `fixtures/plan018_controlled_comparison_state.json` and
+  `tools/out/material_extension_acceptance/plan018_controlled_comparison/ios_simulator/candidate-run-14/`
+  describe the 27-image SheenChair,
+  SheenCloth, GlamVelvetSofa, and ToyCar run at `flutter_scene`
+  `8e2e2221405b04c517189428d0faf8474cf7f708`. It remains
+  `candidate-only`; candidate images are never relabeled renderer-native.
+- `fixtures/plan018_renderer_native_scalar_sheen_control_state.json` and
+  `tools/out/material_extension_acceptance/plan018_controlled_comparison/ios_simulator/renderer-native-run-05/`
+  describe a separate scalar sheen on/off control at
+  `766351c865c621e8720c726f9aa51173ce76e786`. Sheen-on application is
+  `rendererNative`, sheen-off is `none`, runtime is available, and iOS
+  Simulator target plus visual evidence are `verified locally`. Maturity is
+  `release pending`. The final `evidence.json` SHA-256 is
+  `9f4d3e1b2c561174c9426ad0da653f09c8c3d8ab7494bdfa7dcdf06d121f74da`.
+
+The native control fixes one grazing camera and three lighting passes. Its six
+frames must pass structural-health checks, and each same-pass on/off pair must
+pass the frozen renderer-local mean absolute sRGB delta threshold. This proves
+a local visual response, not external-reference agreement, physical
+correctness, or general pixel parity.
+
+The package-authored reader remains UV0-only. A pure runtime renderer-native
+sheen binding may select UV1 only when the primitive exposes the exact
+`texture_coords_1` semantic; no evidence workflow may invent or substitute
+UVs. Package-owned nonidentity core transforms, specular, and opaque IOR remain
+on one coherent `FSViewerExtendedPbr` candidate. Renderer-native
+transmission/volume must not be replaced by that material.
+
+Physical iOS, Android, Web, external-reference comparison, physical
+correctness, general pixel parity, release, and `production-ready` evidence are
+`not run` or `release pending` as applicable.

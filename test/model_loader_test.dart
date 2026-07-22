@@ -3,8 +3,13 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
+
 import 'package:flutter/services.dart';
 import 'package:flutter_scene/scene.dart' as flutter_scene;
+// ignore: implementation_imports
+import 'package:flutter_scene/src/gpu/gpu.dart' as flutter_scene_internal_gpu;
+// ignore: implementation_imports
+import 'package:flutter_scene/src/importer/gltf.dart' as flutter_scene_gltf;
 import 'package:flutter_scene_viewer/src/diagnostics.dart';
 import 'package:flutter_scene_viewer/src/internal/flutter_scene_adapter.dart';
 import 'package:flutter_scene_viewer/src/internal/flutter_scene_adapter_cancellation.dart';
@@ -16,6 +21,8 @@ import 'package:flutter_scene_viewer/src/internal/glb_draco_rewriter.dart';
 import 'package:flutter_scene_viewer/src/internal/glb_native_decoder_probe.dart';
 import 'package:flutter_scene_viewer/src/internal/material_extension_patch_group.dart';
 import 'package:flutter_scene_viewer/src/internal/render_surface.dart';
+import 'package:flutter_scene_viewer/src/material_extension_policy.dart';
+import 'package:flutter_scene_viewer/src/material_patch.dart';
 import 'package:flutter_scene_viewer/src/material_shading_mode.dart';
 import 'package:flutter_scene_viewer/src/model_load_cancellation.dart';
 import 'package:flutter_scene_viewer/src/model_loader.dart';
@@ -25,6 +32,7 @@ import 'package:flutter_scene_viewer/src/texture_source.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:vector_math/vector_math.dart' as vm;
 
 void main() {
   test('loads bytes sources through the adapter', () async {
@@ -429,6 +437,94 @@ void main() {
     expect(required.diagnostic!.details['required'], isTrue);
   });
 
+  test('malformed texture transform on optional sheen remains blocking',
+      () async {
+    final imageBytes = Uint8List.fromList(<int>[7, 8, 9]);
+    Uint8List fixture({required bool required}) => _glbWithBin(
+          <String, Object?>{
+            'asset': <String, Object?>{'version': '2.0'},
+            'extensionsUsed': <Object?>[
+              'KHR_materials_sheen',
+              'KHR_texture_transform',
+            ],
+            if (required)
+              'extensionsRequired': <Object?>['KHR_texture_transform'],
+            'scene': 0,
+            'scenes': <Object?>[
+              <String, Object?>{
+                'nodes': <Object?>[0],
+              },
+            ],
+            'nodes': <Object?>[
+              <String, Object?>{'name': 'TransformFabric', 'mesh': 0},
+            ],
+            'meshes': <Object?>[
+              <String, Object?>{
+                'primitives': <Object?>[
+                  <String, Object?>{
+                    'attributes': <String, Object?>{
+                      'POSITION': 0,
+                      'TEXCOORD_0': 1,
+                    },
+                    'material': 0,
+                  },
+                ],
+              },
+            ],
+            'materials': <Object?>[
+              <String, Object?>{
+                'extensions': <String, Object?>{
+                  'KHR_materials_sheen': <String, Object?>{
+                    'sheenColorTexture': <String, Object?>{
+                      'index': 0,
+                      'extensions': <String, Object?>{
+                        'KHR_texture_transform': <String, Object?>{
+                          'scale': <Object?>['invalid', 1],
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            ],
+            'textures': <Object?>[
+              <String, Object?>{'source': 0},
+            ],
+            'images': <Object?>[
+              <String, Object?>{'mimeType': 'image/png', 'bufferView': 0},
+            ],
+            'bufferViews': <Object?>[
+              <String, Object?>{
+                'buffer': 0,
+                'byteLength': imageBytes.length,
+              },
+            ],
+            'buffers': <Object?>[
+              <String, Object?>{'byteLength': imageBytes.length},
+            ],
+          },
+          imageBytes,
+        );
+
+    for (final required in <bool>[false, true]) {
+      final adapter = FakeFlutterSceneAdapter();
+      final result = await ModelLoader(adapter: adapter).load(
+        ModelSource.bytes(
+          fixture(required: required),
+          debugName: 'malformed-transform-optional-sheen.glb',
+        ),
+      );
+
+      expect(result.isSuccess, isFalse);
+      expect(adapter.loadedBytes, isEmpty);
+      expect(result.diagnostic!.details['extension'], 'KHR_texture_transform');
+      expect(result.diagnostic!.details['required'], required);
+      expect(result.diagnostic!.details['blocking'], isTrue);
+      expect(result.diagnostic!.details['status'], 'malformedAsset');
+      expect(result.diagnostic!.details['fallback'], 'none');
+    }
+  });
+
   test('required malformed clearcoat fails while optional intent falls back',
       () async {
     Uint8List fixture({required bool required}) => _glb(<String, Object?>{
@@ -497,6 +593,1353 @@ void main() {
     expect(required.diagnostic!.details['required'], isTrue);
     expect(required.diagnostic!.details['blocking'], isTrue);
     expect(required.diagnostic!.details['fallback'], 'none');
+  });
+
+  test(
+      'optional valid unsupported sheen imports only core fallback and preserves intent',
+      () async {
+    final adapter = FakeFlutterSceneAdapter();
+    final bytes = _sheenFixture(
+      sheen: <String, Object?>{
+        'sheenColorFactor': <Object?>[0.2, 0.3, 0.4],
+        'sheenRoughnessFactor': 0.6,
+      },
+    );
+
+    final result = await ModelLoader(adapter: adapter).load(
+      ModelSource.bytes(bytes, debugName: 'optional-sheen.glb'),
+    );
+
+    expect(result.isSuccess, isTrue, reason: result.diagnostic?.toString());
+    expect(adapter.loadedBytes, hasLength(1));
+    expect(adapter.loadedBytes.single, same(bytes));
+    final sheen = result.authoredExtensionMaterialPatches.values
+        .single[MaterialExtensionPatchGroup.sheen]!;
+    expect(sheen.sheenColorFactor, <double>[0.2, 0.3, 0.4]);
+    expect(sheen.sheenRoughness, 0.6);
+    final diagnostic = result.diagnostics.singleWhere(
+      (item) => item.details['extension'] == 'KHR_materials_sheen',
+    );
+    expect(
+      diagnostic.code,
+      ViewerDiagnosticCode.unsupportedMaterialFeature,
+    );
+    expect(diagnostic.details['required'], isFalse);
+    expect(diagnostic.details['blocking'], isFalse);
+    expect(diagnostic.details['fallback'], 'coreMaterial');
+    expect(diagnostic.details['status'], 'unsupported');
+  });
+
+  test(
+      'production authored UV1 sheen diagnoses and plans exact native core fallback',
+      () async {
+    final adapter = _RendererNativeSheenPolicyAdapter.singleFabric();
+    final address = PartAddress(
+      nodePath: const <String>['Fabric'],
+      primitiveIndex: 0,
+    );
+    final result = await ModelLoader(
+      adapter: adapter,
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.productionShaders(
+        enableSheen: true,
+      ),
+    ).load(
+      ModelSource.bytes(
+        _authoredUv1SheenTextureFixture(),
+        debugName: 'authored-uv1-sheen.glb',
+      ),
+    );
+
+    expect(result.isSuccess, isTrue, reason: result.diagnostic?.toString());
+    final diagnostic = result.diagnostics.singleWhere(
+      (item) => item.details['limitation'] == 'authoredUv0Only',
+    );
+    expect(diagnostic.code, ViewerDiagnosticCode.unsupportedModelFeature);
+    expect(diagnostic.details['extension'], 'KHR_materials_sheen');
+    expect(diagnostic.details['field'], 'sheenColorTexture');
+    expect(diagnostic.details['materialIndex'], 0);
+    expect(diagnostic.details['uvSet'], 1);
+    expect(diagnostic.details['required'], isFalse);
+    expect(diagnostic.details['fallback'], 'coreMaterial');
+    expect(result.authoredExtensionMaterialPatches, isEmpty);
+    expect(adapter.authoredMaterialPreflightPatches, isEmpty);
+    expect(adapter.authoredSheenCoreFallbackPlans, <Set<PartAddress>>[
+      <PartAddress>{address},
+    ]);
+    expect(adapter.authoredSheenGlobalCoreFallbackPlans, <bool>[false]);
+    expect(adapter.liveMaterials.single.sheenColorFactor, vm.Vector3.zero());
+    expect(adapter.liveMaterials.single.sheenRoughnessFactor, 0);
+    expect(adapter.liveMaterials.single.clearcoatFactor, 0.7);
+  });
+
+  test(
+      'production authored data URI sheen diagnoses and neutralizes exact native fallback',
+      () async {
+    final adapter = _RendererNativeSheenPolicyAdapter.singleFabric();
+    final address = PartAddress(
+      nodePath: const <String>['Fabric'],
+      primitiveIndex: 0,
+    );
+    final bytes = _authoredDataUriSheenTextureFixture();
+    final pinnedSheen = _pinnedParserSheen(bytes);
+    expect(pinnedSheen.sheenColorFactor, <double>[0.2, 0.4, 0.8]);
+    expect(pinnedSheen.sheenColorTexture?.index, 0);
+
+    final result = await ModelLoader(
+      adapter: adapter,
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.productionShaders(
+        enableSheen: true,
+      ),
+    ).load(
+      ModelSource.bytes(
+        bytes,
+        debugName: 'authored-data-uri-sheen.glb',
+      ),
+    );
+
+    expect(result.isSuccess, isTrue, reason: result.diagnostic?.toString());
+    final diagnostic = result.diagnostics.singleWhere(
+      (item) =>
+          item.details['extension'] == 'KHR_materials_sheen' &&
+          item.details['reason'] ==
+              'Imported texture image is not stored in a GLB bufferView.',
+    );
+    expect(diagnostic.code, ViewerDiagnosticCode.unsupportedModelFeature);
+    expect(diagnostic.details['field'], 'sheenColorTexture');
+    expect(diagnostic.details['materialIndex'], 0);
+    expect(diagnostic.details['required'], isFalse);
+    expect(diagnostic.details['fallback'], 'coreMaterial');
+    expect(result.authoredExtensionMaterialPatches, isEmpty);
+    expect(adapter.authoredMaterialPreflightPatches, isEmpty);
+    expect(adapter.authoredSheenCoreFallbackPlans, <Set<PartAddress>>[
+      <PartAddress>{address},
+    ]);
+    expect(adapter.authoredSheenGlobalCoreFallbackPlans, <bool>[false]);
+    expect(adapter.liveMaterials.single.sheenColorFactor, vm.Vector3.zero());
+    expect(adapter.liveMaterials.single.sheenRoughnessFactor, 0);
+    expect(adapter.liveMaterials.single.clearcoatFactor, 0.7);
+  });
+
+  test(
+      'production authored specular-glossiness sheen conflict neutralizes exact native fallback',
+      () async {
+    final adapter = _RendererNativeSheenPolicyAdapter.singleFabric();
+    final address = PartAddress(
+      nodePath: const <String>['Fabric'],
+      primitiveIndex: 0,
+    );
+    final bytes = _sheenFixture(
+      sheen: <String, Object?>{
+        'sheenColorFactor': <Object?>[0.2, 0.4, 0.8],
+      },
+      siblingExtension: 'KHR_materials_pbrSpecularGlossiness',
+    );
+    final pinnedSheen = _pinnedParserSheen(bytes);
+    expect(pinnedSheen.sheenColorFactor, <double>[0.2, 0.4, 0.8]);
+
+    final result = await ModelLoader(
+      adapter: adapter,
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.productionShaders(
+        enableSheen: true,
+      ),
+    ).load(
+      ModelSource.bytes(
+        bytes,
+        debugName: 'authored-specgloss-sheen-conflict.glb',
+      ),
+    );
+
+    expect(result.isSuccess, isTrue, reason: result.diagnostic?.toString());
+    final diagnostic = result.diagnostics.singleWhere(
+      (item) =>
+          item.details['extension'] == 'KHR_materials_sheen' &&
+          item.details['conflict'] == 'KHR_materials_pbrSpecularGlossiness',
+    );
+    expect(diagnostic.code, ViewerDiagnosticCode.invalidMaterialOverride);
+    expect(diagnostic.details['materialIndex'], 0);
+    expect(diagnostic.details['required'], isFalse);
+    expect(diagnostic.details['fallback'], 'coreMaterial');
+    expect(result.authoredExtensionMaterialPatches, isEmpty);
+    expect(adapter.authoredMaterialPreflightPatches, isEmpty);
+    expect(adapter.authoredSheenCoreFallbackPlans, <Set<PartAddress>>[
+      <PartAddress>{address},
+    ]);
+    expect(adapter.authoredSheenGlobalCoreFallbackPlans, <bool>[false]);
+    expect(adapter.liveMaterials.single.sheenColorFactor, vm.Vector3.zero());
+    expect(adapter.liveMaterials.single.sheenRoughnessFactor, 0);
+    expect(adapter.liveMaterials.single.clearcoatFactor, 0.7);
+  });
+
+  test('sheen fallback address follows compacted runtime primitive indices',
+      () async {
+    final adapter = _RendererNativeSheenPolicyAdapter.singleFabric();
+    final address = PartAddress(
+      nodePath: const <String>['Fabric'],
+      primitiveIndex: 0,
+    );
+
+    final result = await ModelLoader(
+      adapter: adapter,
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.productionShaders(
+        enableSheen: true,
+      ),
+    ).load(
+      ModelSource.bytes(
+        _compactedRuntimeSheenFallbackFixture(),
+        debugName: 'compacted-runtime-sheen-fallback.glb',
+      ),
+    );
+
+    expect(result.isSuccess, isTrue, reason: result.diagnostic?.toString());
+    final diagnostic = result.diagnostics.singleWhere(
+      (item) =>
+          item.details['extension'] == 'KHR_materials_sheen' &&
+          item.details['conflict'] == 'KHR_materials_pbrSpecularGlossiness',
+    );
+    expect(diagnostic.details['fallback'], 'coreMaterial');
+    expect(adapter.authoredSheenCoreFallbackPlans, <Set<PartAddress>>[
+      <PartAddress>{address},
+    ]);
+    expect(adapter.authoredSheenGlobalCoreFallbackPlans, <bool>[false]);
+    expect(adapter.liveMaterials.single.sheenColorFactor, vm.Vector3.zero());
+    expect(adapter.liveMaterials.single.sheenRoughnessFactor, 0);
+    expect(adapter.liveMaterials.single.clearcoatFactor, 0.7);
+  });
+
+  test('optional sheen with wrong-type sampler blocks before adapter import',
+      () async {
+    final adapter = FakeFlutterSceneAdapter();
+    final result = await ModelLoader(adapter: adapter).load(
+      ModelSource.bytes(
+        _authoredSheenTextureEdgeFixture(sampler: 'invalid'),
+        debugName: 'wrong-type-sheen-sampler.glb',
+      ),
+    );
+
+    expect(result.isSuccess, isFalse);
+    expect(adapter.loadedBytes, isEmpty);
+    expect(result.diagnostic!.code, ViewerDiagnosticCode.adapterFailure);
+    expect(result.diagnostic!.details['extension'], 'KHR_materials_sheen');
+    expect(result.diagnostic!.details['field'], 'textures[0].sampler');
+    expect(result.diagnostic!.details['required'], isFalse);
+    expect(result.diagnostic!.details['blocking'], isTrue);
+    expect(result.diagnostic!.details['status'], 'malformedAsset');
+    expect(result.diagnostic!.details['fallback'], 'none');
+  });
+
+  test('optional sheen with missing or wrong-type texture index blocks',
+      () async {
+    for (final fixture in <Uint8List>[
+      _authoredSheenTextureEdgeFixture(
+        includeTextureIndex: false,
+      ),
+      _authoredSheenTextureEdgeFixture(
+        textureIndex: 'invalid',
+      ),
+    ]) {
+      final adapter = FakeFlutterSceneAdapter();
+      final result = await ModelLoader(adapter: adapter).load(
+        ModelSource.bytes(
+          fixture,
+          debugName: 'malformed-sheen-texture-index.glb',
+        ),
+      );
+
+      expect(result.isSuccess, isFalse);
+      expect(adapter.loadedBytes, isEmpty);
+      expect(result.diagnostic!.code, ViewerDiagnosticCode.adapterFailure);
+      expect(result.diagnostic!.details['extension'], 'KHR_materials_sheen');
+      expect(result.diagnostic!.details['field'], 'sheenColorTexture');
+      expect(result.diagnostic!.details['required'], isFalse);
+      expect(result.diagnostic!.details['blocking'], isTrue);
+      expect(result.diagnostic!.details['status'], 'malformedAsset');
+      expect(result.diagnostic!.details['fallback'], 'none');
+    }
+  });
+
+  test(
+      'optional sheen with out-of-range texture index neutralizes exact fallback',
+      () async {
+    final adapter = _RendererNativeSheenPolicyAdapter.singleFabric();
+    final address = PartAddress(
+      nodePath: const <String>['Fabric'],
+      primitiveIndex: 0,
+    );
+    final result = await ModelLoader(
+      adapter: adapter,
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.productionShaders(
+        enableSheen: true,
+      ),
+    ).load(
+      ModelSource.bytes(
+        _authoredSheenTextureEdgeFixture(textureIndex: 7),
+        debugName: 'out-of-range-sheen-texture-index.glb',
+      ),
+    );
+
+    expect(result.isSuccess, isTrue, reason: result.diagnostic?.toString());
+    final diagnostic = result.diagnostics.singleWhere(
+      (item) => item.details['field'] == 'sheenColorTexture',
+    );
+    expect(diagnostic.details['required'], isFalse);
+    expect(diagnostic.details['blocking'], isFalse);
+    expect(diagnostic.details['fallback'], 'coreMaterial');
+    expect(adapter.authoredSheenCoreFallbackPlans, <Set<PartAddress>>[
+      <PartAddress>{address},
+    ]);
+    expect(adapter.authoredSheenGlobalCoreFallbackPlans, <bool>[false]);
+    expect(adapter.liveMaterials.single.sheenColorFactor, vm.Vector3.zero());
+    expect(adapter.liveMaterials.single.sheenRoughnessFactor, 0);
+    expect(adapter.liveMaterials.single.clearcoatFactor, 0.7);
+  });
+
+  test('optional sheen with out-of-range sampler neutralizes exact fallback',
+      () async {
+    final adapter = _RendererNativeSheenPolicyAdapter.singleFabric();
+    final address = PartAddress(
+      nodePath: const <String>['Fabric'],
+      primitiveIndex: 0,
+    );
+    final result = await ModelLoader(
+      adapter: adapter,
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.productionShaders(
+        enableSheen: true,
+      ),
+    ).load(
+      ModelSource.bytes(
+        _authoredSheenTextureEdgeFixture(sampler: 7),
+        debugName: 'out-of-range-sheen-sampler.glb',
+      ),
+    );
+
+    expect(result.isSuccess, isTrue, reason: result.diagnostic?.toString());
+    final diagnostic = result.diagnostics.singleWhere(
+      (item) => item.details['field'] == 'textures[0].sampler',
+    );
+    expect(diagnostic.details['required'], isFalse);
+    expect(diagnostic.details['blocking'], isFalse);
+    expect(diagnostic.details['fallback'], 'coreMaterial');
+    expect(adapter.authoredSheenCoreFallbackPlans, <Set<PartAddress>>[
+      <PartAddress>{address},
+    ]);
+    expect(adapter.authoredSheenGlobalCoreFallbackPlans, <bool>[false]);
+    expect(adapter.liveMaterials.single.sheenColorFactor, vm.Vector3.zero());
+    expect(adapter.liveMaterials.single.sheenRoughnessFactor, 0);
+    expect(adapter.liveMaterials.single.clearcoatFactor, 0.7);
+  });
+
+  test('ambiguous authored UV1 sheen falls back globally without native leak',
+      () async {
+    final adapter = _RendererNativeSheenPolicyAdapter.duplicateFabricPaths();
+
+    final result = await ModelLoader(
+      adapter: adapter,
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.productionShaders(
+        enableSheen: true,
+      ),
+    ).load(
+      ModelSource.bytes(
+        _authoredUv1SheenTextureFixture(duplicateFabricPath: true),
+        debugName: 'ambiguous-authored-uv1-sheen.glb',
+      ),
+    );
+
+    expect(result.isSuccess, isTrue, reason: result.diagnostic?.toString());
+    final ambiguity = result.diagnostics.singleWhere(
+      (diagnostic) => diagnostic.code == ViewerDiagnosticCode.ambiguousNodePath,
+    );
+    expect(ambiguity.details['nodePath'], <String>['Fabric']);
+    expect(ambiguity.details['count'], 2);
+    expect(adapter.authoredSheenCoreFallbackPlans, <Set<PartAddress>>[
+      <PartAddress>{},
+    ]);
+    expect(adapter.authoredSheenGlobalCoreFallbackPlans, <bool>[true]);
+    expect(adapter.liveMaterials, hasLength(2));
+    for (final material in adapter.liveMaterials) {
+      expect(material.sheenColorFactor, vm.Vector3.zero());
+      expect(material.sheenRoughnessFactor, 0);
+      expect(material.clearcoatFactor, 0.7);
+    }
+  });
+
+  test('ambiguous valid optional sheen falls back globally without native leak',
+      () async {
+    final adapter = _RendererNativeSheenPolicyAdapter.duplicateFabricPaths();
+
+    final result = await ModelLoader(
+      adapter: adapter,
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.productionShaders(
+        enableSheen: true,
+      ),
+    ).load(
+      ModelSource.bytes(
+        _sheenFixture(
+          sheen: <String, Object?>{
+            'sheenColorFactor': <Object?>[0.2, 0.4, 0.8],
+            'sheenRoughnessFactor': 0.6,
+          },
+          duplicateFabricPath: true,
+        ),
+        debugName: 'ambiguous-valid-optional-sheen.glb',
+      ),
+    );
+
+    expect(result.isSuccess, isTrue, reason: result.diagnostic?.toString());
+    final ambiguity = result.diagnostics.singleWhere(
+      (diagnostic) => diagnostic.code == ViewerDiagnosticCode.ambiguousNodePath,
+    );
+    expect(ambiguity.details['extension'], 'KHR_materials_sheen');
+    expect(ambiguity.details['required'], isFalse);
+    expect(ambiguity.details['blocking'], isFalse);
+    expect(ambiguity.details['fallback'], 'coreMaterial');
+    expect(result.authoredExtensionMaterialPatches, isEmpty);
+    expect(adapter.authoredMaterialPreflightPatches, isEmpty);
+    expect(adapter.authoredSheenCoreFallbackPlans, <Set<PartAddress>>[
+      <PartAddress>{},
+    ]);
+    expect(adapter.authoredSheenGlobalCoreFallbackPlans, <bool>[true]);
+    for (final material in adapter.liveMaterials) {
+      expect(material.sheenColorFactor, vm.Vector3.zero());
+      expect(material.sheenRoughnessFactor, 0);
+      expect(material.clearcoatFactor, 0.7);
+    }
+  });
+
+  test('ambiguous valid required sheen blocks before adapter import', () async {
+    final adapter = _RendererNativeSheenPolicyAdapter.duplicateFabricPaths();
+
+    final result = await ModelLoader(
+      adapter: adapter,
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.productionShaders(
+        enableSheen: true,
+      ),
+    ).load(
+      ModelSource.bytes(
+        _sheenFixture(
+          sheen: <String, Object?>{
+            'sheenColorFactor': <Object?>[0.2, 0.4, 0.8],
+          },
+          required: true,
+          duplicateFabricPath: true,
+        ),
+        debugName: 'ambiguous-valid-required-sheen.glb',
+      ),
+    );
+
+    expect(result.isSuccess, isFalse);
+    expect(adapter.loadedBytes, isEmpty);
+    expect(result.diagnostic!.code, ViewerDiagnosticCode.ambiguousNodePath);
+    expect(result.diagnostic!.details['extension'], 'KHR_materials_sheen');
+    expect(result.diagnostic!.details['required'], isTrue);
+    expect(result.diagnostic!.details['blocking'], isTrue);
+    expect(result.diagnostic!.details['fallback'], 'none');
+  });
+
+  test('authored sheen fallback follows pinned default scene selection',
+      () async {
+    final adapter = _RendererNativeSheenPolicyAdapter.named(
+      const <String>['ActiveFabric'],
+    );
+    final activeAddress = PartAddress(
+      nodePath: const <String>['ActiveFabric'],
+      primitiveIndex: 0,
+    );
+
+    final result = await ModelLoader(
+      adapter: adapter,
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.productionShaders(
+        enableSheen: true,
+      ),
+    ).load(
+      ModelSource.bytes(
+        _authoredUv1SheenTextureFixture(
+          nodeNames: const <String>['ActiveFabric', 'InactiveFabric'],
+          sceneNodeIndices: const <List<int>>[
+            <int>[0],
+            <int>[1],
+          ],
+          includeDefaultScene: false,
+        ),
+        debugName: 'implicit-default-scene-sheen.glb',
+      ),
+    );
+
+    expect(result.isSuccess, isTrue, reason: result.diagnostic?.toString());
+    expect(adapter.authoredSheenCoreFallbackPlans, <Set<PartAddress>>[
+      <PartAddress>{activeAddress},
+    ]);
+    expect(adapter.authoredSheenGlobalCoreFallbackPlans, <bool>[false]);
+    expect(adapter.liveMaterials, hasLength(1));
+    expect(adapter.liveMaterials.single.sheenColorFactor, vm.Vector3.zero());
+    expect(adapter.liveMaterials.single.sheenRoughnessFactor, 0);
+    expect(adapter.liveMaterials.single.clearcoatFactor, 0.7);
+  });
+
+  test('empty authored node name uses pinned synthetic fallback address',
+      () async {
+    final adapter = _RendererNativeSheenPolicyAdapter.named(
+      const <String>['node_0'],
+    );
+    final address = PartAddress(
+      nodePath: const <String>['node_0'],
+      primitiveIndex: 0,
+    );
+
+    final result = await ModelLoader(
+      adapter: adapter,
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.productionShaders(
+        enableSheen: true,
+      ),
+    ).load(
+      ModelSource.bytes(
+        _authoredUv1SheenTextureFixture(
+          nodeNames: const <String>[''],
+        ),
+        debugName: 'empty-node-name-sheen.glb',
+      ),
+    );
+
+    expect(result.isSuccess, isTrue, reason: result.diagnostic?.toString());
+    expect(adapter.authoredSheenCoreFallbackPlans, <Set<PartAddress>>[
+      <PartAddress>{address},
+    ]);
+    expect(adapter.authoredSheenGlobalCoreFallbackPlans, <bool>[false]);
+    expect(adapter.liveMaterials.single.sheenColorFactor, vm.Vector3.zero());
+    expect(adapter.liveMaterials.single.sheenRoughnessFactor, 0);
+    expect(adapter.liveMaterials.single.clearcoatFactor, 0.7);
+  });
+
+  test('shared rejected sheen material neutralizes every unique address',
+      () async {
+    final adapter = _RendererNativeSheenPolicyAdapter.named(
+      const <String>['FabricA', 'FabricB'],
+    );
+    final addresses = <PartAddress>{
+      PartAddress(
+        nodePath: const <String>['FabricA'],
+        primitiveIndex: 0,
+      ),
+      PartAddress(
+        nodePath: const <String>['FabricB'],
+        primitiveIndex: 0,
+      ),
+    };
+
+    final result = await ModelLoader(
+      adapter: adapter,
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.productionShaders(
+        enableSheen: true,
+      ),
+    ).load(
+      ModelSource.bytes(
+        _authoredUv1SheenTextureFixture(
+          nodeNames: const <String>['FabricA', 'FabricB'],
+        ),
+        debugName: 'shared-rejected-sheen-material.glb',
+      ),
+    );
+
+    expect(result.isSuccess, isTrue, reason: result.diagnostic?.toString());
+    expect(adapter.authoredSheenCoreFallbackPlans, <Set<PartAddress>>[
+      addresses,
+    ]);
+    expect(adapter.authoredSheenGlobalCoreFallbackPlans, <bool>[false]);
+    expect(adapter.liveMaterials, hasLength(2));
+    for (final material in adapter.liveMaterials) {
+      expect(material.sheenColorFactor, vm.Vector3.zero());
+      expect(material.sheenRoughnessFactor, 0);
+      expect(material.clearcoatFactor, 0.7);
+    }
+  });
+
+  test('required valid unsupported sheen blocks atomically before publication',
+      () async {
+    final adapter = FakeFlutterSceneAdapter();
+    final loader = ModelLoader(adapter: adapter);
+    final priorBytes = Uint8List.fromList(<int>[1, 2, 3]);
+    final prior = await loader.load(
+      ModelSource.bytes(priorBytes, debugName: 'prior-live.glb'),
+    );
+    expect(prior.isSuccess, isTrue);
+    final requiredBytes = _sheenFixture(
+      sheen: <String, Object?>{
+        'sheenColorFactor': <Object?>[0.7, 0.6, 0.5],
+      },
+      required: true,
+    );
+    final originalCopy = Uint8List.fromList(requiredBytes);
+
+    final result = await loader.load(
+      ModelSource.bytes(requiredBytes, debugName: 'required-sheen.glb'),
+    );
+
+    expect(result.isSuccess, isFalse);
+    expect(adapter.loadedBytes, hasLength(1));
+    expect(adapter.loadedBytes.single, same(priorBytes));
+    expect(requiredBytes, originalCopy);
+    expect(
+      result.diagnostic!.code,
+      ViewerDiagnosticCode.unsupportedMaterialFeature,
+    );
+    expect(result.diagnostic!.details['extension'], 'KHR_materials_sheen');
+    expect(result.diagnostic!.details['required'], isTrue);
+    expect(result.diagnostic!.details['blocking'], isTrue);
+    expect(result.diagnostic!.details['fallback'], 'none');
+  });
+
+  test('opt-in no-sheen import never asks the sheen candidate to preflight',
+      () async {
+    final adapter = FakeFlutterSceneAdapter();
+    final result = await ModelLoader(
+      adapter: adapter,
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.experimentalShaders(
+        enableSheen: true,
+      ),
+    ).load(
+      ModelSource.bytes(
+        _glb(<String, Object?>{
+          'asset': <String, Object?>{'version': '2.0'},
+          'scene': 0,
+          'scenes': <Object?>[
+            <String, Object?>{
+              'nodes': <Object?>[0],
+            },
+          ],
+          'nodes': <Object?>[
+            <String, Object?>{'name': 'Plain', 'mesh': 0},
+          ],
+          'meshes': <Object?>[
+            <String, Object?>{
+              'primitives': <Object?>[
+                <String, Object?>{
+                  'attributes': <String, Object?>{'POSITION': 0},
+                },
+              ],
+            },
+          ],
+        }),
+        debugName: 'plain.glb',
+      ),
+    );
+
+    expect(result.isSuccess, isTrue);
+    expect(adapter.authoredMaterialPreflightPatches, isEmpty);
+    expect(adapter.loadedBytes, hasLength(1));
+  });
+
+  test('opt-in authored sheen preflight failure follows requiredness',
+      () async {
+    ViewerDiagnostic failure(PartAddress address) => ViewerDiagnostic(
+          code: ViewerDiagnosticCode.unsupportedMaterialFeature,
+          message: 'Sheen candidate resources are unavailable for test.',
+          details: <String, Object?>{
+            'part': address.debugPath,
+            'feature': 'FSViewerSheenExtendedPbr',
+            'limitation': 'sheenShaderUnavailable',
+            'status': 'blocked',
+            'materialReplaced': false,
+            'encodedBytesModified': false,
+          },
+        );
+
+    for (final required in <bool>[false, true]) {
+      final adapter = FakeFlutterSceneAdapter(
+        authoredMaterialPreflightDiagnostic: failure,
+      );
+      final bytes = _sheenFixture(
+        sheen: <String, Object?>{
+          'sheenColorFactor': <Object?>[0.3, 0.4, 0.5],
+          'sheenRoughnessFactor': 0.7,
+        },
+        required: required,
+      );
+      final result = await ModelLoader(
+        adapter: adapter,
+        materialExtensionPolicy:
+            const ViewerMaterialExtensionPolicy.experimentalShaders(
+          enableSheen: true,
+        ),
+      ).load(ModelSource.bytes(bytes, debugName: 'preflight-failure.glb'));
+
+      expect(adapter.authoredMaterialPreflightPatches, hasLength(1));
+      final preflightPatch = adapter.authoredMaterialPreflightPatches.single;
+      expect(preflightPatch.sheenColorFactor, <double>[0.3, 0.4, 0.5]);
+      expect(preflightPatch.sheenRoughness, 0.7);
+      expect(result.isSuccess, !required);
+      expect(adapter.loadedBytes, required ? isEmpty : hasLength(1));
+      expect(
+        adapter.authoredSheenCoreFallbackPlans,
+        required
+            ? isEmpty
+            : <Set<PartAddress>>[
+                <PartAddress>{
+                  PartAddress(
+                    nodePath: const <String>['Fabric'],
+                    primitiveIndex: 0,
+                  ),
+                },
+              ],
+      );
+      final diagnostic =
+          required ? result.diagnostic! : result.diagnostics.single;
+      expect(diagnostic.details['extension'], 'KHR_materials_sheen');
+      expect(diagnostic.details['required'], required);
+      expect(diagnostic.details['blocking'], required);
+      expect(
+          diagnostic.details['fallback'], required ? 'none' : 'coreMaterial');
+      expect(diagnostic.details['parsedIntentPreserved'], isTrue);
+      expect(diagnostic.details['limitation'], 'sheenShaderUnavailable');
+    }
+  });
+
+  test('authored sheen preflight exception returns typed adapter failure',
+      () async {
+    final adapter = FakeFlutterSceneAdapter(
+      authoredMaterialPreflightDiagnostic: (_) =>
+          throw StateError('preflight exploded'),
+    );
+
+    final result = await ModelLoader(
+      adapter: adapter,
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.experimentalShaders(
+        enableSheen: true,
+      ),
+    ).load(
+      ModelSource.bytes(
+        _sheenFixture(
+          sheen: <String, Object?>{
+            'sheenColorFactor': <Object?>[0.3, 0.4, 0.5],
+          },
+          required: true,
+        ),
+        debugName: 'throwing-authored-preflight.glb',
+      ),
+    );
+
+    expect(result.isSuccess, isFalse);
+    expect(result.diagnostic!.code, ViewerDiagnosticCode.adapterFailure);
+    expect(
+      result.diagnostic!.details['stage'],
+      'authoredMaterialPreflight',
+    );
+    expect(result.diagnostic!.details['extension'], 'KHR_materials_sheen');
+    expect(result.diagnostic!.details['feature'], 'sheen');
+    expect(result.diagnostic!.details['status'], 'blocked');
+    expect(result.diagnostic!.details['materialReplaced'], isFalse);
+    expect(result.diagnostic!.details['encodedBytesModified'], isFalse);
+    expect(result.diagnostic!.details['error'], contains('preflight exploded'));
+    expect(adapter.loadedBytes, isEmpty);
+    expect(adapter.receivedPublicationCallbacks, isEmpty);
+    expect(adapter.authoredSheenCoreFallbackPlans, isEmpty);
+    expect(result.authoredCoreMaterialPatches, isEmpty);
+    expect(result.authoredExtensionMaterialPatches, isEmpty);
+  });
+
+  test('authored sheen preflight obeys the model load timeout', () async {
+    final gate = Completer<ViewerDiagnostic?>();
+    final adapter = FakeFlutterSceneAdapter(
+      authoredMaterialPreflightDiagnostic: (_) => gate.future,
+    );
+    final loader = ModelLoader(
+      adapter: adapter,
+      options: const ModelLoaderOptions(
+        timeout: Duration(milliseconds: 10),
+      ),
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.experimentalShaders(
+        enableSheen: true,
+      ),
+    );
+    final load = loader.load(
+      ModelSource.bytes(
+        _sheenFixture(
+          sheen: <String, Object?>{
+            'sheenColorFactor': <Object?>[0.3, 0.4, 0.5],
+          },
+          required: true,
+        ),
+        debugName: 'timed-out-authored-preflight.glb',
+      ),
+    );
+    final delayedCompletion = Future<void>.delayed(
+      const Duration(milliseconds: 100),
+      () {
+        if (!gate.isCompleted) {
+          gate.complete(null);
+        }
+      },
+    );
+
+    final result = await load;
+    await delayedCompletion;
+
+    expect(result.isSuccess, isFalse);
+    expect(result.diagnostic!.code, ViewerDiagnosticCode.modelLoadTimeout);
+    expect(
+      result.diagnostic!.details['source'],
+      'timed-out-authored-preflight.glb',
+    );
+    expect(result.diagnostic!.details['timeoutMilliseconds'], 10);
+    expect(adapter.loadedBytes, isEmpty);
+    expect(adapter.receivedPublicationCallbacks, isEmpty);
+    expect(adapter.authoredSheenCoreFallbackPlans, isEmpty);
+    expect(result.authoredCoreMaterialPatches, isEmpty);
+    expect(result.authoredExtensionMaterialPatches, isEmpty);
+  });
+
+  test('authored sheen preflight cancellation returns before its gate',
+      () async {
+    final started = Completer<void>();
+    final gate = Completer<ViewerDiagnostic?>();
+    final preflightedAddresses = <PartAddress>[];
+    final adapter = FakeFlutterSceneAdapter(
+      authoredMaterialPreflightDiagnostic: (address) {
+        preflightedAddresses.add(address);
+        if (!started.isCompleted) {
+          started.complete();
+        }
+        return gate.future;
+      },
+    );
+    final cancellation = ModelLoadCancellationController();
+    final load = ModelLoader(
+      adapter: adapter,
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.experimentalShaders(
+        enableSheen: true,
+      ),
+    ).load(
+      ModelSource.bytes(
+        _twoSheenMaterialFixture(required: true),
+        debugName: 'cancelled-authored-preflight.glb',
+      ),
+      cancellationToken: cancellation.token,
+    );
+    await started.future;
+    expect(cancellation.cancel('preflight-dismissed'), isTrue);
+    final timeoutSentinel = Object();
+    final first = await Future.any<Object>(<Future<Object>>[
+      load.then<Object>((result) => result),
+      Future<Object>.delayed(
+        const Duration(milliseconds: 50),
+        () => timeoutSentinel,
+      ),
+    ]);
+    if (!gate.isCompleted) {
+      gate.complete(null);
+    }
+    final result = first is ModelLoadResult ? first : await load;
+    await Future<void>.delayed(Duration.zero);
+
+    expect(first, isNot(same(timeoutSentinel)));
+    expect(result.isSuccess, isFalse);
+    expect(result.diagnostic!.code, ViewerDiagnosticCode.modelLoadCancelled);
+    expect(result.diagnostic!.details['stage'], 'authoredMaterialPreflight');
+    expect(result.diagnostic!.details['reason'], 'preflight-dismissed');
+    expect(result.diagnostic!.details['status'], 'cancelled');
+    expect(adapter.loadedBytes, isEmpty);
+    expect(adapter.receivedPublicationCallbacks, isEmpty);
+    expect(adapter.authoredSheenCoreFallbackPlans, isEmpty);
+    expect(result.authoredCoreMaterialPatches, isEmpty);
+    expect(result.authoredExtensionMaterialPatches, isEmpty);
+    expect(
+      preflightedAddresses,
+      <PartAddress>[
+        PartAddress(
+          nodePath: const <String>['IncompatibleFabric'],
+          primitiveIndex: 0,
+        ),
+      ],
+    );
+  });
+
+  test('optional authored sheen preflight scopes request failure by address',
+      () async {
+    final failingAddress = PartAddress(
+      nodePath: const <String>['IncompatibleFabric'],
+      primitiveIndex: 0,
+    );
+    final validAddress = PartAddress(
+      nodePath: const <String>['ValidFabric'],
+      primitiveIndex: 0,
+    );
+    final preflightedAddresses = <PartAddress>[];
+    final adapter = FakeFlutterSceneAdapter(
+      authoredMaterialPreflightDiagnostic: (address) {
+        preflightedAddresses.add(address);
+        if (address != failingAddress) {
+          return null;
+        }
+        return const ViewerDiagnostic(
+          code: ViewerDiagnosticCode.unsupportedMaterialFeature,
+          message: 'The requested sheen resources are incompatible.',
+          details: <String, Object?>{
+            'feature': 'FSViewerSheenExtendedPbr',
+            'limitation': 'sheenCompositionResourceIncompatible',
+            'status': 'blocked',
+            'materialReplaced': false,
+            'encodedBytesModified': false,
+          },
+        );
+      },
+    );
+
+    final result = await ModelLoader(
+      adapter: adapter,
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.experimentalShaders(
+        enableSheen: true,
+      ),
+    ).load(
+      ModelSource.bytes(
+        _twoSheenMaterialFixture(),
+        debugName: 'address-scoped-preflight.glb',
+      ),
+    );
+
+    expect(result.isSuccess, isTrue, reason: result.diagnostic?.toString());
+    expect(preflightedAddresses, <PartAddress>[failingAddress, validAddress]);
+    final sheenDiagnostics = result.diagnostics.where(
+      (diagnostic) =>
+          diagnostic.details['extension'] == 'KHR_materials_sheen' &&
+          diagnostic.details['parsedIntentPreserved'] == true,
+    );
+    expect(sheenDiagnostics, hasLength(1));
+    expect(sheenDiagnostics.single.details['part'], failingAddress.debugPath);
+    expect(
+      sheenDiagnostics.single.details['partAddress'],
+      failingAddress.toJson(),
+    );
+    expect(
+      result
+          .authoredExtensionMaterialPatches[validAddress]![
+              MaterialExtensionPatchGroup.sheen]!
+          .sheenRoughness,
+      0.7,
+    );
+    expect(adapter.authoredSheenCoreFallbackPlans, hasLength(1));
+    expect(
+      adapter.authoredSheenCoreFallbackPlans.single,
+      <PartAddress>{failingAddress},
+    );
+
+    final plainResult = await ModelLoader(
+      adapter: adapter,
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.experimentalShaders(
+        enableSheen: true,
+      ),
+    ).load(
+      ModelSource.bytes(
+        _glb(<String, Object?>{
+          'asset': <String, Object?>{'version': '2.0'},
+        }),
+        debugName: 'plain-after-address-scoped-preflight.glb',
+      ),
+    );
+
+    expect(plainResult.isSuccess, isTrue);
+    expect(adapter.authoredSheenCoreFallbackPlans, hasLength(2));
+    expect(adapter.authoredSheenCoreFallbackPlans.last, isEmpty);
+  });
+
+  test('authored sheen shader failure stays scoped to selected variant',
+      () async {
+    final combinedAddress = PartAddress(
+      nodePath: const <String>['IncompatibleFabric'],
+      primitiveIndex: 0,
+    );
+    final sheenOnlyAddress = PartAddress(
+      nodePath: const <String>['ValidFabric'],
+      primitiveIndex: 0,
+    );
+    final preflightedAddresses = <PartAddress>[];
+    final adapter = FakeFlutterSceneAdapter(
+      authoredMaterialPreflightDiagnostic: (address) {
+        preflightedAddresses.add(address);
+        if (address != combinedAddress) {
+          return null;
+        }
+        return ViewerDiagnostic(
+          code: ViewerDiagnosticCode.unsupportedMaterialFeature,
+          message: 'The selected combined sheen shader is unavailable.',
+          details: <String, Object?>{
+            'part': address.debugPath,
+            'feature': 'FSViewerClearcoatSheenExtendedPbr',
+            'selectedVariant': 'FSViewerClearcoatSheenExtendedPbr',
+            'limitation': 'sheenShaderUnavailable',
+            'status': 'blocked',
+            'materialReplaced': false,
+            'encodedBytesModified': false,
+          },
+        );
+      },
+    );
+
+    final result = await ModelLoader(
+      adapter: adapter,
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.experimentalShaders(
+        enableClearcoat: true,
+        enableSheen: true,
+      ),
+    ).load(
+      ModelSource.bytes(
+        _twoSheenMaterialFixture(firstHasClearcoat: true),
+        debugName: 'selected-variant-preflight.glb',
+      ),
+    );
+
+    expect(result.isSuccess, isTrue, reason: result.diagnostic?.toString());
+    expect(
+      preflightedAddresses,
+      <PartAddress>[combinedAddress, sheenOnlyAddress],
+    );
+    final sheenDiagnostics = result.diagnostics.where(
+      (diagnostic) =>
+          diagnostic.details['extension'] == 'KHR_materials_sheen' &&
+          diagnostic.details['parsedIntentPreserved'] == true,
+    );
+    expect(sheenDiagnostics, hasLength(1));
+    expect(sheenDiagnostics.single.details['part'], combinedAddress.debugPath);
+    expect(
+      sheenDiagnostics.single.details['partAddress'],
+      combinedAddress.toJson(),
+    );
+    expect(
+      sheenDiagnostics.single.details['selectedVariant'],
+      'FSViewerClearcoatSheenExtendedPbr',
+    );
+    expect(
+      result
+          .authoredExtensionMaterialPatches[sheenOnlyAddress]![
+              MaterialExtensionPatchGroup.sheen]!
+          .sheenRoughness,
+      0.7,
+    );
+  });
+
+  test('authored sheen LUT failure stays singular and addressless', () async {
+    final affectedAddresses = <PartAddress>{
+      PartAddress(
+        nodePath: const <String>['IncompatibleFabric'],
+        primitiveIndex: 0,
+      ),
+      PartAddress(
+        nodePath: const <String>['ValidFabric'],
+        primitiveIndex: 0,
+      ),
+    };
+    final preflightedAddresses = <PartAddress>[];
+    final adapter = FakeFlutterSceneAdapter(
+      authoredMaterialPreflightDiagnostic: (address) {
+        preflightedAddresses.add(address);
+        return ViewerDiagnostic(
+          code: ViewerDiagnosticCode.unsupportedMaterialFeature,
+          message: 'The package-local sheen LUT is unavailable.',
+          details: <String, Object?>{
+            'part': address.debugPath,
+            'feature': 'FSViewerSheenExtendedPbr',
+            'limitation': 'sheenDirectionalAlbedoResourceUnavailable',
+            'status': 'blocked',
+            'materialReplaced': false,
+            'encodedBytesModified': false,
+          },
+        );
+      },
+    );
+
+    final result = await ModelLoader(
+      adapter: adapter,
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.experimentalShaders(
+        enableSheen: true,
+      ),
+    ).load(
+      ModelSource.bytes(
+        _twoSheenMaterialFixture(),
+        debugName: 'global-preflight.glb',
+      ),
+    );
+
+    expect(result.isSuccess, isTrue, reason: result.diagnostic?.toString());
+    expect(preflightedAddresses, hasLength(1));
+    final sheenDiagnostics = result.diagnostics.where(
+      (diagnostic) =>
+          diagnostic.details['extension'] == 'KHR_materials_sheen' &&
+          diagnostic.details['parsedIntentPreserved'] == true,
+    );
+    expect(sheenDiagnostics, hasLength(1));
+    expect(sheenDiagnostics.single.details, isNot(contains('part')));
+    expect(sheenDiagnostics.single.details, isNot(contains('partAddress')));
+    expect(adapter.authoredSheenCoreFallbackPlans, hasLength(1));
+    expect(
+      adapter.authoredSheenCoreFallbackPlans.single,
+      affectedAddresses,
+    );
+
+    final plainResult = await ModelLoader(
+      adapter: adapter,
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.experimentalShaders(
+        enableSheen: true,
+      ),
+    ).load(
+      ModelSource.bytes(
+        _glb(<String, Object?>{
+          'asset': <String, Object?>{'version': '2.0'},
+        }),
+        debugName: 'plain-after-global-preflight.glb',
+      ),
+    );
+
+    expect(plainResult.isSuccess, isTrue);
+    expect(adapter.authoredSheenCoreFallbackPlans, hasLength(2));
+    expect(adapter.authoredSheenCoreFallbackPlans.last, isEmpty);
+  });
+
+  test('optional sheen without preflight adapter falls back every address',
+      () async {
+    final adapter = _NonPreflightFlutterSceneAdapter();
+    final affectedAddresses = <PartAddress>{
+      PartAddress(
+        nodePath: const <String>['IncompatibleFabric'],
+        primitiveIndex: 0,
+      ),
+      PartAddress(
+        nodePath: const <String>['ValidFabric'],
+        primitiveIndex: 0,
+      ),
+    };
+
+    final result = await ModelLoader(
+      adapter: adapter,
+      materialExtensionPolicy:
+          const ViewerMaterialExtensionPolicy.experimentalShaders(
+        enableSheen: true,
+      ),
+    ).load(
+      ModelSource.bytes(
+        _twoSheenMaterialFixture(),
+        debugName: 'missing-preflight-adapter.glb',
+      ),
+    );
+
+    expect(result.isSuccess, isTrue, reason: result.diagnostic?.toString());
+    final diagnostic = result.diagnostics.singleWhere(
+      (item) =>
+          item.details['limitation'] ==
+          'authoredSheenPreflightAdapterUnavailable',
+    );
+    expect(diagnostic.details['fallback'], 'coreMaterial');
+    expect(diagnostic.details, isNot(contains('part')));
+    expect(adapter.authoredSheenCoreFallbackPlans, hasLength(1));
+    expect(
+      adapter.authoredSheenCoreFallbackPlans.single,
+      affectedAddresses,
+    );
+  });
+
+  test(
+      'malformed sheen blocks before adapter import regardless of requiredness',
+      () async {
+    for (final invalidSheen in <Object?>[
+      <String, Object?>{
+        'sheenColorFactor': <Object?>[1, 1],
+      },
+      <String, Object?>{
+        'sheenColorFactor': <Object?>[1.01, 0, 0],
+      },
+    ]) {
+      for (final required in <bool>[false, true]) {
+        final adapter = FakeFlutterSceneAdapter();
+        final bytes = _sheenFixture(
+          sheen: invalidSheen,
+          required: required,
+        );
+
+        final result = await ModelLoader(adapter: adapter).load(
+          ModelSource.bytes(bytes, debugName: 'malformed-sheen.glb'),
+        );
+
+        expect(result.isSuccess, isFalse);
+        expect(adapter.loadedBytes, isEmpty);
+        expect(result.authoredExtensionMaterialPatches, isEmpty);
+        final diagnostic = result.diagnostic!;
+        expect(diagnostic.details['extension'], 'KHR_materials_sheen');
+        expect(
+          diagnostic.code,
+          ViewerDiagnosticCode.invalidMaterialOverride,
+        );
+        expect(diagnostic.details['required'], required);
+        expect(diagnostic.details['blocking'], isTrue);
+        expect(diagnostic.details['status'], 'malformedAsset');
+        expect(diagnostic.details['fallback'], 'none');
+      }
+    }
+  });
+
+  test('malformed sheen blocks publication beside otherwise valid material',
+      () async {
+    final adapter = FakeFlutterSceneAdapter();
+    final result = await ModelLoader(adapter: adapter).load(
+      ModelSource.bytes(
+        _glb(<String, Object?>{
+          'asset': <String, Object?>{'version': '2.0'},
+          'extensionsUsed': <Object?>['KHR_materials_sheen'],
+          'scene': 0,
+          'scenes': <Object?>[
+            <String, Object?>{
+              'nodes': <Object?>[0, 1],
+            },
+          ],
+          'nodes': <Object?>[
+            <String, Object?>{'name': 'InvalidFabric', 'mesh': 0},
+            <String, Object?>{'name': 'ValidFabric', 'mesh': 1},
+          ],
+          'meshes': <Object?>[
+            <String, Object?>{
+              'primitives': <Object?>[
+                <String, Object?>{
+                  'attributes': <String, Object?>{'POSITION': 0},
+                  'material': 0,
+                },
+              ],
+            },
+            <String, Object?>{
+              'primitives': <Object?>[
+                <String, Object?>{
+                  'attributes': <String, Object?>{'POSITION': 0},
+                  'material': 1,
+                },
+              ],
+            },
+          ],
+          'materials': <Object?>[
+            <String, Object?>{
+              'extensions': <String, Object?>{
+                'KHR_materials_sheen': <String, Object?>{
+                  'sheenColorFactor': <Object?>[1, 1],
+                },
+              },
+            },
+            <String, Object?>{
+              'extensions': <String, Object?>{
+                'KHR_materials_sheen': <String, Object?>{
+                  'sheenRoughnessFactor': 0.6,
+                },
+              },
+            },
+          ],
+        }),
+        debugName: 'mixed-sheen.glb',
+      ),
+    );
+
+    expect(result.isSuccess, isFalse);
+    expect(adapter.loadedBytes, isEmpty);
+    expect(result.authoredExtensionMaterialPatches, isEmpty);
+    expect(
+        result.diagnostic!.code, ViewerDiagnosticCode.invalidMaterialOverride);
+    expect(result.diagnostic!.details['extension'], 'KHR_materials_sheen');
+    expect(result.diagnostic!.details['materialIndex'], 0);
+    expect(result.diagnostic!.details['blocking'], isTrue);
+    expect(result.diagnostic!.details['status'], 'malformedAsset');
+    expect(result.diagnostic!.details['fallback'], 'none');
+  });
+
+  test('unlit sheen combination blocks before adapter import', () async {
+    for (final required in <bool>[false, true]) {
+      final adapter = FakeFlutterSceneAdapter();
+      final result = await ModelLoader(adapter: adapter).load(
+        ModelSource.bytes(
+          _sheenFixture(
+            sheen: <String, Object?>{
+              'sheenColorFactor': <Object?>[0.2, 0.3, 0.4],
+            },
+            required: required,
+            siblingExtension: 'KHR_materials_unlit',
+          ),
+          debugName: 'invalid-sheen-combination.glb',
+        ),
+      );
+
+      expect(result.isSuccess, isFalse);
+      expect(adapter.loadedBytes, isEmpty);
+      expect(result.diagnostic!.details['conflict'], 'KHR_materials_unlit');
+      expect(result.diagnostic!.details['required'], required);
+      expect(result.diagnostic!.details['blocking'], isTrue);
+      expect(result.diagnostic!.details['status'], 'malformedAsset');
+      expect(result.diagnostic!.details['fallback'], 'none');
+    }
+  });
+
+  test('optional sheen with missing selected UV blocks before adapter import',
+      () async {
+    final adapter = FakeFlutterSceneAdapter();
+    final result = await ModelLoader(adapter: adapter).load(
+      ModelSource.bytes(
+        _authoredUv1SheenTextureFixture(includeSelectedTexCoord: false),
+        debugName: 'missing-sheen-uv.glb',
+      ),
+    );
+
+    expect(result.isSuccess, isFalse);
+    expect(adapter.loadedBytes, isEmpty);
+    expect(result.authoredExtensionMaterialPatches, isEmpty);
+    expect(result.diagnostic!.code, ViewerDiagnosticCode.missingUvSet);
+    expect(result.diagnostic!.details['extension'], 'KHR_materials_sheen');
+    expect(result.diagnostic!.details['materialIndex'], 0);
+    expect(result.diagnostic!.details['uvSet'], 1);
+    expect(result.diagnostic!.details['required'], isFalse);
+    expect(result.diagnostic!.details['blocking'], isTrue);
+    expect(result.diagnostic!.details['status'], 'malformedAsset');
+    expect(result.diagnostic!.details['fallback'], 'none');
+    expect(adapter.authoredSheenCoreFallbackPlans, isEmpty);
+    expect(adapter.authoredSheenGlobalCoreFallbackPlans, isEmpty);
+  });
+
+  test('optional sheen with unsupported higher UV blocks before adapter import',
+      () async {
+    final adapter = FakeFlutterSceneAdapter();
+    final result = await ModelLoader(adapter: adapter).load(
+      ModelSource.bytes(
+        _authoredUv1SheenTextureFixture(texCoord: 2),
+        debugName: 'unsupported-sheen-uv.glb',
+      ),
+    );
+
+    expect(result.isSuccess, isFalse);
+    expect(adapter.loadedBytes, isEmpty);
+    expect(result.authoredExtensionMaterialPatches, isEmpty);
+    expect(
+      result.diagnostic!.code,
+      ViewerDiagnosticCode.unsupportedModelFeature,
+    );
+    expect(result.diagnostic!.details['extension'], 'KHR_materials_sheen');
+    expect(result.diagnostic!.details['materialIndex'], 0);
+    expect(result.diagnostic!.details['uvSet'], 2);
+    expect(result.diagnostic!.details['limitation'], 'authoredUv0Only');
+    expect(result.diagnostic!.details['required'], isFalse);
+    expect(result.diagnostic!.details['blocking'], isTrue);
+    expect(result.diagnostic!.details['status'], 'malformedAsset');
+    expect(result.diagnostic!.details['fallback'], 'none');
+    expect(adapter.authoredSheenCoreFallbackPlans, isEmpty);
+    expect(adapter.authoredSheenGlobalCoreFallbackPlans, isEmpty);
   });
 
   test('missing effective UV diagnoses once without blocking adapter import',
@@ -2423,12 +3866,440 @@ const String _flutterSceneGpuSkipReason =
     'Requires --enable-impeller --enable-flutter-gpu and '
     '--dart-define=FLUTTER_SCENE_GPU_TESTS=true.';
 
+flutter_scene_gltf.GltfMaterialSheen _pinnedParserSheen(Uint8List bytes) {
+  final container = flutter_scene_gltf.parseGlb(bytes);
+  final document = flutter_scene_gltf.parseGltfJson(container.json);
+  return document.materials.single.sheen!;
+}
+
+Uint8List _sheenFixture({
+  required Object? sheen,
+  bool required = false,
+  String? siblingExtension,
+  bool duplicateFabricPath = false,
+}) {
+  return _glb(<String, Object?>{
+    'asset': <String, Object?>{'version': '2.0'},
+    'extensionsUsed': <Object?>[
+      'KHR_materials_sheen',
+      if (siblingExtension != null) siblingExtension,
+    ],
+    if (required) 'extensionsRequired': <Object?>['KHR_materials_sheen'],
+    'scene': 0,
+    'scenes': <Object?>[
+      <String, Object?>{
+        'nodes': <Object?>[0, if (duplicateFabricPath) 1]
+      },
+    ],
+    'nodes': <Object?>[
+      <String, Object?>{'name': 'Fabric', 'mesh': 0},
+      if (duplicateFabricPath) <String, Object?>{'name': 'Fabric', 'mesh': 0},
+    ],
+    'meshes': <Object?>[
+      <String, Object?>{
+        'primitives': <Object?>[
+          <String, Object?>{
+            'attributes': <String, Object?>{'POSITION': 0},
+            'material': 0,
+          },
+        ],
+      },
+    ],
+    'materials': <Object?>[
+      <String, Object?>{
+        'pbrMetallicRoughness': <String, Object?>{
+          'baseColorFactor': <Object?>[0.1, 0.2, 0.3, 1],
+        },
+        'extensions': <String, Object?>{
+          'KHR_materials_sheen': sheen,
+          if (siblingExtension != null) siblingExtension: <String, Object?>{},
+        },
+      },
+    ],
+  });
+}
+
+Uint8List _authoredUv1SheenTextureFixture({
+  bool duplicateFabricPath = false,
+  int texCoord = 1,
+  bool includeSelectedTexCoord = true,
+  List<String>? nodeNames,
+  List<List<int>>? sceneNodeIndices,
+  bool includeDefaultScene = true,
+}) {
+  final textureBytes = Uint8List.fromList(<int>[1, 2, 3]);
+  final effectiveNodeNames =
+      nodeNames ?? <String>['Fabric', if (duplicateFabricPath) 'Fabric'];
+  final effectiveSceneNodeIndices = sceneNodeIndices ??
+      <List<int>>[
+        <int>[
+          for (var index = 0; index < effectiveNodeNames.length; index += 1)
+            index,
+        ],
+      ];
+  return _glbWithBin(
+    <String, Object?>{
+      'asset': <String, Object?>{'version': '2.0'},
+      'extensionsUsed': <Object?>['KHR_materials_sheen'],
+      if (includeDefaultScene) 'scene': 0,
+      'scenes': <Object?>[
+        for (final indices in effectiveSceneNodeIndices)
+          <String, Object?>{
+            'nodes': <Object?>[...indices]
+          },
+      ],
+      'nodes': <Object?>[
+        for (final name in effectiveNodeNames)
+          <String, Object?>{'name': name, 'mesh': 0},
+      ],
+      'meshes': <Object?>[
+        <String, Object?>{
+          'primitives': <Object?>[
+            <String, Object?>{
+              'attributes': <String, Object?>{
+                'POSITION': 0,
+                if (includeSelectedTexCoord) 'TEXCOORD_$texCoord': 1,
+              },
+              'material': 0,
+            },
+          ],
+        },
+      ],
+      'materials': <Object?>[
+        <String, Object?>{
+          'extensions': <String, Object?>{
+            'KHR_materials_sheen': <String, Object?>{
+              'sheenColorFactor': <Object?>[0.2, 0.4, 0.8],
+              'sheenColorTexture': <String, Object?>{
+                'index': 0,
+                'texCoord': texCoord,
+              },
+            },
+          },
+        },
+      ],
+      'textures': <Object?>[
+        <String, Object?>{'source': 0},
+      ],
+      'images': <Object?>[
+        <String, Object?>{
+          'mimeType': 'image/png',
+          'bufferView': 0,
+        },
+      ],
+      'bufferViews': <Object?>[
+        <String, Object?>{
+          'buffer': 0,
+          'byteLength': textureBytes.length,
+        },
+      ],
+      'buffers': <Object?>[
+        <String, Object?>{'byteLength': textureBytes.length},
+      ],
+    },
+    textureBytes,
+  );
+}
+
+Uint8List _compactedRuntimeSheenFallbackFixture() {
+  return _glb(<String, Object?>{
+    'asset': <String, Object?>{'version': '2.0'},
+    'extensionsUsed': <Object?>[
+      'KHR_materials_sheen',
+      'KHR_materials_pbrSpecularGlossiness',
+    ],
+    'scene': 0,
+    'scenes': <Object?>[
+      <String, Object?>{
+        'nodes': <Object?>[0],
+      },
+    ],
+    'nodes': <Object?>[
+      <String, Object?>{'name': 'Fabric', 'mesh': 0},
+    ],
+    'meshes': <Object?>[
+      <String, Object?>{
+        'primitives': <Object?>[
+          <String, Object?>{
+            'mode': 1,
+            'attributes': <String, Object?>{'POSITION': 0},
+            'material': 0,
+          },
+          <String, Object?>{
+            'mode': 4,
+            'attributes': <String, Object?>{'POSITION': 0},
+            'material': 1,
+          },
+        ],
+      },
+    ],
+    'materials': <Object?>[
+      <String, Object?>{},
+      <String, Object?>{
+        'extensions': <String, Object?>{
+          'KHR_materials_sheen': <String, Object?>{
+            'sheenColorFactor': <Object?>[0.2, 0.4, 0.8],
+            'sheenRoughnessFactor': 0.6,
+          },
+          'KHR_materials_pbrSpecularGlossiness': <String, Object?>{},
+        },
+      },
+    ],
+  });
+}
+
+Uint8List _authoredDataUriSheenTextureFixture() {
+  return _glb(<String, Object?>{
+    'asset': <String, Object?>{'version': '2.0'},
+    'extensionsUsed': <Object?>['KHR_materials_sheen'],
+    'scene': 0,
+    'scenes': <Object?>[
+      <String, Object?>{
+        'nodes': <Object?>[0],
+      },
+    ],
+    'nodes': <Object?>[
+      <String, Object?>{'name': 'Fabric', 'mesh': 0},
+    ],
+    'meshes': <Object?>[
+      <String, Object?>{
+        'primitives': <Object?>[
+          <String, Object?>{
+            'attributes': <String, Object?>{
+              'POSITION': 0,
+              'TEXCOORD_0': 1,
+            },
+            'material': 0,
+          },
+        ],
+      },
+    ],
+    'materials': <Object?>[
+      <String, Object?>{
+        'extensions': <String, Object?>{
+          'KHR_materials_sheen': <String, Object?>{
+            'sheenColorFactor': <Object?>[0.2, 0.4, 0.8],
+            'sheenColorTexture': <String, Object?>{'index': 0},
+          },
+        },
+      },
+    ],
+    'textures': <Object?>[
+      <String, Object?>{'source': 0},
+    ],
+    'images': <Object?>[
+      <String, Object?>{
+        'uri': 'data:image/png;base64,iVBORw0KGgo=',
+      },
+    ],
+  });
+}
+
+Uint8List _authoredSheenTextureEdgeFixture({
+  Object? sampler,
+  Object? textureIndex = 0,
+  bool includeTextureIndex = true,
+}) {
+  final textureBytes = Uint8List.fromList(<int>[1, 2, 3]);
+  return _glbWithBin(
+    <String, Object?>{
+      'asset': <String, Object?>{'version': '2.0'},
+      'extensionsUsed': <Object?>['KHR_materials_sheen'],
+      'scene': 0,
+      'scenes': <Object?>[
+        <String, Object?>{
+          'nodes': <Object?>[0],
+        },
+      ],
+      'nodes': <Object?>[
+        <String, Object?>{'name': 'Fabric', 'mesh': 0},
+      ],
+      'meshes': <Object?>[
+        <String, Object?>{
+          'primitives': <Object?>[
+            <String, Object?>{
+              'attributes': <String, Object?>{
+                'POSITION': 0,
+                'TEXCOORD_0': 1,
+              },
+              'material': 0,
+            },
+          ],
+        },
+      ],
+      'materials': <Object?>[
+        <String, Object?>{
+          'extensions': <String, Object?>{
+            'KHR_materials_sheen': <String, Object?>{
+              'sheenColorFactor': <Object?>[0.2, 0.4, 0.8],
+              'sheenColorTexture': <String, Object?>{
+                if (includeTextureIndex) 'index': textureIndex,
+              },
+            },
+          },
+        },
+      ],
+      'textures': <Object?>[
+        <String, Object?>{
+          'source': 0,
+          if (sampler != null) 'sampler': sampler,
+        },
+      ],
+      'images': <Object?>[
+        <String, Object?>{'mimeType': 'image/png', 'bufferView': 0},
+      ],
+      'bufferViews': <Object?>[
+        <String, Object?>{
+          'buffer': 0,
+          'byteLength': textureBytes.length,
+        },
+      ],
+      'buffers': <Object?>[
+        <String, Object?>{'byteLength': textureBytes.length},
+      ],
+      'samplers': <Object?>[<String, Object?>{}],
+    },
+    textureBytes,
+  );
+}
+
+Uint8List _twoSheenMaterialFixture({
+  bool firstHasClearcoat = false,
+  bool required = false,
+}) {
+  return _glb(<String, Object?>{
+    'asset': <String, Object?>{'version': '2.0'},
+    'extensionsUsed': <Object?>[
+      'KHR_materials_sheen',
+      if (firstHasClearcoat) 'KHR_materials_clearcoat',
+    ],
+    if (required) 'extensionsRequired': <Object?>['KHR_materials_sheen'],
+    'scene': 0,
+    'scenes': <Object?>[
+      <String, Object?>{
+        'nodes': <Object?>[0, 1],
+      },
+    ],
+    'nodes': <Object?>[
+      <String, Object?>{'name': 'IncompatibleFabric', 'mesh': 0},
+      <String, Object?>{'name': 'ValidFabric', 'mesh': 1},
+    ],
+    'meshes': <Object?>[
+      <String, Object?>{
+        'primitives': <Object?>[
+          <String, Object?>{
+            'attributes': <String, Object?>{'POSITION': 0},
+            'material': 0,
+          },
+        ],
+      },
+      <String, Object?>{
+        'primitives': <Object?>[
+          <String, Object?>{
+            'attributes': <String, Object?>{'POSITION': 0},
+            'material': 1,
+          },
+        ],
+      },
+    ],
+    'materials': <Object?>[
+      <String, Object?>{
+        'extensions': <String, Object?>{
+          'KHR_materials_sheen': <String, Object?>{
+            'sheenRoughnessFactor': 0.3,
+          },
+          if (firstHasClearcoat)
+            'KHR_materials_clearcoat': <String, Object?>{
+              'clearcoatFactor': 0.5,
+            },
+        },
+      },
+      <String, Object?>{
+        'extensions': <String, Object?>{
+          'KHR_materials_sheen': <String, Object?>{
+            'sheenRoughnessFactor': 0.7,
+          },
+        },
+      },
+    ],
+  });
+}
+
+final class _NonPreflightFlutterSceneAdapter implements FlutterSceneAdapter {
+  final List<Set<PartAddress>> authoredSheenCoreFallbackPlans =
+      <Set<PartAddress>>[];
+  final List<bool> authoredSheenGlobalCoreFallbackPlans = <bool>[];
+
+  @override
+  AdapterNodeSnapshot? get nodeSnapshot => null;
+
+  @override
+  AdapterRenderScene? get renderScene => null;
+
+  @override
+  AdapterModelBounds? get modelBounds => null;
+
+  @override
+  AdapterModelStats? get modelStats => null;
+
+  @override
+  Future<void> loadGlbBytes(
+    Uint8List bytes, {
+    String? debugName,
+    MaterialShadingPolicy materialShadingPolicy =
+        MaterialShadingPolicy.authored,
+    Set<PartAddress> authoredSheenCoreFallbacks = const <PartAddress>{},
+    bool authoredSheenGlobalCoreFallback = false,
+    bool Function()? tryAcceptPublication,
+  }) async {
+    authoredSheenCoreFallbackPlans.add(
+      Set<PartAddress>.unmodifiable(authoredSheenCoreFallbacks),
+    );
+    authoredSheenGlobalCoreFallbackPlans.add(
+      authoredSheenGlobalCoreFallback,
+    );
+  }
+
+  @override
+  Future<List<ViewerDiagnostic>> configureEnvironment(
+    RenderEnvironmentFrame frame, {
+    bool Function()? isCanceled,
+  }) async =>
+      const <ViewerDiagnostic>[];
+
+  @override
+  Future<List<ViewerDiagnostic>> applyMaterialPatch(
+    PartAddress address,
+    MaterialPatch patch,
+  ) async =>
+      const <ViewerDiagnostic>[];
+
+  @override
+  Future<List<ViewerDiagnostic>> resetMaterial(PartAddress address) async =>
+      const <ViewerDiagnostic>[];
+
+  @override
+  Future<PartAddress?> pickPart({
+    required Offset localPosition,
+    required Size viewportSize,
+    required RenderCameraFrame camera,
+  }) async =>
+      null;
+
+  @override
+  List<ViewerDiagnostic> collectDiagnostics() => const <ViewerDiagnostic>[];
+}
+
 final class FakeFlutterSceneAdapter
-    implements FlutterSceneAdapter, FlutterSceneAuthoredMipBindingAdapter {
+    implements
+        FlutterSceneAdapter,
+        FlutterSceneAuthoredMipBindingAdapter,
+        FlutterSceneAuthoredMaterialPreflightAdapter {
   FakeFlutterSceneAdapter({
     this.snapshot,
     this.modelStats,
     this.loadGates = const <String, Completer<void>>{},
+    this.authoredMaterialPreflightDiagnostic,
   });
 
   final List<Uint8List> loadedBytes = <Uint8List>[];
@@ -2437,9 +4308,16 @@ final class FakeFlutterSceneAdapter
       <MaterialShadingPolicy>[];
   final List<FlutterSceneAuthoredMipBindingPlan> authoredMipPlans =
       <FlutterSceneAuthoredMipBindingPlan>[];
+  final List<MaterialPatch> authoredMaterialPreflightPatches =
+      <MaterialPatch>[];
+  final List<Set<PartAddress>> authoredSheenCoreFallbackPlans =
+      <Set<PartAddress>>[];
+  final List<bool> authoredSheenGlobalCoreFallbackPlans = <bool>[];
   final AdapterNodeSnapshot? snapshot;
   final Map<String, Completer<void>> loadGates;
   final Map<String, Completer<void>> _loadStarted = <String, Completer<void>>{};
+  final FutureOr<ViewerDiagnostic?> Function(PartAddress address)?
+      authoredMaterialPreflightDiagnostic;
   final Map<String, bool Function()?> receivedPublicationCallbacks =
       <String, bool Function()?>{};
   @override
@@ -2460,6 +4338,8 @@ final class FakeFlutterSceneAdapter
     String? debugName,
     MaterialShadingPolicy materialShadingPolicy =
         MaterialShadingPolicy.authored,
+    Set<PartAddress> authoredSheenCoreFallbacks = const <PartAddress>{},
+    bool authoredSheenGlobalCoreFallback = false,
     bool Function()? tryAcceptPublication,
   }) async {
     if (debugName != null) {
@@ -2473,6 +4353,12 @@ final class FakeFlutterSceneAdapter
     loadedBytes.add(bytes);
     debugNames.add(debugName);
     materialShadingPolicies.add(materialShadingPolicy);
+    authoredSheenCoreFallbackPlans.add(
+      Set<PartAddress>.unmodifiable(authoredSheenCoreFallbacks),
+    );
+    authoredSheenGlobalCoreFallbackPlans.add(
+      authoredSheenGlobalCoreFallback,
+    );
   }
 
   @override
@@ -2482,6 +4368,8 @@ final class FakeFlutterSceneAdapter
     String? debugName,
     MaterialShadingPolicy materialShadingPolicy =
         MaterialShadingPolicy.authored,
+    Set<PartAddress> authoredSheenCoreFallbacks = const <PartAddress>{},
+    bool authoredSheenGlobalCoreFallback = false,
     bool Function()? isLoadCancelled,
     bool Function()? tryAcceptPublication,
   }) async {
@@ -2498,6 +4386,12 @@ final class FakeFlutterSceneAdapter
     loadedBytes.add(bytes);
     debugNames.add(debugName);
     materialShadingPolicies.add(materialShadingPolicy);
+    authoredSheenCoreFallbackPlans.add(
+      Set<PartAddress>.unmodifiable(authoredSheenCoreFallbacks),
+    );
+    authoredSheenGlobalCoreFallbackPlans.add(
+      authoredSheenGlobalCoreFallback,
+    );
   }
 
   Future<void> waitForLoad(String debugName) =>
@@ -2516,6 +4410,16 @@ final class FakeFlutterSceneAdapter
       const <ViewerDiagnostic>[];
 
   @override
+  Future<ViewerDiagnostic?> preflightAuthoredMaterialPatch({
+    required PartAddress address,
+    required MaterialPatch patch,
+  }) async {
+    authoredMaterialPreflightPatches.add(patch);
+    final callback = authoredMaterialPreflightDiagnostic;
+    return callback == null ? null : await callback(address);
+  }
+
+  @override
   Future<PartAddress?> pickPart({
     required Offset localPosition,
     required Size viewportSize,
@@ -2530,6 +4434,92 @@ final class FakeFlutterSceneAdapter
   @override
   Future<List<ViewerDiagnostic>> resetMaterial(address) async =>
       const <ViewerDiagnostic>[];
+}
+
+final class _RendererNativeSheenPolicyAdapter extends FakeFlutterSceneAdapter {
+  _RendererNativeSheenPolicyAdapter._(this._root, this._materialNodes);
+
+  factory _RendererNativeSheenPolicyAdapter.singleFabric() =>
+      _RendererNativeSheenPolicyAdapter.named(const <String>['Fabric']);
+
+  factory _RendererNativeSheenPolicyAdapter.duplicateFabricPaths() =>
+      _RendererNativeSheenPolicyAdapter.named(
+        const <String>['Fabric', 'Fabric'],
+      );
+
+  factory _RendererNativeSheenPolicyAdapter.named(List<String> names) {
+    final nodes = <flutter_scene.Node>[
+      for (final name in names) _materialNode(name),
+    ];
+    final root = nodes.length == 1
+        ? nodes.single
+        : (flutter_scene.Node(name: 'ImportedScene')..addAll(nodes));
+    return _RendererNativeSheenPolicyAdapter._(
+      root,
+      nodes,
+    );
+  }
+
+  final flutter_scene.Node _root;
+  final List<flutter_scene.Node> _materialNodes;
+
+  List<flutter_scene.PhysicallyBasedMaterial> get liveMaterials =>
+      <flutter_scene.PhysicallyBasedMaterial>[
+        for (final node in _materialNodes)
+          node.mesh!.primitives.single.material
+              as flutter_scene.PhysicallyBasedMaterial,
+      ];
+
+  @override
+  Future<void> loadGlbBytes(
+    Uint8List bytes, {
+    String? debugName,
+    MaterialShadingPolicy materialShadingPolicy =
+        MaterialShadingPolicy.authored,
+    Set<PartAddress> authoredSheenCoreFallbacks = const <PartAddress>{},
+    bool authoredSheenGlobalCoreFallback = false,
+    bool Function()? tryAcceptPublication,
+  }) async {
+    await super.loadGlbBytes(
+      bytes,
+      debugName: debugName,
+      materialShadingPolicy: materialShadingPolicy,
+      authoredSheenCoreFallbacks: authoredSheenCoreFallbacks,
+      authoredSheenGlobalCoreFallback: authoredSheenGlobalCoreFallback,
+      tryAcceptPublication: tryAcceptPublication,
+    );
+    debugApplyRendererNativeSheenImportPolicy(
+      _root,
+      retainRendererNativeSheen: true,
+      coreFallbackAddresses: authoredSheenCoreFallbacks,
+      globalCoreFallback: authoredSheenGlobalCoreFallback,
+    );
+  }
+
+  static flutter_scene.Node _materialNode(String name) {
+    final material = flutter_scene.PhysicallyBasedMaterial()
+      ..sheenColorFactor = vm.Vector3(0.2, 0.4, 0.8)
+      ..sheenRoughnessFactor = 0.6
+      ..clearcoatFactor = 0.7;
+    return flutter_scene.Node(
+      name: name,
+      mesh: flutter_scene.Mesh(_NonRenderingGeometry(), material),
+    );
+  }
+}
+
+final class _NonRenderingGeometry extends flutter_scene.Geometry {
+  @override
+  void bind(
+    flutter_scene_internal_gpu.RenderPass pass,
+    flutter_scene_internal_gpu.HostBuffer transientsBuffer,
+    vm.Matrix4 modelTransform,
+    vm.Matrix4 cameraTransform,
+    vm.Vector3 cameraPosition, {
+    flutter_scene_internal_gpu.Shader? shaderOverride,
+  }) {
+    throw UnsupportedError('Test geometry is not renderable.');
+  }
 }
 
 final class MemoryAssetBundle extends CachingAssetBundle {

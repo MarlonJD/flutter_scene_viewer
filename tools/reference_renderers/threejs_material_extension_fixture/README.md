@@ -109,3 +109,63 @@ brightness are not a camera-state failure: Three.js and flutter_scene retain
 independent rough-reflection and PMREM/GGX prefilter implementations. The
 result is controlled stock-renderer comparison evidence, not a pixel-parity
 claim.
+
+## Plan 018 Sheen State and Loader Audit
+
+Plan 018 freezes its four-model comparison state at
+`tools/material_extension_acceptance/fixtures/plan018_controlled_comparison_state.json`.
+Before accepting a Three.js reference image, run the fixed-state and real
+GLTFLoader consumption contract:
+
+```sh
+npm run test:plan018-controlled
+```
+
+The test launches pinned `three@0.167.1` in headless Chrome with a unique
+temporary profile and a local-only fixture server. It checks every authored
+sheen material against the resulting `MeshPhysicalMaterial`, including both
+SheenCloth maps, their shared source, distinct RGB+sRGB and alpha+linear roles,
+texture transforms, texture channels, and frozen whole/sheened bounds. The
+ignored `threejs_loader_audit.json` records the actual loaded-material audit.
+This is importer direction/conformance evidence only; it is not a Flutter
+load, target capture, reference render, pixel-parity, release, or
+production-readiness claim.
+
+After that loader contract is current, produce and validate the controlled
+reference captures with:
+
+```sh
+npm run test:plan018-capture
+```
+
+The focused capture test writes 27 ignored PNGs and `threejs/evidence.json`
+under
+`tools/out/material_extension_acceptance/plan018_controlled_comparison/`.
+Every model has explicit close and grazing views in direct-only, IBL-only, and
+combined passes. ToyCar also has all three passes at its full-scene context
+view. The evidence keeps authored sheen indices, loaded material dependencies,
+and the subset used by each default scene separate; a dependency that is not
+used by the default scene is audited but not described as pictured. Each PNG
+is required to be `1206 x 2622` with a valid signature and recorded hash.
+
+These captures are pinned Three.js reference direction/conformance evidence,
+`verified locally`. Flutter/iOS remains `not run`; the captures do not establish
+pixel parity, a physical target, renderer-native sheen, release maturity, or
+production readiness.
+
+Before any Flutter/iOS image is accepted, freeze and run the renderer-local
+health contract against those 27 Three.js captures:
+
+```sh
+npm run test:plan018-analysis
+```
+
+The test decodes each full frame in an isolated local-only headless browser.
+It rejects missing, blank, flat, or lighting-inert output with conservative
+thresholds that were frozen before an iOS comparison image existed. The
+ignored `threejs/health_baseline.json` records the observed minima and exact
+source/capture hashes. It creates no crop, alignment, overlay, difference
+heatmap, or board, and contains no cross-renderer pixel threshold. This is
+Three.js renderer-local direction/conformance health evidence only; Flutter
+and iOS remain `not run`, and package-local sheen maturity remains
+`candidate-only`.

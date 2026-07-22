@@ -1,0 +1,267 @@
+{
+  "schemaVersion": 1,
+  "name": "plan018_khr_materials_sheen_controlled_comparison",
+  "comparisonBoundary": "direction/conformance-only",
+  "viewport": {
+    "logicalWidth": 402,
+    "logicalHeight": 874,
+    "devicePixelRatio": 3
+  },
+  "background": {
+    "srgbHex": "#121118"
+  },
+  "camera": {
+    "verticalFovDegrees": 60.0,
+    "near": 0.1,
+    "far": 1000.0,
+    "up": [0.0, 1.0, 0.0]
+  },
+  "rendererCoordinateMapping": {
+    "flutterSceneImportedGltfRoot": "mirrorZ",
+    "position": "[x,y,z] => [x,y,-z]",
+    "target": "[x,y,z] => [x,y,-z]",
+    "up": "[x,y,z] => [x,y,-z]",
+    "directionalLightTravel": "[x,y,z] => [x,y,-z]",
+    "environment": "mirrorDecodedColumns",
+    "backdrop": "mirrorZ"
+  },
+  "environment": {
+    "kind": "generatedRadianceHdr",
+    "generator": "plan015_controlled_studio_v1_reused_exact_bytes",
+    "sourceStatePath": "tools/material_extension_acceptance/fixtures/plan015_controlled_comparison_state.json",
+    "width": 512,
+    "height": 256,
+    "sha256": "ef94e6aa0de3e5703a245f2e18dfd3b7bf8e07a24a794395cd50bd6e746e6a4a",
+    "worldOrientation": "flutterSceneWorldAtanZOverX",
+    "threejsLongitudeCorrection": "mirrorDecodedColumns",
+    "intensity": 1.0,
+    "rotationRadians": 0.0,
+    "showSkybox": false
+  },
+  "lighting": {
+    "exposure": 1.0,
+    "ambientOcclusion": false,
+    "keyLightIntensity": 3.0,
+    "keyLightColorLinear": [1.0, 1.0, 1.0],
+    "keyLightDirectionFlutterSceneWorld": [-0.45, -0.85, -0.35],
+    "keyLightCastsShadow": false
+  },
+  "renderPasses": ["directOnly", "iblOnly", "combined"],
+  "toneMapping": "pbrNeutral",
+  "outputColorSpace": "sRGB",
+  "referenceRenderer": {
+    "name": "Three.js",
+    "packageVersion": "0.167.1",
+    "revision": "167",
+    "sourceCommit": "42a2f6aac8cffebb29524d68eb7136a756f15960",
+    "packageIntegrity": "sha512-gYTLJA/UQip6J/tJvl91YYqlZF47+D/kxiWrbTon35ZHlXEN0VOo+Qke2walF1/x92v55H6enomymg4Dak52kw==",
+    "packageLockPath": "tools/reference_renderers/threejs_material_extension_fixture/package-lock.json",
+    "packageLockSha256": "9f8355fc951b35917e7275513a329a5d446611e6655b5ec2933ab766e0c94c2a",
+    "backend": "WebGL",
+    "sourceSha256": {
+      "gltfLoader": {
+        "path": "tools/reference_renderers/threejs_material_extension_fixture/node_modules/three/examples/jsm/loaders/GLTFLoader.js",
+        "sha256": "11ea6cf692882d7a2770f2cbb485724def0aa4e623abcfe45fbf74aa0ea5bc55"
+      },
+      "webglRenderer": {
+        "path": "tools/reference_renderers/threejs_material_extension_fixture/node_modules/three/src/renderers/WebGLRenderer.js",
+        "sha256": "e74132b02a42fc615e2ecb246d9974258b405a8d22e3e60abd0887aa8d55a8a0"
+      },
+      "physicalSheenParsFragment": {
+        "path": "tools/reference_renderers/threejs_material_extension_fixture/node_modules/three/src/renderers/shaders/ShaderChunk/lights_physical_pars_fragment.glsl.js",
+        "sha256": "8228e12d6904efecff76ef21f217836bcf57100ab8c53326b74a8a6f273b04a8"
+      },
+      "physicalSheenFragment": {
+        "path": "tools/reference_renderers/threejs_material_extension_fixture/node_modules/three/src/renderers/shaders/ShaderChunk/lights_physical_fragment.glsl.js",
+        "sha256": "9b8b7d86fa70e2064977aea207c0cfcd44bc6975a86e36ce38ebc009fc22a2ee"
+      }
+    }
+  },
+  "packageCameraAdapterContract": {
+    "orbitCameraPath": "lib/src/orbit_camera_controller.dart",
+    "orbitCameraSha256": "ca0897fe25d30c1dcd6bfc92f2b75f7227c3f70eb9d173c1b7a0411d800122a9",
+    "renderSurfacePath": "lib/src/internal/render_surface.dart",
+    "renderSurfaceSha256": "426285caf97428c23878990578e087797cfcd35a109e3e54439a94907c7823f9",
+    "adapterPath": "lib/src/internal/flutter_scene_adapter.dart",
+    "adapterSha256": "b5b7b058f62eeb3e96e1ddaceb1e97b9480a769a48d0a16bdcaf609e72f6238c",
+    "adapterCameraFields": ["position", "target", "up", "verticalFovRadians", "near", "far"]
+  },
+  "assetSource": {
+    "repository": "KhronosGroup/glTF-Sample-Assets",
+    "commit": "2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf"
+  },
+  "models": {
+    "sheen_chair": {
+      "name": "SheenChair",
+      "sourceKind": "khronos-official-glb",
+      "path": "tools/out/material_extension_acceptance/plan018_sheen_corpus/sheen_chair/source/SheenChair.glb",
+      "sourcePath": "Models/SheenChair/glTF-Binary/SheenChair.glb",
+      "sha256": "f0af2a2b102d28d540236306ae19f8fb36842df76bd38cf76f063f9bd2853399",
+      "byteLength": 4125648,
+      "licensePath": "tools/out/material_extension_acceptance/plan018_sheen_corpus/sheen_chair/source/LICENSE.md",
+      "licenseSha256": "ec688136d27e6b32c3af32bd06f9066c78ff55bd0de6bff012580436b629dd57",
+      "licenseByteLength": 700,
+      "sourceBounds": {
+        "min": [-0.4140224, -0.00006977785, -0.2767251],
+        "max": [0.412535578, 0.6861773, 0.293540359],
+        "center": [-0.0007434109999999994, 0.343053761075, 0.008407629499999986],
+        "radius": 0.6081397529724547
+      },
+      "sheenPrimitiveBounds": {
+        "min": [-0.4140224, 0.226573884, -0.2767251],
+        "max": [0.412535578, 0.6861773, 0.293540359],
+        "center": [-0.0007434109999999994, 0.456375592, 0.008407629499999986],
+        "radius": 0.5521856763632135
+      },
+      "cameras": {
+        "close": {
+          "coordinateSpace": "flutterSceneWorld",
+          "position": [1.403793062342418, 1.470674679680863, 1.9974783353005734],
+          "target": [-0.0007434109999999994, 0.456375592, -0.008407629499999986]
+        },
+        "grazing": {
+          "coordinateSpace": "flutterSceneWorld",
+          "position": [-2.4700826459173735, 0.8023341219238911, 0.8903583503156015],
+          "target": [-0.0007434109999999994, 0.456375592, -0.008407629499999986]
+        }
+      },
+      "sheenMaterialIndices": [0, 4]
+    },
+    "sheen_cloth": {
+      "name": "SheenCloth",
+      "sourceKind": "khronos-official-multifile-gltf",
+      "stagedArtifactKind": "repository-generated-deterministic-container",
+      "path": "tools/out/material_extension_acceptance/plan018_sheen_corpus/sheen_cloth/derived/SheenCloth.glb",
+      "sourcePath": "Models/SheenCloth/glTF/SheenCloth.gltf",
+      "sha256": "bab89a56fe44396877f35fc794222b54f2107ba273634c6514c2a910cab61588",
+      "byteLength": 4176696,
+      "licensePath": "tools/out/material_extension_acceptance/plan018_sheen_corpus/sheen_cloth/source/LICENSE.md",
+      "licenseSha256": "584e393d6faecc7d7e1738cb08bf6c0a0ace8dc04bcc1d2e38b077ff2141267a",
+      "licenseByteLength": 700,
+      "derivedContainer": {
+        "label": "repository-generated deterministic container derived from the hash-pinned official multi-file source",
+        "officialSourceJsonSha256": "00a2cbc0d2ad4788dbfc00da3c51f252fd8e6003dbfda80b087a548fe3550f02",
+        "officialSourceBinSha256": "4ed1f49797ce52b9f653b8650a31fa249fac99524303b0e153804365fb7e45b1",
+        "sha256": "bab89a56fe44396877f35fc794222b54f2107ba273634c6514c2a910cab61588"
+      },
+      "sourceBounds": {
+        "min": [-0.02736334, 0.0000999381155, -0.04848177],
+        "max": [0.0447657481, 0.0404023454, 0.022842247],
+        "center": [0.008701204050000001, 0.02025114175775, -0.0128197615],
+        "radius": 0.05457564654697086
+      },
+      "sheenPrimitiveBounds": {
+        "min": [-0.02736334, 0.0000999381155, -0.04848177],
+        "max": [0.0447657481, 0.0404023454, 0.022842247],
+        "center": [0.008701204050000001, 0.02025114175775, -0.0128197615],
+        "radius": 0.05457564654697086
+      },
+      "cameras": {
+        "close": {
+          "coordinateSpace": "flutterSceneWorld",
+          "position": [0.1475195208095316, 0.1205000813296161, 0.21107286387942056],
+          "target": [0.008701204050000001, 0.02025114175775, 0.0128197615]
+        },
+        "grazing": {
+          "coordinateSpace": "flutterSceneWorld",
+          "position": [-0.23535761720919646, 0.05444418815002286, 0.10164990784844298],
+          "target": [0.008701204050000001, 0.02025114175775, 0.0128197615]
+        }
+      },
+      "sheenMaterialIndices": [0]
+    },
+    "glam_velvet_sofa": {
+      "name": "GlamVelvetSofa",
+      "sourceKind": "khronos-official-glb",
+      "path": "tools/out/material_extension_acceptance/plan018_sheen_corpus/glam_velvet_sofa/source/GlamVelvetSofa.glb",
+      "sourcePath": "Models/GlamVelvetSofa/glTF-Binary/GlamVelvetSofa.glb",
+      "sha256": "67202c74a1a33377771f162dc7fad612a6c9bd51ee15124c488e9851d9ac5266",
+      "byteLength": 3149844,
+      "licensePath": "tools/out/material_extension_acceptance/plan018_sheen_corpus/glam_velvet_sofa/source/LICENSE.md",
+      "licenseSha256": "b331316a5e62b1f97abb06902931d6c10c0013d7aaf0ac8af466e91843766ced",
+      "licenseByteLength": 705,
+      "sourceBounds": {
+        "min": [-1.11397314, 0.00004544779, -0.627700269],
+        "max": [1.07446992, 0.7875869, 0.3951283],
+        "center": [-0.01975160999999992, 0.393816173895, -0.1162859845],
+        "radius": 1.270401791498834
+      },
+      "sheenPrimitiveBounds": {
+        "min": [-1.11397314, 0.211583689, -0.6070921],
+        "max": [1.07446992, 0.7875869, 0.382825553],
+        "center": [-0.01975160999999992, 0.4995852945, -0.11213327350000002],
+        "radius": 1.2350100896010427
+      },
+      "cameras": {
+        "close": {
+          "coordinateSpace": "flutterSceneWorld",
+          "position": [3.121613314956088, 2.768151214951412, 4.5984673295256275],
+          "target": [-0.01975160999999992, 0.4995852945, 0.11213327350000002]
+        },
+        "grazing": {
+          "coordinateSpace": "flutterSceneWorld",
+          "position": [-5.542638204698064, 1.2733508833750504, 2.122299601197924],
+          "target": [-0.01975160999999992, 0.4995852945, 0.11213327350000002]
+        }
+      },
+      "sheenMaterialIndices": [2, 3, 4, 5, 6]
+    },
+    "toycar": {
+      "name": "ToyCar",
+      "sourceKind": "khronos-official-glb",
+      "path": "tools/out/material_extension_acceptance/plan018_sheen_corpus/toycar/source/ToyCar.glb",
+      "sourcePath": "Models/ToyCar/glTF-Binary/ToyCar.glb",
+      "sha256": "01a60862de55cd4b9f3acfab0b0def86451800f9c42467fcd61052c16cb9838c",
+      "byteLength": 5422412,
+      "licensePath": "tools/out/material_extension_acceptance/plan018_sheen_corpus/toycar/source/LICENSE.md",
+      "licenseSha256": "b6b2c8a062107e8a3140e7d65a815b5964d96e71b04dbdafd4df1c0efc1cddc1",
+      "licenseByteLength": 819,
+      "sourceBounds": {
+        "min": [-0.03499509, -0.016206276438321066, -0.036981149900310116],
+        "max": [0.038447827100000005, 0.012616624419687281, 0.036981142991817983],
+        "center": [0.0017263685500000028, -0.0017948260093168921, -3.4542460662645436e-9],
+        "radius": 0.054071809790058344
+      },
+      "sheenPrimitiveBounds": {
+        "min": [-0.03499509, -0.016206276438321066, -0.036981149900310116],
+        "max": [0.038447827100000005, 0.0010126114585376775, 0.036981142991817983],
+        "center": [0.0017263685500000028, -0.0075968324898916945, -3.4542460662645436e-9],
+        "radius": 0.052822279727457344
+      },
+      "cameras": {
+        "close": {
+          "coordinateSpace": "flutterSceneWorld",
+          "position": [0.13608483103483424, 0.08943138180507922, 0.19188377384089728],
+          "target": [0.0017263685500000028, -0.0075968324898916945, 3.4542460662645436e-9]
+        },
+        "grazing": {
+          "coordinateSpace": "flutterSceneWorld",
+          "position": [-0.23449150777715316, 0.025497684488703973, 0.08597627923890486],
+          "target": [0.0017263685500000028, -0.0075968324898916945, 3.4542460662645436e-9]
+        }
+      },
+      "sheenMaterialIndices": [1],
+      "focus": {
+        "material": "Fabric",
+        "materialIndex": 1,
+        "extension": "KHR_materials_sheen",
+        "ownership": "authored-data",
+        "bounds": "sheenPrimitiveBounds"
+      },
+      "context": {
+        "mode": "full-scene",
+        "purpose": "Show Fabric sheen in the same authored scene as separate ToyCar clearcoat and Glass transmission materials.",
+        "bounds": "sourceBounds",
+        "camera": {
+          "coordinateSpace": "flutterSceneWorld",
+          "position": [0.18191814339498086, 0.1170341921564537, 0.18019177829922697],
+          "target": [0.0017263685500000028, -0.0017948260093168921, 3.4542460662645436e-9]
+        },
+        "separateMaterialRoles": {
+          "clearcoat": ["ToyCar"],
+          "transmission": ["Glass"]
+        }
+      }
+    }
+  }
+}

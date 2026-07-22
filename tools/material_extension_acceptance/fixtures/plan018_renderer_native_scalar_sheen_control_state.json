@@ -1,0 +1,154 @@
+{
+  "schemaVersion": 1,
+  "name": "plan018_renderer_native_scalar_sheen_control",
+  "comparisonBoundary": "renderer-local sheen on/off control only",
+  "sharedComparisonState": {
+    "path": "tools/material_extension_acceptance/fixtures/plan018_controlled_comparison_state.json",
+    "sha256": "385b1a476d74c6ef670f80fdc42066b6191179619006c3094dc5dbaa31eb7843"
+  },
+  "viewport": {
+    "logicalWidth": 402,
+    "logicalHeight": 874,
+    "devicePixelRatio": 3
+  },
+  "background": {
+    "srgbHex": "#121118"
+  },
+  "camera": {
+    "verticalFovDegrees": 60.0,
+    "near": 0.1,
+    "far": 1000.0,
+    "up": [0.0, 1.0, 0.0]
+  },
+  "rendererCoordinateMapping": {
+    "flutterSceneImportedGltfRoot": "mirrorZ",
+    "position": "[x,y,z] => [x,y,-z]",
+    "target": "[x,y,z] => [x,y,-z]",
+    "up": "[x,y,z] => [x,y,-z]",
+    "directionalLightTravel": "[x,y,z] => [x,y,-z]",
+    "environment": "mirrorDecodedColumns",
+    "backdrop": "mirrorZ"
+  },
+  "environment": {
+    "kind": "generatedRadianceHdr",
+    "generator": "plan015_controlled_studio_v1_reused_exact_bytes",
+    "sourceStatePath": "tools/material_extension_acceptance/fixtures/plan015_controlled_comparison_state.json",
+    "width": 512,
+    "height": 256,
+    "sha256": "ef94e6aa0de3e5703a245f2e18dfd3b7bf8e07a24a794395cd50bd6e746e6a4a",
+    "worldOrientation": "flutterSceneWorldAtanZOverX",
+    "threejsLongitudeCorrection": "mirrorDecodedColumns",
+    "intensity": 1.0,
+    "rotationRadians": 0.0,
+    "showSkybox": false
+  },
+  "lighting": {
+    "exposure": 1.0,
+    "ambientOcclusion": false,
+    "keyLightIntensity": 3.0,
+    "keyLightColorLinear": [1.0, 1.0, 1.0],
+    "keyLightDirectionFlutterSceneWorld": [-0.45, -0.85, -0.35],
+    "keyLightCastsShadow": false
+  },
+  "renderPasses": ["directOnly", "iblOnly", "combined"],
+  "toneMapping": "pbrNeutral",
+  "outputColorSpace": "sRGB",
+  "referenceComparison": {
+    "status": "not run",
+    "acceptedEvidence": false,
+    "claim": "no external reference or general pixel parity"
+  },
+  "evidence": {
+    "runtimeAvailability": "not run",
+    "featureMaturity": "release pending",
+    "targetEvidence": {
+      "iosSimulator": "not run",
+      "physicalIos": "not run",
+      "android": "not run",
+      "web": "not run"
+    },
+    "visualEvidence": "not run",
+    "physicalCorrectness": "not run",
+    "productionReady": "not run"
+  },
+  "fixtureProvenance": {
+    "generatorPath": "tools/generate_plan018_renderer_native_sheen_fixture.py",
+    "sourcePath": "test/fixtures/MultiMaterialAssembly.glb",
+    "sourceSha256": "5f717f321050c3049a29cdf3e3223ad10fd05ce485a088011f77d84357b9ad5f",
+    "derivedPath": "test/fixtures/Plan018RendererNativeSheenControl.glb",
+    "derivedSha256": "8c0d893fbf72553b3dbf4d9bf8bfa3a1a24bbbfebd699beee5cf72a8216d967d",
+    "binaryChunkSha256": "8030b3e4654c54a4b6f4dc5b72832da20064ff3217c1fafccc30ac7d4bb0fdea",
+    "binaryChunkByteLength": 840,
+    "geometry": "byte-identical source BIN with authored normals and TEXCOORD_0",
+    "uv": "authored TEXCOORD_0 preserved but unused by scalar-only sheen",
+    "jsonDelta": "KHR_materials_sheen factors on material 0 only"
+  },
+  "models": {
+    "renderer_native_scalar_sheen_on": {
+      "name": "RendererNativeScalarSheenOn",
+      "controlRole": "sheenOn",
+      "expectedApplication": "rendererNative",
+      "sourceKind": "repository-generated deterministic scalar material JSON",
+      "path": "test/fixtures/Plan018RendererNativeSheenControl.glb",
+      "sha256": "8c0d893fbf72553b3dbf4d9bf8bfa3a1a24bbbfebd699beee5cf72a8216d967d",
+      "byteLength": 2848,
+      "sourcePath": "test/fixtures/MultiMaterialAssembly.glb",
+      "sourceSha256": "5f717f321050c3049a29cdf3e3223ad10fd05ce485a088011f77d84357b9ad5f",
+      "sourceByteLength": 2716,
+      "generatorPath": "tools/generate_plan018_renderer_native_sheen_fixture.py",
+      "binaryChunkSha256": "8030b3e4654c54a4b6f4dc5b72832da20064ff3217c1fafccc30ac7d4bb0fdea",
+      "binaryChunkByteLength": 840,
+      "sourceBounds": {
+        "min": [-0.75, -0.5, -0.35],
+        "max": [1.075, 0.625, 0.35],
+        "center": [0.1625, 0.0625, 0.0],
+        "radius": 1.127635801134391
+      },
+      "focusPrimitiveBounds": {
+        "min": [-0.75, -0.375, -0.3],
+        "max": [0.75, 0.375, 0.3],
+        "center": [0.0, 0.0, 0.0],
+        "radius": 0.8905756565278438
+      },
+      "cameras": {
+        "grazing": {
+          "coordinateSpace": "flutterSceneWorld",
+          "position": [-3.982597710267244, 0.5579685567861694, 1.4495470215940096],
+          "target": [0.0, 0.0, 0.0]
+        }
+      },
+      "sheenMaterialIndices": [0]
+    },
+    "renderer_native_scalar_sheen_off": {
+      "name": "RendererNativeScalarSheenOff",
+      "controlRole": "sheenOff",
+      "expectedApplication": "none",
+      "sourceKind": "repository fixture baseline",
+      "path": "test/fixtures/MultiMaterialAssembly.glb",
+      "sha256": "5f717f321050c3049a29cdf3e3223ad10fd05ce485a088011f77d84357b9ad5f",
+      "byteLength": 2716,
+      "binaryChunkSha256": "8030b3e4654c54a4b6f4dc5b72832da20064ff3217c1fafccc30ac7d4bb0fdea",
+      "binaryChunkByteLength": 840,
+      "sourceBounds": {
+        "min": [-0.75, -0.5, -0.35],
+        "max": [1.075, 0.625, 0.35],
+        "center": [0.1625, 0.0625, 0.0],
+        "radius": 1.127635801134391
+      },
+      "focusPrimitiveBounds": {
+        "min": [-0.75, -0.375, -0.3],
+        "max": [0.75, 0.375, 0.3],
+        "center": [0.0, 0.0, 0.0],
+        "radius": 0.8905756565278438
+      },
+      "cameras": {
+        "grazing": {
+          "coordinateSpace": "flutterSceneWorld",
+          "position": [-3.982597710267244, 0.5579685567861694, 1.4495470215940096],
+          "target": [0.0, 0.0, 0.0]
+        }
+      },
+      "sheenMaterialIndices": []
+    }
+  }
+}

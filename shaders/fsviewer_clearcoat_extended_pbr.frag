@@ -69,7 +69,8 @@ void ClearcoatExtendedPbrSurface(inout MaterialInputs material) {
       v_texture_coords, extended_pbr.normal_uv_offset_scale,
       extended_pbr.normal_uv_rotation);
   vec2 occlusion_uv = TransformClearcoatExtendedPbrUv(
-      v_texture_coords, extended_pbr.occlusion_uv_offset_scale,
+      SelectTextureCoordinates(frag_info.texture_coord_sets0.x),
+      extended_pbr.occlusion_uv_offset_scale,
       extended_pbr.occlusion_uv_rotation);
   vec2 emissive_uv = TransformClearcoatExtendedPbrUv(
       v_texture_coords, extended_pbr.emissive_uv_offset_scale,

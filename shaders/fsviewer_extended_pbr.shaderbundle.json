@@ -3,9 +3,33 @@
     "type": "fragment",
     "file": "shaders/fsviewer_extended_pbr.frag"
   },
+  "FSViewerExtendedPbrUV1": {
+    "type": "fragment",
+    "file": "shaders/fsviewer_extended_pbr_uv1.frag"
+  },
   "FSViewerClearcoatExtendedPbr": {
     "type": "fragment",
     "file": "shaders/fsviewer_clearcoat_extended_pbr.frag"
+  },
+  "FSViewerClearcoatExtendedPbrUV1": {
+    "type": "fragment",
+    "file": "shaders/fsviewer_clearcoat_extended_pbr_uv1.frag"
+  },
+  "FSViewerSheenExtendedPbr": {
+    "type": "fragment",
+    "file": "shaders/fsviewer_sheen_extended_pbr.frag"
+  },
+  "FSViewerSheenExtendedPbrUV1": {
+    "type": "fragment",
+    "file": "shaders/fsviewer_sheen_extended_pbr_uv1.frag"
+  },
+  "FSViewerClearcoatSheenExtendedPbr": {
+    "type": "fragment",
+    "file": "shaders/fsviewer_clearcoat_sheen_extended_pbr.frag"
+  },
+  "FSViewerClearcoatSheenExtendedPbrUV1": {
+    "type": "fragment",
+    "file": "shaders/fsviewer_clearcoat_sheen_extended_pbr_uv1.frag"
   },
   "FSViewerAuthoredMipProbe": {
     "type": "fragment",

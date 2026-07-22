@@ -14,7 +14,8 @@ Flutter-native GLB product viewing and configuration.
   mask intent with capability diagnostics;
 - automatic material-scoped UV0 transforms, dielectric specular, and opaque
   IOR through the bounded `FSViewerExtendedPbr` candidate path when its full
-  reflected contract is available;
+  reflected contract is available, plus opt-in renderer-native sheen at the
+  current immutable `flutter_scene` revision;
 - original material reset and serializable override state;
 - orbit/pan/zoom, auto camera fit, picking, visibility, and diagnostics;
 - viewer-controlled studio lighting and adaptive/on-demand rendering.
@@ -81,25 +82,50 @@ physical iOS, Android, and Web remain `not run`.
 Transmission/glass support is a v1.0 release blocker. It requires real
 `KHR_materials_transmission`, `KHR_materials_ior`, and `KHR_materials_volume`
 behavior; the viewer must not present alpha blending as glass. The
-repository-owned `flutterSceneCustomShader` backend is a `candidate-only` path
-with iOS Simulator evidence `verified locally`. Shader preflight proves that
-the package shader entries load and can be routed; it does not prove Khronos
-correctness or physical-device release readiness.
-It remains bounded screen-space glass, not nested glass, order-independent
-transparency, caustics, or path-traced volume transport. Physical iOS,
-Android material rendering, and Web material rendering remain `not run`.
+current immutable dependency retains the renderer-native Plan 016 material,
+importer, scene-color, refraction, volume, attenuation, and variable-IOR
+contract. The exact Plan 016 capture revision
+`5dcf6fce7dc36719e64e536faba9538fe9fa1022` has iOS Simulator evidence
+`verified locally`; that evidence remains attached to its exact historical
+pin. The repository-owned screen-space backend is retained only as historical
+`candidate-only` evidence. Nested glass, order-independent transparency,
+caustics, and path-traced volume transport remain out of scope. Release
+maturity is `release pending`; physical iOS, Android material rendering, and
+Web material rendering remain `not run`.
 
 Clearcoat support is also a v1.0 release blocker for automotive paint,
 varnished wood, carbon fiber, and premium coated surfaces. It requires real
 `KHR_materials_clearcoat`-style behavior; the viewer must not present lower
 roughness as clearcoat. The stable dependency pins published `flutter_scene`
-commit `5dcf6fce7dc36719e64e536faba9538fe9fa1022`, whose importer, material
-contract, texture slots, and shared PBR lighting implement the renderer-native
-second coat lobe. The source-compatible `productionShaders()` policy routes
-clearcoat as `rendererNative`; the older package-local overlay remains only
-historical candidate evidence. iOS Simulator application is `verified locally`.
-Release maturity is still `release pending`; physical iOS, Android material
-rendering, and Web material rendering remain `not run`.
+commit `766351c865c621e8720c726f9aa51173ce76e786`, which retains the
+renderer-native clearcoat and transmission/volume contracts and adds native
+sheen. The source-compatible `productionShaders()` policy routes clearcoat as
+`rendererNative`; the older package-local overlay remains only historical
+`candidate-only` evidence. Plan 015/016 iOS Simulator application evidence is
+`verified locally` at its recorded exact revision; the current pin retains the
+contract. Release maturity is still `release pending`; physical iOS, Android
+material rendering, and Web material rendering remain `not run`.
+
+`KHR_materials_sheen` is post-v1, opt-in V2 material work. With
+`ViewerMaterialExtensionPolicy.productionShaders(enableSheen: true)`, a pure
+standard-PBR sheen patch can route as `rendererNative`; a sheen-off control
+routes as `none`. The pinned renderer owns the Charlie direct and image-based
+lighting lobes, real DFG-B directional-albedo data, lazy Charlie environment
+prefiltering, authored UV metadata, sampler-bounded shader variants, and
+clearcoat-over-sheen layering. The viewer owns public glTF-shaped fields,
+validation, persistence, policy, diagnostics, atomic composition, and evidence.
+Existing package-owned transformed/specular/opaque-IOR state stays on one
+coherent `FSViewerExtendedPbr` candidate instead of being discarded, while
+renderer-native transmission/volume is never replaced by that material.
+
+The renderer-native scalar sheen on/off control has runtime availability and
+iOS Simulator target plus visual evidence `verified locally` under the current
+pin. Its maturity remains `release pending`. The earlier textile/ToyCar capture
+at `8e2e2221405b04c517189428d0faf8474cf7f708` remains historical
+`candidate-only` evidence and is not relabeled renderer-native. Physical iOS,
+Android, Web, external-reference comparison, physical correctness, general
+pixel parity, release, and `production-ready` evidence are `not run` or
+`release pending` as applicable.
 
 Explicit non-goals for v1:
 
@@ -128,11 +154,15 @@ before tessellation could even be considered.
 documentation, tooling, and validation checks are in place; the
 `flutter_scene` adapter is still being implemented. Treat the package as
 pre-release until runtime adapter checks pass and the material release blockers
-have production-ready evidence on each documented target scope. Clearcoat is
-renderer-native at the immutable revision above and is `verified locally` on
-iOS Simulator, but remains `release pending`. Package-local glass remains
-`candidate-only`. Physical iOS, Android material rendering, and Web material
-rendering remain `not run`.
+have production-ready evidence on each documented target scope. Clearcoat and
+transmission/volume are renderer-native at the immutable revision above; their
+recorded exact historical revisions have iOS Simulator evidence `verified
+locally`, but they remain `release pending`.
+Opt-in sheen is likewise renderer-native for the supported standard-PBR route,
+with a separate iOS Simulator scalar on/off control `verified locally`; it is
+not a v1 release gate and remains `release pending`. Historical package-local
+glass, clearcoat, and sheen captures remain `candidate-only`. Physical iOS,
+Android material rendering, and Web material rendering remain `not run`.
 
 ## Development
 

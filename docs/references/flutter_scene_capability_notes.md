@@ -25,6 +25,70 @@ V1 release-blocker capability to verify:
 Adapter implementation must keep direct `flutter_scene` imports isolated so API
 breakage is easy to repair.
 
+## 2026-07-22 Plan 018 renderer-native sheen
+
+The viewer now pins published `flutter_scene` commit
+`766351c865c621e8720c726f9aa51173ce76e786` in `pubspec.yaml` and
+`pubspec.lock`; the lockfile `resolved-ref` matches and no dependency override
+is used. That revision retains the Plan 015 clearcoat and Plan 016
+transmission/volume contracts and adds the selected native
+`KHR_materials_sheen` path.
+
+The standard material and import/serialization paths carry sheen color factor,
+sRGB color texture, roughness factor, linear-alpha roughness texture, per-slot
+UV selection, and texture transforms. Renderer lighting owns the Charlie direct
+and image-based lobes, real DFG-B directional-albedo data, lazy Charlie
+environment prefiltering, attenuation of the base layer, and layering below
+clearcoat. Native standard-material variants cover ordinary sheen and
+transmission-plus-sheen while respecting the portable fragment-sampler budget;
+active transmission plus active sheen plus textured clearcoat is rejected,
+while scalar clearcoat remains available. These BRDF, lookup, prefilter,
+sampler, and shader-variant choices remain renderer-internal and are not exposed
+as viewer API controls.
+
+The viewer owns glTF-shaped public fields, validation, serialization,
+persistence/reset, policy, diagnostics, capability reporting, atomic
+composition, and evidence. A pure supported standard-PBR sheen patch can route
+as `rendererNative`. Package-owned nonidentity core texture transforms,
+specular, and opaque-IOR behavior remain on one coherent
+`FSViewerExtendedPbr` candidate; existing extended state is not discarded when
+candidate sheen or scalar clearcoat is added. Renderer-native
+transmission/volume must not be replaced by that material, so an incompatible
+composition fails atomically.
+
+The package-authored material reader remains UV0-only. It reports a diagnostic
+instead of applying authored sheen textureInfo with a nonzero `texCoord` through
+UV0. A separate runtime-only native sheen binding may select UV1 only when the
+primitive exposes the exact `texture_coords_1` semantic. The adapter validates
+that attribute before decoding or mutating, and never invents or substitutes
+UVs. Package-owned extended-PBR routing cannot claim that UV1 contract.
+
+Renderer-native evidence is the separate scalar on/off run under
+`tools/out/material_extension_acceptance/plan018_controlled_comparison/ios_simulator/renderer-native-run-05/`.
+Its `evidence.json` SHA-256 is
+`9f4d3e1b2c561174c9426ad0da653f09c8c3d8ab7494bdfa7dcdf06d121f74da`.
+The sheen-on material probe reports `PhysicallyBasedMaterial`, application
+`rendererNative`, and one native material; sheen-off reports application `none`
+and zero native sheen materials. Both completed direct-only, IBL-only, and
+combined captures through Impeller Metal on the iPhone 17 iOS 26.5 Simulator.
+The evidence records runtime availability and iOS Simulator target plus visual
+evidence `verified locally`; feature maturity is `release pending`.
+
+The earlier SheenChair, SheenCloth, GlamVelvetSofa, and ToyCar run under
+`candidate-run-14` used `flutter_scene`
+`8e2e2221405b04c517189428d0faf8474cf7f708` and remains historical
+`candidate-only` evidence. Those materials require package-owned transformed or
+specular composition and are not relabeled renderer-native. In ToyCar the
+`Fabric`, clearcoated body, and `Glass` roles are separate materials; the
+Fabric route follows its own nonidentity base-color/normal transforms rather
+than model-wide extension presence.
+
+Literal boundary: physical iOS, Android, Web, external-reference comparison,
+physical correctness, general pixel parity, release, and `production-ready`
+evidence are `not run` or `release pending` as applicable. The Simulator
+control proves a renderer-local visual effect and target execution only; it is
+not a physical-correctness or general pixel-parity claim.
+
 ## 2026-07-17 Plan 016 renderer-native transmission and volume
 
 Published `flutter_scene` commit
@@ -49,10 +113,12 @@ dedicated transmission standard-material variant stays at 16 fragment samplers
 by omitting only secondary-environment crossfade, while retaining primary IBL,
 direct light, shadows, SSAO, clearcoat, and emission.
 
-The viewer pins this exact revision in `pubspec.yaml` and `pubspec.lock`; the
-lockfile `resolved-ref` matches and no `pubspec_overrides.yaml` exists. Native
+At the Plan 016 checkpoint, the viewer pinned this exact revision in
+`pubspec.yaml` and `pubspec.lock`; the lockfile `resolved-ref` matched and no
+`pubspec_overrides.yaml` existed. The current
+`766351c865c621e8720c726f9aa51173ce76e786` pin retains that contract. Native
 capability detection reports transmission, glass IOR, volume, and clearcoat
-independently. For the exact current probe, iOS Simulator maturity is
+independently. For the recorded Plan 016 probe, iOS Simulator maturity is
 `releasePending` and evidence is `verifiedLocally`; physical iOS, Android, and
 Web remain `diagnosticOnly`/`notRun`, no release targets are claimed, and
 aggregate production readiness remains false.
@@ -99,11 +165,12 @@ are recorded in `tools/material_extension_acceptance/manifest.json` and
 `material_extension_platform_evidence.md`.
 
 The current stable dependency pin
-`5dcf6fce7dc36719e64e536faba9538fe9fa1022` retains that published clearcoat
-contract from `https://github.com/MarlonJD/flutter_scene`. Runtime capability
-is `verified locally` on the iOS Simulator; release maturity is `release
-pending`, production readiness is `false`, and physical iOS, Android, and Web
-are `not run`.
+`766351c865c621e8720c726f9aa51173ce76e786` retains that published clearcoat
+contract from `https://github.com/MarlonJD/flutter_scene` and adds native
+sheen. The Plan 015 target record still belongs to its exact historical
+revision. Runtime clearcoat capability is `verified locally` on the iOS
+Simulator; release maturity is `release pending`, production readiness is
+`false`, and physical iOS, Android, and Web are `not run`.
 
 ## 2026-07-14 Plan 014 extended-PBR amendment
 

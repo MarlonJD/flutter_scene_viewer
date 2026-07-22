@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "scope": "Selected glTF extension capability and evidence truth; historical, host, simulator, build-only, and target evidence remain independent.",
   "historicalPlan014": {
     "path": "tools/capability_matrix/history/plan014_feature_target_snapshot.json",
@@ -7,6 +7,26 @@
     "sourceSha256": "0ebe4e6c17919e3dca21dedf0e7d21ef1eef24431c1ab8c62d408ebfd52ac74d",
     "featureTargetRowsSha256": "9d9dd71db8768cf42d54319fa7996190bdc034d4270fdbe9fcc372864c19ba06",
     "historicalContextSha256": "12f4205de76da66db7d89e391fc869500b5e0380f5fd88d55b1a003b2419adab"
+  },
+  "plan018SheenEvidence": {
+    "rendererNative": {
+      "path": "tools/out/material_extension_acceptance/plan018_controlled_comparison/ios_simulator/renderer-native-run-05/evidence.json",
+      "sha256": "9f4d3e1b2c561174c9426ad0da653f09c8c3d8ab7494bdfa7dcdf06d121f74da",
+      "applicationKind": "rendererNative",
+      "visualEvidence": "verified locally",
+      "runtimeAvailability": "available",
+      "maturity": "release pending",
+      "targetEvidence": "verified locally"
+    },
+    "historicalCandidate": {
+      "path": "tools/out/material_extension_acceptance/plan018_controlled_comparison/ios_simulator/candidate-run-14/evidence.json",
+      "sha256": "87cb87f7ecce3b5916ae72896d1b7980ca6d950ef18a2aed2165734cb8d05cbb",
+      "applicationKind": "packageLocalCandidate",
+      "executionEvidence": "verified locally",
+      "visualEvidence": "not run",
+      "maturity": "candidate-only",
+      "targetEvidence": "not run"
+    }
   },
   "featureSet": [
     "KHR_texture_transform",
@@ -17,7 +37,8 @@
     "KHR_materials_volume",
     "KHR_draco_mesh_compression",
     "EXT_meshopt_compression",
-    "KHR_texture_basisu"
+    "KHR_texture_basisu",
+    "KHR_materials_sheen"
   ],
   "targetSet": [
     "ios_simulator",
@@ -120,7 +141,7 @@
         "packages/flutter_scene_viewer_draco/ios/Classes/fsv_draco_platform_serialization.h": "3a1fb97462c5abccf1b4f2badde948e3391b05d24920327a78213e9d4f0d9999",
         "packages/flutter_scene_viewer_draco/ios/Classes/FlutterSceneViewerDracoPlugin.mm": "d5541a5509b5e6396706e6038b16f1183316c3672529be2130aecaf57ad3e202",
         "packages/flutter_scene_viewer_draco/ios/Classes/fsv_draco_request_registry.h": "8513d6d1568bc53b2866e24e8a8ad2720ca5b5882d939be34771b98fed14d686",
-        "packages/flutter_scene_viewer_draco/ios/Classes/fsv_draco_request_registry.cc": "30dfc6dfe37e8f177c74864610119160998191c7025a08c4ee375c8dd055ef11",
+        "packages/flutter_scene_viewer_draco/ios/Classes/fsv_draco_request_registry.cc": "46931fdb669a061608307c0882911b8b74067bfa6c035cae838ffd55648a94d1",
         "lib/src/internal/glb_native_decoder_probe.dart": "691b5ec51b2e02259de62e05d9016aa2cb5eed98b8263a478561c241a45ad7ed"
       }
     },
@@ -222,6 +243,7 @@
       },
       "targets": {
         "ios_simulator": {
+          "applicationKind": "not recorded",
           "applied": "verified locally",
           "visuallyVerified": "verified locally",
           "runtimeCapability": "candidate-only availability",
@@ -230,6 +252,7 @@
           "blocker": "candidate-only iPhone 17 Simulator transform evidence recorded at tools/out/material_extension_acceptance/plan014_extended_pbr_ios_simulator/evidence.json; physical and release evidence remain not run"
         },
         "ios_physical": {
+          "applicationKind": "not recorded",
           "applied": "blocked",
           "visuallyVerified": "not run",
           "runtimeCapability": "diagnostic-only",
@@ -238,6 +261,7 @@
           "blocker": "package-local FSViewerExtendedPbr transform path has no physical-device run"
         },
         "android": {
+          "applicationKind": "not recorded",
           "applied": "blocked",
           "visuallyVerified": "not run",
           "runtimeCapability": "diagnostic-only",
@@ -246,6 +270,7 @@
           "blocker": "package-local FSViewerExtendedPbr transform path has no Android runtime/render run"
         },
         "web": {
+          "applicationKind": "not recorded",
           "applied": "blocked",
           "visuallyVerified": "not run",
           "runtimeCapability": "diagnostic-only",
@@ -277,6 +302,7 @@
       },
       "targets": {
         "ios_simulator": {
+          "applicationKind": "not recorded",
           "applied": "verified locally",
           "visuallyVerified": "verified locally",
           "runtimeCapability": "candidate-only availability",
@@ -285,6 +311,7 @@
           "blocker": "candidate-only iPhone 17 Simulator specular evidence recorded at tools/out/material_extension_acceptance/plan014_extended_pbr_ios_simulator/evidence.json; physical and release evidence remain not run"
         },
         "ios_physical": {
+          "applicationKind": "not recorded",
           "applied": "blocked",
           "visuallyVerified": "not run",
           "runtimeCapability": "diagnostic-only",
@@ -293,6 +320,7 @@
           "blocker": "package-local FSViewerExtendedPbr specular path has no physical-device run"
         },
         "android": {
+          "applicationKind": "not recorded",
           "applied": "blocked",
           "visuallyVerified": "not run",
           "runtimeCapability": "diagnostic-only",
@@ -301,6 +329,7 @@
           "blocker": "package-local FSViewerExtendedPbr specular path has no Android runtime/render run"
         },
         "web": {
+          "applicationKind": "not recorded",
           "applied": "blocked",
           "visuallyVerified": "not run",
           "runtimeCapability": "diagnostic-only",
@@ -332,6 +361,7 @@
       },
       "targets": {
         "ios_simulator": {
+          "applicationKind": "not recorded",
           "applied": "verified locally",
           "visuallyVerified": "verified locally",
           "runtimeCapability": "candidate-only availability",
@@ -340,6 +370,7 @@
           "blocker": "candidate-only iPhone 17 Simulator opaque-IOR evidence recorded at tools/out/material_extension_acceptance/plan014_extended_pbr_ios_simulator/evidence.json; physical and release evidence remain not run"
         },
         "ios_physical": {
+          "applicationKind": "not recorded",
           "applied": "blocked",
           "visuallyVerified": "not run",
           "runtimeCapability": "diagnostic-only",
@@ -348,6 +379,7 @@
           "blocker": "package-local FSViewerExtendedPbr opaque-IOR path has no physical-device run"
         },
         "android": {
+          "applicationKind": "not recorded",
           "applied": "blocked",
           "visuallyVerified": "not run",
           "runtimeCapability": "diagnostic-only",
@@ -356,6 +388,7 @@
           "blocker": "package-local FSViewerExtendedPbr opaque-IOR path has no Android runtime/render run"
         },
         "web": {
+          "applicationKind": "not recorded",
           "applied": "blocked",
           "visuallyVerified": "not run",
           "runtimeCapability": "diagnostic-only",
@@ -387,6 +420,7 @@
       },
       "targets": {
         "ios_simulator": {
+          "applicationKind": "not recorded",
           "applied": "not run",
           "visuallyVerified": "not run",
           "runtimeCapability": "candidate-only availability",
@@ -395,6 +429,7 @@
           "blocker": "durable current target run is absent; renderer-native integration was completed separately by Plan 015"
         },
         "ios_physical": {
+          "applicationKind": "not recorded",
           "applied": "not run",
           "visuallyVerified": "not run",
           "runtimeCapability": "candidate-only availability",
@@ -403,6 +438,7 @@
           "blocker": "no physical-iOS candidate-backend or renderer-native run; follow-up is Plan 015"
         },
         "android": {
+          "applicationKind": "not recorded",
           "applied": "not run",
           "visuallyVerified": "not run",
           "runtimeCapability": "candidate-only availability",
@@ -411,6 +447,7 @@
           "blocker": "no Android candidate-backend or renderer-native runtime run; follow-up is Plan 015"
         },
         "web": {
+          "applicationKind": "not recorded",
           "applied": "not run",
           "visuallyVerified": "not run",
           "runtimeCapability": "candidate-only availability",
@@ -442,6 +479,7 @@
       },
       "targets": {
         "ios_simulator": {
+          "applicationKind": "not recorded",
           "applied": "not run",
           "visuallyVerified": "not run",
           "runtimeCapability": "candidate-only availability",
@@ -450,6 +488,7 @@
           "blocker": "durable current target run is absent; renderer-native glass was completed separately by Plan 016"
         },
         "ios_physical": {
+          "applicationKind": "not recorded",
           "applied": "not run",
           "visuallyVerified": "not run",
           "runtimeCapability": "candidate-only availability",
@@ -458,6 +497,7 @@
           "blocker": "no physical-iOS candidate-backend or renderer-native glass run; follow-up is Plan 016"
         },
         "android": {
+          "applicationKind": "not recorded",
           "applied": "not run",
           "visuallyVerified": "not run",
           "runtimeCapability": "candidate-only availability",
@@ -466,6 +506,7 @@
           "blocker": "no Android candidate-backend or renderer-native glass run; follow-up is Plan 016"
         },
         "web": {
+          "applicationKind": "not recorded",
           "applied": "not run",
           "visuallyVerified": "not run",
           "runtimeCapability": "candidate-only availability",
@@ -497,6 +538,7 @@
       },
       "targets": {
         "ios_simulator": {
+          "applicationKind": "not recorded",
           "applied": "not run",
           "visuallyVerified": "not run",
           "runtimeCapability": "candidate-only availability",
@@ -505,6 +547,7 @@
           "blocker": "durable current target run is absent; full volume transport was completed separately by Plan 016"
         },
         "ios_physical": {
+          "applicationKind": "not recorded",
           "applied": "not run",
           "visuallyVerified": "not run",
           "runtimeCapability": "candidate-only availability",
@@ -513,6 +556,7 @@
           "blocker": "no physical-iOS volume run; renderer-native follow-up is Plan 016"
         },
         "android": {
+          "applicationKind": "not recorded",
           "applied": "not run",
           "visuallyVerified": "not run",
           "runtimeCapability": "candidate-only availability",
@@ -521,6 +565,7 @@
           "blocker": "no Android volume run; renderer-native follow-up is Plan 016"
         },
         "web": {
+          "applicationKind": "not recorded",
           "applied": "not run",
           "visuallyVerified": "not run",
           "runtimeCapability": "candidate-only availability",
@@ -552,6 +597,7 @@
       },
       "targets": {
         "ios_simulator": {
+          "applicationKind": "not recorded",
           "applied": "verified locally",
           "visuallyVerified": "verified locally",
           "runtimeCapability": "candidate-only native plugin",
@@ -560,6 +606,7 @@
           "blocker": "candidate-only A1B32 Draco decode/render evidence recorded at tools/out/material_extension_acceptance/plan014_extended_pbr_ios_simulator/evidence.json; native in-flight cancellation, allocation control, and release packaging remain unverified"
         },
         "ios_physical": {
+          "applicationKind": "not recorded",
           "applied": "not run",
           "visuallyVerified": "not run",
           "runtimeCapability": "candidate-only native plugin",
@@ -568,6 +615,7 @@
           "blocker": "no physical-iOS runtime, render, or release-packaging run"
         },
         "android": {
+          "applicationKind": "not recorded",
           "applied": "not run",
           "visuallyVerified": "not run",
           "runtimeCapability": "candidate-only native plugin",
@@ -576,6 +624,7 @@
           "blocker": "Android bridge/native sources compile on the host, but no Android app runtime or packaging run exists"
         },
         "web": {
+          "applicationKind": "not recorded",
           "applied": "unsupported",
           "visuallyVerified": "not run",
           "runtimeCapability": "unsupported",
@@ -607,6 +656,7 @@
       },
       "targets": {
         "ios_simulator": {
+          "applicationKind": "not recorded",
           "applied": "not run",
           "visuallyVerified": "not run",
           "runtimeCapability": "candidate-only pure-Dart rewrite",
@@ -615,6 +665,7 @@
           "blocker": "host validator green is not an iOS Simulator import/render capture"
         },
         "ios_physical": {
+          "applicationKind": "not recorded",
           "applied": "not run",
           "visuallyVerified": "not run",
           "runtimeCapability": "candidate-only pure-Dart rewrite",
@@ -623,6 +674,7 @@
           "blocker": "no physical-iOS import/render or release-packaging run"
         },
         "android": {
+          "applicationKind": "not recorded",
           "applied": "not run",
           "visuallyVerified": "not run",
           "runtimeCapability": "candidate-only pure-Dart rewrite",
@@ -631,6 +683,7 @@
           "blocker": "no Android app import/render or release-packaging run"
         },
         "web": {
+          "applicationKind": "not recorded",
           "applied": "not run",
           "visuallyVerified": "not run",
           "runtimeCapability": "candidate-only pure-Dart rewrite",
@@ -662,6 +715,7 @@
       },
       "targets": {
         "ios_simulator": {
+          "applicationKind": "not recorded",
           "applied": "not run",
           "visuallyVerified": "not run",
           "runtimeCapability": "candidate-only native plugin",
@@ -670,6 +724,7 @@
           "blocker": "no durable iOS Simulator transcode/import/render or packaging run"
         },
         "ios_physical": {
+          "applicationKind": "not recorded",
           "applied": "not run",
           "visuallyVerified": "not run",
           "runtimeCapability": "candidate-only native plugin",
@@ -678,6 +733,7 @@
           "blocker": "no physical-iOS transcode/import/render or release-packaging run"
         },
         "android": {
+          "applicationKind": "not recorded",
           "applied": "not run",
           "visuallyVerified": "not run",
           "runtimeCapability": "candidate-only native plugin",
@@ -686,12 +742,72 @@
           "blocker": "Android bridge/native sources compile on the host, but no Android app runtime or packaging run exists"
         },
         "web": {
+          "applicationKind": "not recorded",
           "applied": "unsupported",
           "visuallyVerified": "not run",
           "runtimeCapability": "unsupported",
           "releaseMaturity": "diagnostic-only",
           "targetEvidence": "not run",
           "blocker": "the optional BasisU transcoder is native-only; no Web transcoder is provided"
+        }
+      }
+    },
+    {
+      "id": "KHR_materials_sheen",
+      "displayName": "Sheen",
+      "hostStages": {
+        "parsed": {
+          "status": "verified locally",
+          "scope": "host CPU reader and validation",
+          "evidence": "factors, color and roughness texture roles, defaults, ranges, UV sets, transforms, and malformed-group isolation are tested"
+        },
+        "preserved": {
+          "status": "verified locally",
+          "scope": "serializable wrapper intent",
+          "evidence": "authored sheen factors, texture bytes, UV metadata, transforms, and samplers remain distinct from core roughness and clearcoat"
+        },
+        "decoded": {
+          "status": "not applicable",
+          "scope": "wrapper intent boundary",
+          "evidence": "encoded texture bytes are preserved while image decoding remains renderer-owned"
+        }
+      },
+      "targets": {
+        "ios_simulator": {
+          "applicationKind": "rendererNative",
+          "applied": "verified locally",
+          "visuallyVerified": "verified locally",
+          "runtimeCapability": "available",
+          "releaseMaturity": "release pending",
+          "targetEvidence": "verified locally",
+          "blocker": "renderer-local scalar sheen on/off evidence is recorded at tools/out/material_extension_acceptance/plan018_controlled_comparison/ios_simulator/renderer-native-run-05/evidence.json; release and production-ready evidence remain not run"
+        },
+        "ios_physical": {
+          "applicationKind": "not run",
+          "applied": "not run",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "not run",
+          "releaseMaturity": "release pending",
+          "targetEvidence": "not run",
+          "blocker": "no physical-iOS renderer-native sheen runtime/render or release-packaging run"
+        },
+        "android": {
+          "applicationKind": "not run",
+          "applied": "not run",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "not run",
+          "releaseMaturity": "release pending",
+          "targetEvidence": "not run",
+          "blocker": "no Android renderer-native sheen runtime/render or release-packaging run"
+        },
+        "web": {
+          "applicationKind": "not run",
+          "applied": "not run",
+          "visuallyVerified": "not run",
+          "runtimeCapability": "not run",
+          "releaseMaturity": "release pending",
+          "targetEvidence": "not run",
+          "blocker": "no Web renderer-native sheen runtime/render or release-packaging run"
         }
       }
     }

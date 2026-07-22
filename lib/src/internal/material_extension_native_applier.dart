@@ -21,6 +21,14 @@ abstract interface class NativeMaterialExtensionMaterial {
   set clearcoatTexture(Object? value);
   set clearcoatRoughnessTexture(Object? value);
   set clearcoatNormalTexture(Object? value);
+  set sheenColorFactor(List<double> value);
+  set sheenRoughnessFactor(double value);
+  set sheenColorTexture(Object? value);
+  set sheenColorTextureTexCoord(int value);
+  set sheenColorTextureTransform(TextureTransform value);
+  set sheenRoughnessTexture(Object? value);
+  set sheenRoughnessTextureTexCoord(int value);
+  set sheenRoughnessTextureTransform(TextureTransform value);
 }
 
 List<ViewerDiagnostic> applyNativeMaterialExtensionPatch({
@@ -32,6 +40,8 @@ List<ViewerDiagnostic> applyNativeMaterialExtensionPatch({
   Object? clearcoatTexture,
   Object? clearcoatRoughnessTexture,
   Object? clearcoatNormalTexture,
+  Object? sheenColorTexture,
+  Object? sheenRoughnessTexture,
 }) {
   final diagnostic = nativeMaterialExtensionPatchDiagnostic(
     support: support,
@@ -94,6 +104,29 @@ List<ViewerDiagnostic> applyNativeMaterialExtensionPatch({
   if (patch.textureBindingFor(MaterialTextureSlot.clearcoatNormal) != null) {
     material.clearcoatNormalTexture = clearcoatNormalTexture;
   }
+  final sheenColorFactor = patch.sheenColorFactor;
+  if (sheenColorFactor != null) {
+    material.sheenColorFactor = List<double>.unmodifiable(sheenColorFactor);
+  }
+  final sheenRoughness = patch.sheenRoughness;
+  if (sheenRoughness != null) {
+    material.sheenRoughnessFactor = sheenRoughness;
+  }
+  final sheenColorBinding =
+      patch.textureBindingFor(MaterialTextureSlot.sheenColor);
+  if (sheenColorBinding != null) {
+    material.sheenColorTexture = sheenColorTexture;
+    material.sheenColorTextureTexCoord = sheenColorBinding.effectiveTexCoord;
+    material.sheenColorTextureTransform = sheenColorBinding.transform;
+  }
+  final sheenRoughnessBinding =
+      patch.textureBindingFor(MaterialTextureSlot.sheenRoughness);
+  if (sheenRoughnessBinding != null) {
+    material.sheenRoughnessTexture = sheenRoughnessTexture;
+    material.sheenRoughnessTextureTexCoord =
+        sheenRoughnessBinding.effectiveTexCoord;
+    material.sheenRoughnessTextureTransform = sheenRoughnessBinding.transform;
+  }
 
   return const <ViewerDiagnostic>[];
 }
@@ -111,6 +144,7 @@ bool supportsNativeMaterialExtensionPatch(
 bool hasNativeMaterialExtensionIntent(MaterialPatch patch) =>
     patch.hasGlassOverride ||
     patch.hasClearcoatOverride ||
+    patch.hasSheenOverride ||
     patch.hasSpecularOverride ||
     patch.ior != null;
 
@@ -172,6 +206,13 @@ ViewerDiagnostic? nativeMaterialExtensionPatchDiagnostic({
   }
   if (patch.hasClearcoatOverride &&
       !support.supportFor(MaterialExtensionFeature.clearcoat).available) {
+    return _nativeMaterialExtensionUnsupportedDiagnostic(
+      support: support,
+      address: address,
+    );
+  }
+  if (patch.hasSheenOverride &&
+      !support.supportFor(MaterialExtensionFeature.sheen).available) {
     return _nativeMaterialExtensionUnsupportedDiagnostic(
       support: support,
       address: address,

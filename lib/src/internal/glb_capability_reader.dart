@@ -328,6 +328,22 @@ GlbAssetCapabilityResult readGlbAssetCapabilities(
       slot: 'clearcoatNormalTexture',
       role: GlbTextureRole.normal,
     );
+    _addExtensionTextureSlot(
+      textureSlots,
+      materialIndex: materialIndex,
+      extensions: extensions,
+      extensionName: 'KHR_materials_sheen',
+      slot: 'sheenColorTexture',
+      role: GlbTextureRole.color,
+    );
+    _addExtensionTextureSlot(
+      textureSlots,
+      materialIndex: materialIndex,
+      extensions: extensions,
+      extensionName: 'KHR_materials_sheen',
+      slot: 'sheenRoughnessTexture',
+      role: GlbTextureRole.data,
+    );
   }
 
   final diagnostics = <ViewerDiagnostic>[];

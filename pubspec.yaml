@@ -18,7 +18,7 @@ dependencies:
   flutter_scene:
     git:
       url: https://github.com/MarlonJD/flutter_scene.git
-      ref: 5dcf6fce7dc36719e64e536faba9538fe9fa1022
+      ref: 766351c865c621e8720c726f9aa51173ce76e786
       path: packages/flutter_scene
   hooks: ^2.0.0
   http: ^1.2.2
@@ -26,6 +26,7 @@ dependencies:
   vector_math: ^2.1.4
 
 dev_dependencies:
+  crypto: ^3.0.7
   flutter_test:
     sdk: flutter
   integration_test:

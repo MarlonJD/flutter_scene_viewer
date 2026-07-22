@@ -5,7 +5,7 @@
     "This corpus defines required real-asset roles for repo-owned custom shader material extension production support.",
     "Assets are not vendored in this repository; evidence tooling must download or otherwise stage them explicitly before visual acceptance runs.",
     "Khronos Sample Viewer or three.js reference renders define the intended visual direction for staged assets.",
-    "UV0/TEXCOORD_0 is required for every texture-bearing extension input."
+    "UV0/TEXCOORD_0 is required for package-owned authored texture-bearing extension inputs; renderer-native runtime bindings preserve their authored texture-coordinate semantic."
   ],
   "referenceState": {
     "path": "tools/material_extension_acceptance/fixtures/reference_state.json",
@@ -145,6 +145,344 @@
     "runtimeCapability": "verified locally on iOS Simulator; the viewer dependency resolves the published immutable renderer commit",
     "releaseMaturity": "release pending",
     "productionReady": false
+  },
+  "plan018SheenCorpus": {
+    "schemaVersion": 1,
+    "sourceRepository": {
+      "name": "KhronosGroup/glTF-Sample-Assets",
+      "commit": "2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf",
+      "commitUrl": "https://github.com/KhronosGroup/glTF-Sample-Assets/commit/2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf"
+    },
+    "stagingToolPath": "tools/stage_material_extension_fixtures.py",
+    "stagingRoot": "tools/out/material_extension_acceptance/plan018_sheen_corpus",
+    "scope": "Source/license provenance and deterministic derived-container staging only; no Three.js, Flutter, renderer, target, release, or production-readiness evidence.",
+    "evidence": {
+      "sourceAndLicenseProvenance": "verified locally",
+      "threeJsLoading": "not run",
+      "flutterLoading": "not run",
+      "rendering": "not run",
+      "releaseMaturity": "not established",
+      "productionReadiness": "not established",
+      "targetEvidence": [
+        {
+          "target": "iOS Simulator",
+          "status": "not run"
+        },
+        {
+          "target": "physical iOS",
+          "status": "not run"
+        },
+        {
+          "target": "Android",
+          "status": "not run"
+        },
+        {
+          "target": "Web",
+          "status": "not run"
+        }
+      ]
+    },
+    "authoredCoverage": {
+      "collectiveSheenInputs": [
+        "sheenColorFactor",
+        "sheenColorTexture",
+        "sheenRoughnessFactor",
+        "sheenRoughnessTexture"
+      ],
+      "toyCarRoleSeparation": {
+        "evidenceKind": "authored-data separation only",
+        "sheen": {
+          "material": "Fabric",
+          "extension": "KHR_materials_sheen"
+        },
+        "clearcoat": {
+          "material": "ToyCar",
+          "extension": "KHR_materials_clearcoat"
+        },
+        "transmission": {
+          "material": "Glass",
+          "extension": "KHR_materials_transmission"
+        },
+        "rendering": "not run"
+      }
+    },
+    "fixtures": [
+      {
+        "id": "sheen_chair",
+        "name": "SheenChair",
+        "features": [
+          "KHR_materials_sheen"
+        ],
+        "authoredSheenInputs": [
+          "sheenColorFactor",
+          "sheenRoughnessFactor"
+        ],
+        "sourceKind": "khronos-official-glb",
+        "sourceRepository": {
+          "name": "KhronosGroup/glTF-Sample-Assets",
+          "commit": "2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf",
+          "commitUrl": "https://github.com/KhronosGroup/glTF-Sample-Assets/commit/2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf"
+        },
+        "sourceFiles": [
+          {
+            "path": "Models/SheenChair/glTF-Binary/SheenChair.glb",
+            "url": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf/Models/SheenChair/glTF-Binary/SheenChair.glb",
+            "sha256": "f0af2a2b102d28d540236306ae19f8fb36842df76bd38cf76f063f9bd2853399",
+            "byteLength": 4125648,
+            "mediaType": "model/gltf-binary"
+          }
+        ],
+        "stagingDirectory": "tools/out/material_extension_acceptance/plan018_sheen_corpus/sheen_chair",
+        "vendored": false,
+        "localPath": null,
+        "license": {
+          "assetSpdx": "CC0-1.0",
+          "metadataSpdx": "CC-BY-4.0",
+          "evidencePath": "Models/SheenChair/LICENSE.md",
+          "evidenceUrl": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf/Models/SheenChair/LICENSE.md",
+          "evidenceSha256": "ec688136d27e6b32c3af32bd06f9066c78ff55bd0de6bff012580436b629dd57",
+          "evidenceByteLength": 700
+        }
+      },
+      {
+        "id": "sheen_cloth",
+        "name": "SheenCloth",
+        "features": [
+          "KHR_materials_sheen"
+        ],
+        "authoredSheenInputs": [
+          "sheenColorFactor",
+          "sheenColorTexture",
+          "sheenRoughnessFactor",
+          "sheenRoughnessTexture"
+        ],
+        "sourceKind": "khronos-official-multifile-gltf",
+        "sourceRepository": {
+          "name": "KhronosGroup/glTF-Sample-Assets",
+          "commit": "2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf",
+          "commitUrl": "https://github.com/KhronosGroup/glTF-Sample-Assets/commit/2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf"
+        },
+        "sourceFiles": [
+          {
+            "path": "Models/SheenCloth/glTF/SheenCloth.gltf",
+            "url": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf/Models/SheenCloth/glTF/SheenCloth.gltf",
+            "sha256": "00a2cbc0d2ad4788dbfc00da3c51f252fd8e6003dbfda80b087a548fe3550f02",
+            "byteLength": 6854,
+            "mediaType": "model/gltf+json"
+          },
+          {
+            "path": "Models/SheenCloth/glTF/SheenCloth.bin",
+            "url": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf/Models/SheenCloth/glTF/SheenCloth.bin",
+            "sha256": "4ed1f49797ce52b9f653b8650a31fa249fac99524303b0e153804365fb7e45b1",
+            "byteLength": 3479088,
+            "mediaType": "application/octet-stream"
+          },
+          {
+            "path": "Models/SheenCloth/glTF/technicalFabricSmall_normal_256.png",
+            "url": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf/Models/SheenCloth/glTF/technicalFabricSmall_normal_256.png",
+            "sha256": "299b1ccf8957d451d7841672b1750b5cfcea65fee1c97eec6b086dc3fdeea838",
+            "byteLength": 127852,
+            "mediaType": "image/png"
+          },
+          {
+            "path": "Models/SheenCloth/glTF/technicalFabricSmall_orm_256.png",
+            "url": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf/Models/SheenCloth/glTF/technicalFabricSmall_orm_256.png",
+            "sha256": "41c04abdb9531d00a4ac832d41f02cd549c7be74886c4d492475cfb95d239a20",
+            "byteLength": 131303,
+            "mediaType": "image/png"
+          },
+          {
+            "path": "Models/SheenCloth/glTF/technicalFabricSmall_basecolor_256.png",
+            "url": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf/Models/SheenCloth/glTF/technicalFabricSmall_basecolor_256.png",
+            "sha256": "e945c0b2aa6e3987d8bb8af23aca58a3f75cce2992bb4803bec8cac6cde8474e",
+            "byteLength": 125026,
+            "mediaType": "image/png"
+          },
+          {
+            "path": "Models/SheenCloth/glTF/technicalFabricSmall_sheen_256.png",
+            "url": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf/Models/SheenCloth/glTF/technicalFabricSmall_sheen_256.png",
+            "sha256": "479c3c65b1b9161701c5587cdfccf42a2de38d4d5365b6b904daf9ba8b7b9aab",
+            "byteLength": 170368,
+            "mediaType": "image/png"
+          },
+          {
+            "path": "Models/SheenCloth/glTF/SheenCloth_AO.jpg",
+            "url": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf/Models/SheenCloth/glTF/SheenCloth_AO.jpg",
+            "sha256": "5b40abcf27c3c8a3ccf16e4672da35a1b27680c4037c1b27f390398aaaa896ff",
+            "byteLength": 139947,
+            "mediaType": "image/jpeg"
+          }
+        ],
+        "stagingDirectory": "tools/out/material_extension_acceptance/plan018_sheen_corpus/sheen_cloth",
+        "vendored": false,
+        "localPath": null,
+        "license": {
+          "assetSpdx": "CC0-1.0",
+          "metadataSpdx": "CC-BY-4.0",
+          "evidencePath": "Models/SheenCloth/LICENSE.md",
+          "evidenceUrl": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf/Models/SheenCloth/LICENSE.md",
+          "evidenceSha256": "584e393d6faecc7d7e1738cb08bf6c0a0ace8dc04bcc1d2e38b077ff2141267a",
+          "evidenceByteLength": 700
+        },
+        "derivedArtifact": {
+          "artifactKind": "repository-generated-deterministic-container",
+          "provenance": "repository-generated deterministic container derived from the hash-pinned official multi-file source",
+          "transformation": "External buffer and image bytes become GLB buffer views; authored materials, texture channels, samplers, transforms, UVs, geometry, and names remain unchanged.",
+          "outputPath": "tools/out/material_extension_acceptance/plan018_sheen_corpus/sheen_cloth/derived/SheenCloth.glb",
+          "sha256": "bab89a56fe44396877f35fc794222b54f2107ba273634c6514c2a910cab61588",
+          "byteLength": 4176696,
+          "glbContract": {
+            "version": 2,
+            "buffers": 1,
+            "bufferViews": 9,
+            "embeddedImages": 5,
+            "materials": 1
+          }
+        }
+      },
+      {
+        "id": "glam_velvet_sofa",
+        "name": "GlamVelvetSofa",
+        "features": [
+          "KHR_materials_sheen",
+          "KHR_materials_specular"
+        ],
+        "authoredSheenInputs": [
+          "sheenColorFactor",
+          "sheenRoughnessFactor"
+        ],
+        "sourceKind": "khronos-official-glb",
+        "sourceRepository": {
+          "name": "KhronosGroup/glTF-Sample-Assets",
+          "commit": "2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf",
+          "commitUrl": "https://github.com/KhronosGroup/glTF-Sample-Assets/commit/2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf"
+        },
+        "sourceFiles": [
+          {
+            "path": "Models/GlamVelvetSofa/glTF-Binary/GlamVelvetSofa.glb",
+            "url": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf/Models/GlamVelvetSofa/glTF-Binary/GlamVelvetSofa.glb",
+            "sha256": "67202c74a1a33377771f162dc7fad612a6c9bd51ee15124c488e9851d9ac5266",
+            "byteLength": 3149844,
+            "mediaType": "model/gltf-binary"
+          }
+        ],
+        "stagingDirectory": "tools/out/material_extension_acceptance/plan018_sheen_corpus/glam_velvet_sofa",
+        "vendored": false,
+        "localPath": null,
+        "license": {
+          "assetSpdx": "CC-BY-4.0",
+          "metadataSpdx": "CC-BY-4.0",
+          "evidencePath": "Models/GlamVelvetSofa/LICENSE.md",
+          "evidenceUrl": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf/Models/GlamVelvetSofa/LICENSE.md",
+          "evidenceSha256": "b331316a5e62b1f97abb06902931d6c10c0013d7aaf0ac8af466e91843766ced",
+          "evidenceByteLength": 705
+        }
+      },
+      {
+        "id": "toycar",
+        "name": "ToyCar",
+        "features": [
+          "KHR_materials_sheen",
+          "KHR_materials_clearcoat",
+          "KHR_materials_transmission"
+        ],
+        "authoredSheenInputs": [
+          "sheenColorFactor",
+          "sheenRoughnessFactor"
+        ],
+        "sourceKind": "khronos-official-glb",
+        "sourceRepository": {
+          "name": "KhronosGroup/glTF-Sample-Assets",
+          "commit": "2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf",
+          "commitUrl": "https://github.com/KhronosGroup/glTF-Sample-Assets/commit/2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf"
+        },
+        "sourceFiles": [
+          {
+            "path": "Models/ToyCar/glTF-Binary/ToyCar.glb",
+            "url": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf/Models/ToyCar/glTF-Binary/ToyCar.glb",
+            "sha256": "01a60862de55cd4b9f3acfab0b0def86451800f9c42467fcd61052c16cb9838c",
+            "byteLength": 5422412,
+            "mediaType": "model/gltf-binary"
+          }
+        ],
+        "stagingDirectory": "tools/out/material_extension_acceptance/plan018_sheen_corpus/toycar",
+        "vendored": false,
+        "localPath": null,
+        "license": {
+          "assetSpdx": "CC0-1.0",
+          "metadataSpdx": "CC-BY-4.0",
+          "evidencePath": "Models/ToyCar/LICENSE.md",
+          "evidenceUrl": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf/Models/ToyCar/LICENSE.md",
+          "evidenceSha256": "b6b2c8a062107e8a3140e7d65a815b5964d96e71b04dbdafd4df1c0efc1cddc1",
+          "evidenceByteLength": 819
+        }
+      }
+    ]
+  },
+  "plan018RendererNativeSheenControl": {
+    "schemaVersion": 1,
+    "comparisonBoundary": "renderer-local sheen on/off control only",
+    "renderer": {
+      "package": "flutter_scene",
+      "revision": "766351c865c621e8720c726f9aa51173ce76e786",
+      "reachability": "externally reachable immutable commit"
+    },
+    "state": {
+      "path": "tools/material_extension_acceptance/fixtures/plan018_renderer_native_scalar_sheen_control_state.json",
+      "sha256": "e55b84b6e3701a10c7cd98817328428e5f07d5adb0708ec55114f0ec2da68a63"
+    },
+    "fixture": {
+      "generatorPath": "tools/generate_plan018_renderer_native_sheen_fixture.py",
+      "sourcePath": "test/fixtures/MultiMaterialAssembly.glb",
+      "sourceSha256": "5f717f321050c3049a29cdf3e3223ad10fd05ce485a088011f77d84357b9ad5f",
+      "sourceByteLength": 2716,
+      "derivedPath": "test/fixtures/Plan018RendererNativeSheenControl.glb",
+      "derivedSha256": "8c0d893fbf72553b3dbf4d9bf8bfa3a1a24bbbfebd699beee5cf72a8216d967d",
+      "derivedByteLength": 2848,
+      "binaryChunkSha256": "8030b3e4654c54a4b6f4dc5b72832da20064ff3217c1fafccc30ac7d4bb0fdea",
+      "binaryChunkByteLength": 840,
+      "geometry": "byte-identical source BIN with authored normals and TEXCOORD_0",
+      "uv": "authored TEXCOORD_0 preserved but unused by scalar-only sheen",
+      "jsonDelta": "KHR_materials_sheen factors on material 0 only"
+    },
+    "controls": [
+      {
+        "id": "renderer_native_scalar_sheen_on",
+        "path": "test/fixtures/Plan018RendererNativeSheenControl.glb",
+        "sha256": "8c0d893fbf72553b3dbf4d9bf8bfa3a1a24bbbfebd699beee5cf72a8216d967d",
+        "application": "rendererNative",
+        "runtimeAvailability": "available"
+      },
+      {
+        "id": "renderer_native_scalar_sheen_off",
+        "path": "test/fixtures/MultiMaterialAssembly.glb",
+        "sha256": "5f717f321050c3049a29cdf3e3223ad10fd05ce485a088011f77d84357b9ad5f",
+        "application": "none",
+        "runtimeAvailability": "available"
+      }
+    ],
+    "evidence": {
+      "path": "tools/out/material_extension_acceptance/plan018_controlled_comparison/ios_simulator/renderer-native-run-05/evidence.json",
+      "sha256": "9f4d3e1b2c561174c9426ad0da653f09c8c3d8ab7494bdfa7dcdf06d121f74da",
+      "execution": "verified locally",
+      "application": {
+        "sheenOn": "rendererNative",
+        "sheenOff": "none"
+      },
+      "runtimeAvailability": "available",
+      "visual": "verified locally",
+      "featureMaturity": "release pending",
+      "targetEvidence": {
+        "iosSimulator": "verified locally",
+        "physicalIos": "not run",
+        "android": "not run",
+        "web": "not run"
+      },
+      "externalReference": "not run",
+      "physicalCorrectness": "not run",
+      "generalPixelParity": "not run",
+      "productionReadiness": "not run"
+    }
   },
   "rewriteValidation": {
     "schemaVersion": 1,

@@ -8,9 +8,28 @@ import 'package:flutter_scene/src/gpu/gpu.dart' as flutter_scene_gpu;
 import '../texture_binding.dart';
 
 const String flutterSceneExtendedPbrShaderName = 'FSViewerExtendedPbr';
+const String flutterSceneExtendedPbrUv1ShaderName = 'FSViewerExtendedPbrUV1';
+const String flutterSceneSheenExtendedPbrShaderName =
+    'FSViewerSheenExtendedPbr';
+const String flutterSceneSheenExtendedPbrUv1ShaderName =
+    'FSViewerSheenExtendedPbrUV1';
+const String flutterSceneClearcoatSheenExtendedPbrShaderName =
+    'FSViewerClearcoatSheenExtendedPbr';
+const String flutterSceneClearcoatSheenExtendedPbrUv1ShaderName =
+    'FSViewerClearcoatSheenExtendedPbrUV1';
 const String flutterSceneClearcoatExtendedPbrShaderName =
     'FSViewerClearcoatExtendedPbr';
+const String flutterSceneClearcoatExtendedPbrUv1ShaderName =
+    'FSViewerClearcoatExtendedPbrUV1';
 const String flutterSceneExtendedPbrUniformBlockName = 'ExtendedPbrParams';
+const String flutterSceneSheenUniformBlockName = 'SheenParams';
+const String flutterSceneClearcoatSheenUniformBlockName =
+    'ClearcoatSheenParams';
+
+typedef BindFlutterSceneSheenBrdfLut = void Function(
+  flutter_scene_gpu.RenderPass pass,
+  flutter_scene_gpu.Shader shader,
+);
 
 const List<MaterialTextureSlot> _coreSlots = <MaterialTextureSlot>[
   MaterialTextureSlot.baseColor,
@@ -18,6 +37,16 @@ const List<MaterialTextureSlot> _coreSlots = <MaterialTextureSlot>[
   MaterialTextureSlot.normal,
   MaterialTextureSlot.occlusion,
   MaterialTextureSlot.emissive,
+];
+
+const List<MaterialTextureSlot> _sheenSlots = <MaterialTextureSlot>[
+  MaterialTextureSlot.sheenColor,
+  MaterialTextureSlot.sheenRoughness,
+];
+
+const List<MaterialTextureSlot> _clearcoatSheenSlots = <MaterialTextureSlot>[
+  MaterialTextureSlot.clearcoat,
+  MaterialTextureSlot.clearcoatRoughness,
 ];
 
 Float32List _packExtendedPbrParameters(
@@ -52,6 +81,69 @@ Float32List _packExtendedPbrParameters(
   values[45] = ior;
   values[46] = hasSpecularFactorTexture ? 1 : 0;
   values[47] = hasSpecularColorTexture ? 1 : 0;
+  return values;
+}
+
+Float32List _packSheenParameters(
+  Map<MaterialTextureSlot, TextureTransform> transforms, {
+  required List<double> sheenColorFactor,
+  required double sheenRoughness,
+  required bool hasSheenColorTexture,
+  required bool hasSheenRoughnessTexture,
+}) {
+  if (sheenColorFactor.length != 3 ||
+      sheenColorFactor.any(
+        (value) => !value.isFinite || value < 0 || value > 1,
+      )) {
+    throw ArgumentError.value(
+      sheenColorFactor,
+      'sheenColorFactor',
+      'must contain three finite values in [0, 1]',
+    );
+  }
+  if (!sheenRoughness.isFinite || sheenRoughness < 0 || sheenRoughness > 1) {
+    throw ArgumentError.value(
+      sheenRoughness,
+      'sheenRoughness',
+      'must be finite and in [0, 1]',
+    );
+  }
+  final values = Float32List(24);
+  for (var index = 0; index < _sheenSlots.length; index += 1) {
+    final transform =
+        transforms[_sheenSlots[index]] ?? TextureTransform.identity;
+    final offset = index * 8;
+    values[offset] = transform.offsetX;
+    values[offset + 1] = transform.offsetY;
+    values[offset + 2] = transform.scaleX;
+    values[offset + 3] = transform.scaleY;
+    values[offset + 4] = math.cos(transform.rotation);
+    values[offset + 5] = math.sin(transform.rotation);
+  }
+  values[16] = sheenColorFactor[0];
+  values[17] = sheenColorFactor[1];
+  values[18] = sheenColorFactor[2];
+  values[20] = sheenRoughness;
+  values[21] = hasSheenColorTexture ? 1 : 0;
+  values[22] = hasSheenRoughnessTexture ? 1 : 0;
+  return values;
+}
+
+Float32List _packClearcoatSheenParameters(
+  Map<MaterialTextureSlot, TextureTransform> transforms,
+) {
+  final values = Float32List(16);
+  for (var index = 0; index < _clearcoatSheenSlots.length; index += 1) {
+    final transform =
+        transforms[_clearcoatSheenSlots[index]] ?? TextureTransform.identity;
+    final offset = index * 8;
+    values[offset] = transform.offsetX;
+    values[offset + 1] = transform.offsetY;
+    values[offset + 2] = transform.scaleX;
+    values[offset + 3] = transform.scaleY;
+    values[offset + 4] = math.cos(transform.rotation);
+    values[offset + 5] = math.sin(transform.rotation);
+  }
   return values;
 }
 
@@ -188,6 +280,10 @@ void _copyPbrState(
     ..roughnessFactor = source.roughnessFactor
     ..normalScale = source.normalScale
     ..occlusionStrength = source.occlusionStrength
+    // ignore: invalid_use_of_internal_member
+    ..occlusionTextureTexCoord = source.occlusionTextureTexCoord
+    // ignore: invalid_use_of_internal_member
+    ..occlusionTextureTransform = source.occlusionTextureTransform
     ..emissiveFactor = source.emissiveFactor.clone()
     ..environment = source.environment
     ..alphaMode = source.alphaMode
@@ -205,6 +301,16 @@ abstract interface class FlutterSceneExtendedPbrState {
   double get ior;
   flutter_scene.TextureSource? get specularFactorTexture;
   flutter_scene.TextureSource? get specularColorTexture;
+  bool get hasSheenIntent;
+  List<double> get retainedSheenColorFactor;
+  double get sheenRoughness;
+  flutter_scene.TextureSource? get sheenColorTexture;
+  flutter_scene.TextureSource? get sheenRoughnessTexture;
+}
+
+extension FlutterSceneExtendedPbrStateRetention
+    on FlutterSceneExtendedPbrState {
+  List<double> get sheenColorFactor => retainedSheenColorFactor;
 }
 
 /// Internal material-scoped PBR extension boundary.
@@ -217,6 +323,8 @@ final class FlutterSceneExtendedPbrMaterial extends flutter_scene
     required flutter_scene_gpu.Shader fragmentShader,
     required flutter_scene.PhysicallyBasedMaterial source,
     required this.usesClearcoatShader,
+    required this.usesSheenShader,
+    this.bindSheenBrdfLut,
     Map<MaterialTextureSlot, TextureTransform> transforms =
         const <MaterialTextureSlot, TextureTransform>{},
     this.specularFactor = 1,
@@ -224,16 +332,44 @@ final class FlutterSceneExtendedPbrMaterial extends flutter_scene
     double ior = 1.5,
     this.specularFactorTexture,
     this.specularColorTexture,
+    this.hasSheenIntent = false,
+    List<double> sheenColorFactor = const <double>[0, 0, 0],
+    this.sheenRoughness = 0,
+    flutter_scene.TextureSource? sheenColorTexture,
+    flutter_scene.TextureSource? sheenRoughnessTexture,
   })  : transforms = Map<MaterialTextureSlot, TextureTransform>.unmodifiable(
           transforms,
         ),
-        specularColorFactor = List<double>.unmodifiable(specularColorFactor) {
+        specularColorFactor = List<double>.unmodifiable(specularColorFactor),
+        retainedSheenColorFactor = List<double>.unmodifiable(sheenColorFactor) {
     _validateExtendedPbrFactors(
       specularFactor: specularFactor,
       specularColorFactor: specularColorFactor,
       ior: ior,
     );
     _copyPbrState(source, this);
+    this.sheenColorTexture = sheenColorTexture;
+    this.sheenRoughnessTexture = sheenRoughnessTexture;
+    if (hasSheenIntent != usesSheenShader) {
+      throw ArgumentError(
+        'Sheen intent must use the independently preflighted sheen shader.',
+      );
+    }
+    if (usesSheenShader && bindSheenBrdfLut == null) {
+      throw ArgumentError.notNull('bindSheenBrdfLut');
+    }
+    if (hasSheenIntent) {
+      _packSheenParameters(
+        transforms,
+        sheenColorFactor: sheenColorFactor,
+        sheenRoughness: sheenRoughness,
+        hasSheenColorTexture: sheenColorTexture != null,
+        hasSheenRoughnessTexture: sheenRoughnessTexture != null,
+      );
+      if (usesClearcoatShader) {
+        _packClearcoatSheenParameters(transforms);
+      }
+    }
     this.ior = ior;
     setFragmentShader(fragmentShader);
   }
@@ -248,10 +384,19 @@ final class FlutterSceneExtendedPbrMaterial extends flutter_scene
   final flutter_scene.TextureSource? specularFactorTexture;
   @override
   final flutter_scene.TextureSource? specularColorTexture;
+  @override
+  final bool hasSheenIntent;
+  @override
+  final List<double> retainedSheenColorFactor;
+  @override
+  final double sheenRoughness;
   final bool usesClearcoatShader;
+  final bool usesSheenShader;
+  final BindFlutterSceneSheenBrdfLut? bindSheenBrdfLut;
 
   @override
-  bool get bindsClearcoatTextureSlots => usesClearcoatShader;
+  bool get bindsClearcoatTextureSlots =>
+      usesClearcoatShader && !usesSheenShader;
 
   static final flutter_scene_gpu.SamplerOptions _repeatSampler =
       flutter_scene_gpu.SamplerOptions(
@@ -279,20 +424,69 @@ final class FlutterSceneExtendedPbrMaterial extends flutter_scene
       transientsBuffer.emplace(ByteData.sublistView(parameters)),
     );
     if (!usesClearcoatShader) {
-      _bindSpecularTexture(
+      _bindExtensionTexture(
         pass,
         'specular_factor_texture',
         specularFactorTexture,
       );
-      _bindSpecularTexture(
+      _bindExtensionTexture(
         pass,
         'specular_color_texture',
         specularColorTexture,
       );
     }
+    if (usesClearcoatShader && usesSheenShader) {
+      final clearcoatSheenParameters =
+          _packClearcoatSheenParameters(transforms);
+      pass.bindUniform(
+        fragmentShader.getUniformSlot(
+          flutterSceneClearcoatSheenUniformBlockName,
+        ),
+        transientsBuffer.emplace(
+          ByteData.sublistView(clearcoatSheenParameters),
+        ),
+      );
+      _bindExtensionTexture(
+        pass,
+        'clearcoat_texture',
+        clearcoatTexture,
+      );
+      _bindExtensionTexture(
+        pass,
+        'clearcoat_roughness_texture',
+        clearcoatRoughnessTexture,
+      );
+    }
+    if (usesSheenShader) {
+      final sheenParameters = _packSheenParameters(
+        transforms,
+        sheenColorFactor: retainedSheenColorFactor,
+        sheenRoughness: sheenRoughness,
+        hasSheenColorTexture: sheenColorTexture != null,
+        hasSheenRoughnessTexture: sheenRoughnessTexture != null,
+      );
+      pass.bindUniform(
+        fragmentShader.getUniformSlot(flutterSceneSheenUniformBlockName),
+        transientsBuffer.emplace(ByteData.sublistView(sheenParameters)),
+      );
+      _bindExtensionTexture(
+        pass,
+        'sheen_color_texture',
+        sheenColorTexture,
+      );
+      _bindExtensionTexture(
+        pass,
+        'sheen_roughness_texture',
+        sheenRoughnessTexture,
+      );
+      // PhysicallyBasedMaterial.bind() binds the renderer's two-channel GGX
+      // DFG texture. The sheen entry needs the package-owned combined RGBA16F
+      // texture instead, so this intentionally remains the final binding.
+      bindSheenBrdfLut!(pass, fragmentShader);
+    }
   }
 
-  void _bindSpecularTexture(
+  void _bindExtensionTexture(
     flutter_scene_gpu.RenderPass pass,
     String name,
     flutter_scene.TextureSource? source,
@@ -325,6 +519,28 @@ Float32List debugPackFlutterSceneExtendedPbrParameters(
       hasSpecularFactorTexture: hasSpecularFactorTexture,
       hasSpecularColorTexture: hasSpecularColorTexture,
     );
+
+@visibleForTesting
+Float32List debugPackFlutterSceneSheenParameters(
+  Map<MaterialTextureSlot, TextureTransform> transforms, {
+  List<double> sheenColorFactor = const <double>[0, 0, 0],
+  double sheenRoughness = 0,
+  bool hasSheenColorTexture = false,
+  bool hasSheenRoughnessTexture = false,
+}) =>
+    _packSheenParameters(
+      transforms,
+      sheenColorFactor: sheenColorFactor,
+      sheenRoughness: sheenRoughness,
+      hasSheenColorTexture: hasSheenColorTexture,
+      hasSheenRoughnessTexture: hasSheenRoughnessTexture,
+    );
+
+@visibleForTesting
+Float32List debugPackFlutterSceneClearcoatSheenParameters(
+  Map<MaterialTextureSlot, TextureTransform> transforms,
+) =>
+    _packClearcoatSheenParameters(transforms);
 
 @visibleForTesting
 void debugCopyFlutterSceneExtendedPbrState(

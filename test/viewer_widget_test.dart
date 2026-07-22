@@ -1024,6 +1024,33 @@ void main() {
     expect(snapshot.materialCount, isNull);
   });
 
+  testWidgets(
+      'always render policy cancels its pending frame callback on dispose',
+      (tester) async {
+    final adapter = FakeViewerAdapter(
+      snapshot: AdapterNodeSnapshot(name: 'Root', primitiveCount: 1),
+      renderScene: RecordingRenderScene(),
+    );
+
+    await tester.pumpWidget(
+      Directionality(
+        textDirection: TextDirection.ltr,
+        child: FlutterSceneViewer.test(
+          source: source,
+          adapter: adapter,
+          renderPolicy: RenderPolicy.always,
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(tester.binding.transientCallbackCount, greaterThan(0));
+
+    await tester.pumpWidget(const SizedBox.shrink());
+
+    expect(tester.binding.transientCallbackCount, 0);
+  });
+
   testWidgets('fitCamera updates the adapter render camera', (tester) async {
     final controller = FlutterSceneViewerController();
     final renderScene = RecordingRenderScene();
@@ -1401,6 +1428,8 @@ final class FakeViewerAdapter implements FlutterSceneAdapter {
     String? debugName,
     MaterialShadingPolicy materialShadingPolicy =
         MaterialShadingPolicy.authored,
+    Set<PartAddress> authoredSheenCoreFallbacks = const <PartAddress>{},
+    bool authoredSheenGlobalCoreFallback = false,
     bool Function()? tryAcceptPublication,
   }) async {
     loadCalls += 1;

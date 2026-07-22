@@ -117,6 +117,10 @@ void main() {
                 'clearcoatRoughnessTexture': <String, Object?>{'index': 9},
                 'clearcoatNormalTexture': <String, Object?>{'index': 10},
               },
+              'KHR_materials_sheen': <String, Object?>{
+                'sheenColorTexture': <String, Object?>{'index': 11},
+                'sheenRoughnessTexture': <String, Object?>{'index': 12},
+              },
             },
           },
         ],
@@ -154,6 +158,14 @@ void main() {
     expect(
       _roleBySlot(result, 'KHR_materials_clearcoat.clearcoatNormalTexture'),
       GlbTextureRole.normal,
+    );
+    expect(
+      _roleBySlot(result, 'KHR_materials_sheen.sheenColorTexture'),
+      GlbTextureRole.color,
+    );
+    expect(
+      _roleBySlot(result, 'KHR_materials_sheen.sheenRoughnessTexture'),
+      GlbTextureRole.data,
     );
   });
 

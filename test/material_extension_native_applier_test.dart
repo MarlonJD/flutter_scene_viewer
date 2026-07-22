@@ -121,6 +121,55 @@ void main() {
     expect(material.thicknessTextureTransformValue, thicknessTransform);
   });
 
+  test('applies complete sheen state with authored UV sets and transforms', () {
+    final material = FakeNativeMaterialExtensionMaterial();
+    final colorTexture = Object();
+    final roughnessTexture = Object();
+    final colorTransform = TextureTransform(
+      offset: <double>[0.1, 0.2],
+      scale: <double>[1.5, 0.75],
+      rotation: 0.3,
+    );
+    final roughnessTransform = TextureTransform(
+      offset: <double>[0.4, 0.5],
+      scale: <double>[0.5, 2.0],
+      rotation: 0.6,
+    );
+    final patch = MaterialPatch(
+      sheenColorFactor: const <double>[0.2, 0.4, 0.8],
+      sheenColorTextureBinding: MaterialTextureBinding(
+        source: const TextureSource.asset('assets/sheen-color.png'),
+        texCoord: 1,
+        transform: colorTransform,
+      ),
+      sheenRoughness: 0.35,
+      sheenRoughnessTextureBinding: MaterialTextureBinding(
+        source: const TextureSource.asset('assets/sheen-roughness.png'),
+        texCoord: 0,
+        transform: roughnessTransform,
+      ),
+    );
+
+    final diagnostics = applyNativeMaterialExtensionPatch(
+      material: material,
+      patch: patch,
+      support: rendererNativeSupport,
+      sheenColorTexture: colorTexture,
+      sheenRoughnessTexture: roughnessTexture,
+    );
+
+    expect(diagnostics, isEmpty);
+    expect(hasNativeMaterialExtensionIntent(patch), isTrue);
+    expect(material.sheenColorValue, <double>[0.2, 0.4, 0.8]);
+    expect(material.sheenRoughnessValue, 0.35);
+    expect(material.sheenColorTextureValue, same(colorTexture));
+    expect(material.sheenColorTextureTexCoordValue, 1);
+    expect(material.sheenColorTextureTransformValue, colorTransform);
+    expect(material.sheenRoughnessTextureValue, same(roughnessTexture));
+    expect(material.sheenRoughnessTextureTexCoordValue, 0);
+    expect(material.sheenRoughnessTextureTransformValue, roughnessTransform);
+  });
+
   test('rejects specular textures without a native renderer contract', () {
     final cases = <({String slot, MaterialPatch patch})>[
       (
@@ -260,6 +309,7 @@ MaterialExtensionSupport _materialExtensionSupport({
         MaterialExtensionFeature.ior,
         MaterialExtensionFeature.volume,
         MaterialExtensionFeature.clearcoat,
+        MaterialExtensionFeature.sheen,
       ])
         feature: MaterialExtensionFeatureSupport(available: true),
     },
@@ -285,6 +335,14 @@ final class FakeNativeMaterialExtensionMaterial
   TextureTransform? _transmissionTextureTransform;
   Object? _thicknessTexture;
   TextureTransform? _thicknessTextureTransform;
+  List<double>? _sheenColorFactor;
+  double? _sheenRoughnessFactor;
+  Object? _sheenColorTexture;
+  int? _sheenColorTextureTexCoord;
+  TextureTransform? _sheenColorTextureTransform;
+  Object? _sheenRoughnessTexture;
+  int? _sheenRoughnessTextureTexCoord;
+  TextureTransform? _sheenRoughnessTextureTransform;
 
   double? get transmissionValue => _transmissionFactor;
   double? get iorValue => _ior;
@@ -303,6 +361,16 @@ final class FakeNativeMaterialExtensionMaterial
   Object? get thicknessTextureValue => _thicknessTexture;
   TextureTransform? get thicknessTextureTransformValue =>
       _thicknessTextureTransform;
+  List<double>? get sheenColorValue => _sheenColorFactor;
+  double? get sheenRoughnessValue => _sheenRoughnessFactor;
+  Object? get sheenColorTextureValue => _sheenColorTexture;
+  int? get sheenColorTextureTexCoordValue => _sheenColorTextureTexCoord;
+  TextureTransform? get sheenColorTextureTransformValue =>
+      _sheenColorTextureTransform;
+  Object? get sheenRoughnessTextureValue => _sheenRoughnessTexture;
+  int? get sheenRoughnessTextureTexCoordValue => _sheenRoughnessTextureTexCoord;
+  TextureTransform? get sheenRoughnessTextureTransformValue =>
+      _sheenRoughnessTextureTransform;
 
   @override
   set transmissionFactor(double value) {
@@ -392,5 +460,53 @@ final class FakeNativeMaterialExtensionMaterial
   set clearcoatNormalTexture(Object? value) {
     setterCalls.add('clearcoatNormalTexture');
     _clearcoatNormalTexture = value;
+  }
+
+  @override
+  set sheenColorFactor(List<double> value) {
+    setterCalls.add('sheenColorFactor');
+    _sheenColorFactor = value;
+  }
+
+  @override
+  set sheenRoughnessFactor(double value) {
+    setterCalls.add('sheenRoughnessFactor');
+    _sheenRoughnessFactor = value;
+  }
+
+  @override
+  set sheenColorTexture(Object? value) {
+    setterCalls.add('sheenColorTexture');
+    _sheenColorTexture = value;
+  }
+
+  @override
+  set sheenColorTextureTexCoord(int value) {
+    setterCalls.add('sheenColorTextureTexCoord');
+    _sheenColorTextureTexCoord = value;
+  }
+
+  @override
+  set sheenColorTextureTransform(TextureTransform value) {
+    setterCalls.add('sheenColorTextureTransform');
+    _sheenColorTextureTransform = value;
+  }
+
+  @override
+  set sheenRoughnessTexture(Object? value) {
+    setterCalls.add('sheenRoughnessTexture');
+    _sheenRoughnessTexture = value;
+  }
+
+  @override
+  set sheenRoughnessTextureTexCoord(int value) {
+    setterCalls.add('sheenRoughnessTextureTexCoord');
+    _sheenRoughnessTextureTexCoord = value;
+  }
+
+  @override
+  set sheenRoughnessTextureTransform(TextureTransform value) {
+    setterCalls.add('sheenRoughnessTextureTransform');
+    _sheenRoughnessTextureTransform = value;
   }
 }

@@ -1,6 +1,12 @@
 # Decoder Control, Authored KTX2 Mip Chains, and Release Evidence Implementation Plan
 
-> **Status (2026-07-19): active.** This plan owns the decoder-control,
+> **Status (2026-07-22): deferred.** Plan 018 completed at its bounded local
+> renderer-native sheen and iOS Simulator evidence boundary. This plan retains
+> the completed local BasisU 5E.1-5E.6 and M3 evidence below at the literal
+> `verified locally` host boundary. Physical
+> Android/iOS remain `not run`, packaged runtime remains `candidate-only` or
+> `not run`, release remains `release pending`, and this is not
+> `production-ready`. This plan continues to own the decoder-control,
 > authored-mip, cross-platform runtime, packaging, and release-evidence work
 > intentionally left outside completed
 > [Plan 014](../completed/014_selected_gltf_extension_support.md). It does not
@@ -862,6 +868,13 @@ has matching durable evidence; every unrun row remains `not run`; no aggregate
       `git diff --check` pass at closure.
 
 ## Progress log
+
+- 2026-07-21: Deferred without completion when the user explicitly selected
+  Plan 018. Completed local BasisU 5E.1-5E.6 and M3 evidence is preserved
+  unchanged below at the `verified locally` host boundary. Physical Android/
+  iOS remain `not run`, packaged runtime remains `candidate-only` or `not run`,
+  release remains `release pending`, and the unchecked physical/runtime/release
+  criteria remain open. No production or target evidence was promoted.
 
 - 2026-07-20: Task 5C strict-TDD REDs were recorded before production changes
   (`verified locally`). Direct object ownership first failed because

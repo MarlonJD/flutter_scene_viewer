@@ -11,6 +11,7 @@ void main() {
         hasIor: false,
         hasVolume: false,
         hasClearcoat: false,
+        hasSheen: false,
       ),
     );
 
@@ -25,6 +26,7 @@ void main() {
         hasIor: true,
         hasVolume: true,
         hasClearcoat: true,
+        hasSheen: false,
       ),
     );
 
@@ -49,6 +51,10 @@ void main() {
       MaterialExtensionBackendKind.rendererNative,
     );
     expect(capability.diagnostics, isEmpty);
+    expect(
+      capability.support.supportFor(MaterialExtensionFeature.sheen).available,
+      isFalse,
+    );
   });
 
   test('reports partial renderer-native clearcoat support independently', () {
@@ -58,6 +64,7 @@ void main() {
         hasIor: false,
         hasVolume: false,
         hasClearcoat: true,
+        hasSheen: false,
       ),
     );
 
@@ -79,6 +86,10 @@ void main() {
       expect(capability.support.supportFor(feature).available, isFalse);
     }
     expect(capability.diagnostics, isEmpty);
+    expect(
+      capability.support.supportFor(MaterialExtensionFeature.sheen).available,
+      isFalse,
+    );
   });
 
   test('default native probe reports the complete selected renderer contract',
@@ -116,6 +127,16 @@ void main() {
     }
     expect(capability.support.productionReady, isFalse);
     expect(capability.support.claimedReleaseTargets, isEmpty);
+    final sheen = capability.support.supportFor(MaterialExtensionFeature.sheen);
+    expect(sheen.available, isTrue);
+    expect(
+      sheen.maturityFor(MaterialExtensionTarget.iosSimulator),
+      MaterialExtensionMaturity.releasePending,
+    );
+    expect(
+      sheen.evidenceFor(MaterialExtensionTarget.iosSimulator),
+      MaterialExtensionEvidenceStatus.verifiedLocally,
+    );
   });
 }
 
@@ -126,6 +147,7 @@ final class FakeRendererMaterialExtensionProbe
     required this.hasIor,
     required this.hasVolume,
     required this.hasClearcoat,
+    required this.hasSheen,
   });
 
   @override
@@ -139,4 +161,7 @@ final class FakeRendererMaterialExtensionProbe
 
   @override
   final bool hasClearcoat;
+
+  @override
+  final bool hasSheen;
 }

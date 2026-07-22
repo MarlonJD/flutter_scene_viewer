@@ -23,6 +23,7 @@ enum MaterialExtensionFeature {
   volume,
   clearcoat,
   specular,
+  sheen,
 }
 
 /// Release maturity of one material extension feature on one target.
@@ -170,6 +171,7 @@ final class MaterialExtensionSupport {
   bool get clearcoat =>
       supportFor(MaterialExtensionFeature.clearcoat).available;
   bool get specular => supportFor(MaterialExtensionFeature.specular).available;
+  bool get sheen => supportFor(MaterialExtensionFeature.sheen).available;
 
   bool productionReadyFor(
     MaterialExtensionFeature feature,
@@ -208,21 +210,25 @@ final class ViewerMaterialExtensionPolicy {
   const ViewerMaterialExtensionPolicy.diagnosticsOnly()
       : mode = ViewerMaterialExtensionMode.diagnosticsOnly,
         enableTransmission = false,
-        enableClearcoat = false;
+        enableClearcoat = false,
+        enableSheen = false;
 
   const ViewerMaterialExtensionPolicy.experimentalShaders({
     this.enableTransmission = true,
     this.enableClearcoat = false,
+    this.enableSheen = false,
   }) : mode = ViewerMaterialExtensionMode.experimentalFlutterSceneShaders;
 
   const ViewerMaterialExtensionPolicy.productionShaders({
     this.enableTransmission = true,
     this.enableClearcoat = true,
+    this.enableSheen = false,
   }) : mode = ViewerMaterialExtensionMode.productionFlutterSceneShaders;
 
   final ViewerMaterialExtensionMode mode;
   final bool enableTransmission;
   final bool enableClearcoat;
+  final bool enableSheen;
 
   MaterialExtensionSupport get support {
     return switch (mode) {
@@ -234,6 +240,7 @@ final class ViewerMaterialExtensionPolicy {
           features: _candidateFeatures(
             enableTransmission: enableTransmission,
             enableClearcoat: enableClearcoat,
+            enableSheen: enableSheen,
           ),
         ),
       ViewerMaterialExtensionMode.productionFlutterSceneShaders =>
@@ -242,6 +249,7 @@ final class ViewerMaterialExtensionPolicy {
           features: _candidateFeatures(
             enableTransmission: enableTransmission,
             enableClearcoat: enableClearcoat,
+            enableSheen: enableSheen,
           ),
         ),
     };
@@ -252,17 +260,20 @@ final class ViewerMaterialExtensionPolicy {
     return other is ViewerMaterialExtensionPolicy &&
         other.mode == mode &&
         other.enableTransmission == enableTransmission &&
-        other.enableClearcoat == enableClearcoat;
+        other.enableClearcoat == enableClearcoat &&
+        other.enableSheen == enableSheen;
   }
 
   @override
-  int get hashCode => Object.hash(mode, enableTransmission, enableClearcoat);
+  int get hashCode =>
+      Object.hash(mode, enableTransmission, enableClearcoat, enableSheen);
 }
 
 Map<MaterialExtensionFeature, MaterialExtensionFeatureSupport>
     _candidateFeatures({
   required bool enableTransmission,
   required bool enableClearcoat,
+  required bool enableSheen,
 }) {
   final transmissionSupport = _candidateFeatureSupport(enableTransmission);
   return <MaterialExtensionFeature, MaterialExtensionFeatureSupport>{
@@ -271,6 +282,7 @@ Map<MaterialExtensionFeature, MaterialExtensionFeatureSupport>
     MaterialExtensionFeature.volume: transmissionSupport,
     MaterialExtensionFeature.clearcoat:
         _candidateFeatureSupport(enableClearcoat),
+    MaterialExtensionFeature.sheen: _candidateFeatureSupport(enableSheen),
   };
 }
 

@@ -92,12 +92,22 @@ Renderer-native clearcoat implementation and pin closure are recorded in complet
 transmission/volume implementation, immutable pin, and controlled iOS
 Simulator evidence are recorded in completed
 [Plan 016](exec-plans/completed/016_renderer_native_transmission_volume.md).
-Decoder cancellation/resource control, authored KTX2 mip chains, physical
-targets, packaging, and release evidence are active in
-[Plan 017](exec-plans/active/017_decoder_control_mip_chains_and_release_evidence.md).
+Decoder cancellation/resource control and authored KTX2 mip-chain host work
+through BasisU 5E.1-5E.6/M3 is preserved in deferred
+[Plan 017](exec-plans/deferred/017_decoder_control_mip_chains_and_release_evidence.md);
+its physical targets, packaged runtime, and release evidence remain open.
 Sheen diagnostics, a bounded package-local candidate, controlled textile/ToyCar
-evidence, and the renderer-native release path remain deferred in
-[Plan 018](exec-plans/deferred/018_khr_materials_sheen.md).
+evidence, and renderer-native viewer integration are recorded in completed
+[Plan 018](exec-plans/completed/018_khr_materials_sheen.md).
+The current immutable `flutter_scene` pin
+`766351c865c621e8720c726f9aa51173ce76e786` supplies native sheen, and the
+separate scalar on/off control has runtime availability plus iOS Simulator
+target and visual evidence `verified locally`. Application is
+`rendererNative` for sheen-on and `none` for sheen-off; maturity remains
+`release pending`. The earlier four-model candidate record stays
+`candidate-only`. Physical iOS, Android, Web, external-reference comparison,
+physical correctness, general pixel parity, release, and `production-ready`
+evidence remain `not run` or `release pending`.
 
 The approved modern-glTF follow-up sequence is split into independent deferred
 plans. Numeric order is the planning order, not permission to activate more
@@ -105,7 +115,7 @@ than one plan at a time:
 
 | Plan | Capability | Khronos status on 2026-07-16 | Activation gate |
 | --- | --- | --- | --- |
-| [018](exec-plans/deferred/018_khr_materials_sheen.md) | `KHR_materials_sheen` | ratified | Plan 015 complete; diagnostic → candidate-only → renderer-native gates. |
+| [018](exec-plans/completed/018_khr_materials_sheen.md) | `KHR_materials_sheen` | ratified | Completed local integration/evidence boundary: diagnostic and candidate history retained; renderer-native scalar iOS Simulator control `verified locally`; release remains `release pending`. |
 | [019](exec-plans/deferred/019_khr_lights_punctual.md) | `KHR_lights_punctual` | ratified | Plan 015 complete; establish the shared directional/point/spot direct-light loop before later directional lobes. |
 | [020](exec-plans/deferred/020_khr_materials_variants.md) | `KHR_materials_variants` | ratified | Finish the active plan; keep source-material selection separate from runtime overrides. |
 | [021](exec-plans/deferred/021_khr_materials_emissive_strength.md) | `KHR_materials_emissive_strength` | ratified | Finish the active plan; require native HDR emission and tone-mapping evidence. |

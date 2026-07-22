@@ -663,6 +663,183 @@ void main() {
     expect(bytes.encodedBytes, <int>[1, 2, 3]);
     expect(bytes.debugName, 'sample.png');
   });
+
+  test('MaterialPatch exposes complete glTF sheen classification', () {
+    final colorBinding = MaterialTextureBinding(
+      source: const TextureSource.asset('assets/sheen_color.png'),
+    );
+    final roughnessBinding = MaterialTextureBinding(
+      source: const TextureSource.asset('assets/sheen_roughness.png'),
+    );
+    final patch = MaterialPatch(
+      sheenColorFactor: const <double>[0.2, 0.4, 0.8],
+      sheenColorTextureBinding: colorBinding,
+      sheenRoughness: 0.35,
+      sheenRoughnessTextureBinding: roughnessBinding,
+    );
+
+    expect(patch.isEmpty, isFalse);
+    expect(patch.hasSheenOverride, isTrue);
+    expect(patch.hasTextureOverride, isTrue);
+    expect(
+      patch.textureBindingFor(MaterialTextureSlot.sheenColor),
+      same(colorBinding),
+    );
+    expect(
+      patch.textureBindingFor(MaterialTextureSlot.sheenRoughness),
+      same(roughnessBinding),
+    );
+  });
+
+  test('MaterialPatch merges and round-trips every sheen field', () {
+    final bytes = Uint8List.fromList(<int>[7, 8, 9]);
+    final colorBinding = MaterialTextureBinding(
+      source: TextureSource.bytes(bytes, debugName: 'sheen-color.png'),
+      sampler: const TextureSampler(
+        wrapS: TextureWrapMode.clampToEdge,
+        minFilter: TextureMinFilter.linearMipmapLinear,
+      ),
+      transform: TextureTransform(
+        offset: const <double>[0.1, 0.2],
+        scale: const <double>[2, 3],
+        rotation: 0.4,
+      ),
+    );
+    const first = MaterialPatch(
+      sheenColorFactor: <double>[0.1, 0.2, 0.3],
+      sheenRoughness: 0.25,
+    );
+    final merged = first.merge(
+      MaterialPatch(
+        sheenColorTextureBinding: colorBinding,
+        sheenRoughnessTexture:
+            const TextureSource.asset('assets/sheen-roughness.png'),
+      ),
+    );
+    final roundTripped = MaterialPatch.fromJson(merged.toJson());
+
+    expect(roundTripped, merged);
+    expect(roundTripped.hashCode, merged.hashCode);
+    expect(roundTripped.sheenColorFactor, <double>[0.1, 0.2, 0.3]);
+    expect(roundTripped.sheenRoughness, 0.25);
+    expect(
+      (roundTripped.sheenColorTextureBinding!.source as BytesTextureSource)
+          .encodedBytes,
+      <int>[7, 8, 9],
+    );
+  });
+
+  test('MaterialPatch sheen equality is deep for factors and byte sources', () {
+    MaterialPatch patch(List<double> factor, List<int> bytes) => MaterialPatch(
+          sheenColorFactor: factor,
+          sheenColorTexture: TextureSource.bytes(Uint8List.fromList(bytes)),
+          sheenRoughness: 0.5,
+        );
+
+    final first = patch(<double>[0.1, 0.2, 0.3], <int>[1, 2, 3]);
+    final equal = patch(<double>[0.1, 0.2, 0.3], <int>[1, 2, 3]);
+
+    expect(first, equal);
+    expect(first.hashCode, equal.hashCode);
+    expect(first, isNot(patch(<double>[0.1, 0.2, 0.4], <int>[1, 2, 3])));
+    expect(first, isNot(patch(<double>[0.1, 0.2, 0.3], <int>[1, 2, 4])));
+  });
+
+  test('MaterialPatch validates exact normative sheen domains first', () {
+    final address = PartAddress(
+      nodePath: const <String>['Root', 'Fabric'],
+      primitiveIndex: 0,
+    );
+    final support = MaterialExtensionSupport(
+      backendKind: MaterialExtensionBackendKind.rendererNative,
+      features: <MaterialExtensionFeature, MaterialExtensionFeatureSupport>{
+        MaterialExtensionFeature.sheen:
+            MaterialExtensionFeatureSupport(available: true),
+      },
+    );
+    final invalid = <(MaterialPatch, String)>[
+      (
+        const MaterialPatch(sheenColorFactor: <double>[0, 1]),
+        'sheenColorFactor',
+      ),
+      (
+        const MaterialPatch(sheenColorFactor: <double>[-0.01, 0, 0]),
+        'sheenColorFactor',
+      ),
+      (
+        const MaterialPatch(sheenColorFactor: <double>[0, 1.01, 0]),
+        'sheenColorFactor',
+      ),
+      (
+        const MaterialPatch(sheenColorFactor: <double>[0, double.nan, 0]),
+        'sheenColorFactor',
+      ),
+      (const MaterialPatch(sheenRoughness: -0.01), 'sheenRoughness'),
+      (const MaterialPatch(sheenRoughness: 1.01), 'sheenRoughness'),
+      (const MaterialPatch(sheenRoughness: double.infinity), 'sheenRoughness'),
+    ];
+
+    for (final entry in invalid) {
+      final diagnostics = entry.$1.validate(address, support: support);
+      expect(diagnostics, hasLength(1), reason: entry.$1.toJson().toString());
+      expect(
+        diagnostics.single.code,
+        ViewerDiagnosticCode.invalidMaterialOverride,
+      );
+      expect(diagnostics.single.details['field'], entry.$2);
+    }
+  });
+
+  test('valid sheen remains diagnostic-only without backend support', () {
+    const patch = MaterialPatch(
+      sheenColorFactor: <double>[0.2, 0.3, 0.4],
+      sheenRoughness: 0.6,
+    );
+
+    final diagnostics = patch.validate(
+      PartAddress(
+        nodePath: const <String>['Root', 'Fabric'],
+        primitiveIndex: 0,
+      ),
+    );
+
+    expect(diagnostics, hasLength(1));
+    expect(
+      diagnostics.single.code,
+      ViewerDiagnosticCode.unsupportedMaterialFeature,
+    );
+    expect(
+      diagnostics.single.details['extensions'],
+      <String>['KHR_materials_sheen'],
+    );
+    expect(diagnostics.single.details['status'], 'unsupported');
+  });
+
+  test('MaterialPatch reports and rejects sheen source-binding conflicts', () {
+    final binding = MaterialTextureBinding(
+      source: const TextureSource.asset('assets/bound-sheen.png'),
+    );
+    final patch = MaterialPatch(
+      sheenColorTexture: const TextureSource.asset('assets/source-sheen.png'),
+      sheenColorTextureBinding: binding,
+    );
+
+    final diagnostics = patch.validate(
+      PartAddress(
+        nodePath: const <String>['Root', 'Fabric'],
+        primitiveIndex: 0,
+      ),
+    );
+    expect(diagnostics.single.details['slot'], 'sheenColor');
+    expect(
+      () => MaterialPatch.fromJson(<String, Object?>{
+        'sheenColorTexture':
+            const TextureSource.asset('assets/source-sheen.png').toJson(),
+        'sheenColorTextureBinding': binding.toJson(),
+      }),
+      throwsFormatException,
+    );
+  });
 }
 
 MaterialExtensionSupport _specularAndIorSupport() {

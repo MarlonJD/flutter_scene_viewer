@@ -1,5 +1,76 @@
 # Material Extension Platform Evidence
 
+## Plan 018 renderer-native sheen
+
+The opt-in renderer-native `KHR_materials_sheen` control was verified locally
+on the `iPhone 17` iOS 26.5 Simulator
+(`10C2CF77-CBA8-4948-ADD5-24C49D375059`) through Impeller Metal. The harness
+used this package by path while the viewer resolved published `flutter_scene`
+revision `766351c865c621e8720c726f9aa51173ce76e786` from its immutable Git
+dependency. The viewer and generated harness used no `flutter_scene` path
+override.
+
+The fixed renderer-native state is
+`tools/material_extension_acceptance/fixtures/plan018_renderer_native_scalar_sheen_control_state.json`
+with SHA-256
+`e55b84b6e3701a10c7cd98817328428e5f07d5adb0708ec55114f0ec2da68a63`.
+It derives a sheen-on fixture by adding scalar `KHR_materials_sheen` factors to
+one material in `MultiMaterialAssembly.glb`; geometry, BIN data, authored UV0,
+camera, environment, direct light, exposure, tone mapping, output color space,
+viewport, and the direct-only/IBL-only/combined pass definitions stay fixed.
+The control has no sheen texture, external reference, or cross-renderer
+threshold.
+
+Final evidence is under
+`tools/out/material_extension_acceptance/plan018_controlled_comparison/ios_simulator/renderer-native-run-05/`.
+Its `evidence.json` SHA-256 is
+`9f4d3e1b2c561174c9426ad0da653f09c8c3d8ab7494bdfa7dcdf06d121f74da`
+and records:
+
+- sheen-on application `rendererNative`, runtime availability `available`, and
+  one installed native `PhysicallyBasedMaterial` with scalar color `[1, 1, 1]`
+  and roughness `0.5`;
+- sheen-off application `none` and no installed sheen material;
+- three 1206 x 2622 captures per control for `directOnly`, `iblOnly`, and
+  `combined`, with matching fixed framing and environment identity;
+- iOS Simulator execution and target evidence `verified locally`;
+- aggregate renderer-local visual evidence `verified locally` after all six
+  frames passed structural-health checks and every same-pass on/off delta
+  passed the frozen threshold.
+
+The foreground-union mean absolute sRGB on/off deltas were
+`0.06705855727896012` for direct-only, `0.04602201102311509` for IBL-only,
+and `0.06834645980655281` for combined, each above the existing
+`0.0009765625` renderer-local threshold. These values establish a visible
+same-renderer control response. They are not an external-reference comparison,
+physical-correctness metric, or general pixel-parity result.
+
+The renderer owns the native sheen fields and import path, Charlie direct and
+image-based lighting, real DFG-B directional albedo, lazy Charlie environment
+prefiltering, authored UV metadata, sampler-bounded variants, and layering below
+clearcoat. The viewer owns public intent, policy, validation, diagnostics,
+atomic material composition, and evidence. Package-owned nonidentity core
+transforms, specular, and opaque IOR remain on one coherent
+`FSViewerExtendedPbr` candidate. Scalar clearcoat can compose with that state;
+renderer-native transmission/volume is never replaced. Active transmission,
+active sheen, and textured clearcoat together are blocked before decode at the
+portable sampler boundary.
+
+The 27-image SheenChair, SheenCloth, GlamVelvetSofa, and ToyCar evidence under
+`ios_simulator/candidate-run-14/` remains historical `candidate-only` evidence
+at `flutter_scene` revision
+`8e2e2221405b04c517189428d0faf8474cf7f708`. It is not relabeled
+renderer-native. ToyCar's Fabric sheen, body clearcoat, and Glass transmission
+belong to separate materials; Fabric follows the package-owned route because
+its own core texture transforms require it.
+
+Literal status: native sheen runtime is available for the supported route;
+iOS Simulator target and visual evidence are `verified locally`; feature and
+release maturity are `release pending`. Physical iOS, Android, Web,
+external-reference comparison, physical correctness, general pixel parity,
+release, and `production-ready` evidence are `not run` or `release pending` as
+applicable.
+
 ## Plan 016 renderer-native transmission and volume
 
 The complete selected `KHR_materials_transmission`, `KHR_materials_volume`,

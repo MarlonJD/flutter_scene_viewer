@@ -61,6 +61,12 @@ final class MaterialPatch {
     this.specularColorFactor,
     this.specularColorTexture,
     this.specularColorTextureBinding,
+    this.sheenColorFactor,
+    this.sheenColorTexture,
+    this.sheenColorTextureBinding,
+    this.sheenRoughness,
+    this.sheenRoughnessTexture,
+    this.sheenRoughnessTextureBinding,
     this.visible,
   })  : assert(
           baseColorFactor == null || baseColorFactor.length == 4,
@@ -232,6 +238,24 @@ final class MaterialPatch {
 
   final MaterialTextureBinding? specularColorTextureBinding;
 
+  /// KHR_materials_sheen linear RGB color factor.
+  ///
+  /// The exact default is `[0, 0, 0]`; a zero color disables the sheen lobe.
+  final List<double>? sheenColorFactor;
+
+  /// KHR_materials_sheen color texture, decoded from sRGB RGB to linear.
+  final TextureSource? sheenColorTexture;
+
+  final MaterialTextureBinding? sheenColorTextureBinding;
+
+  /// KHR_materials_sheen roughness factor in the inclusive 0..1 range.
+  final double? sheenRoughness;
+
+  /// KHR_materials_sheen roughness texture, sampled from linear alpha.
+  final TextureSource? sheenRoughnessTexture;
+
+  final MaterialTextureBinding? sheenRoughnessTextureBinding;
+
   final bool? visible;
 
   bool get isEmpty =>
@@ -278,6 +302,12 @@ final class MaterialPatch {
       specularColorFactor == null &&
       specularColorTexture == null &&
       specularColorTextureBinding == null &&
+      sheenColorFactor == null &&
+      sheenColorTexture == null &&
+      sheenColorTextureBinding == null &&
+      sheenRoughness == null &&
+      sheenRoughnessTexture == null &&
+      sheenRoughnessTextureBinding == null &&
       visible == null;
 
   /// Whether this patch contains transmission or volume intent.
@@ -319,6 +349,14 @@ final class MaterialPatch {
       specularColorTexture != null ||
       specularColorTextureBinding != null;
 
+  bool get hasSheenOverride =>
+      sheenColorFactor != null ||
+      sheenColorTexture != null ||
+      sheenColorTextureBinding != null ||
+      sheenRoughness != null ||
+      sheenRoughnessTexture != null ||
+      sheenRoughnessTextureBinding != null;
+
   bool get hasTextureOverride =>
       baseColorTexture != null ||
       baseColorTextureBinding != null ||
@@ -344,7 +382,11 @@ final class MaterialPatch {
       specularTexture != null ||
       specularTextureBinding != null ||
       specularColorTexture != null ||
-      specularColorTextureBinding != null;
+      specularColorTextureBinding != null ||
+      sheenColorTexture != null ||
+      sheenColorTextureBinding != null ||
+      sheenRoughnessTexture != null ||
+      sheenRoughnessTextureBinding != null;
 
   /// Returns the explicit binding for [slot], or a default binding wrapping
   /// the source-only compatibility field for that slot.
@@ -381,6 +423,14 @@ final class MaterialPatch {
       MaterialTextureSlot.specularColor => _normalizedBinding(
           specularColorTextureBinding,
           specularColorTexture,
+        ),
+      MaterialTextureSlot.sheenColor => _normalizedBinding(
+          sheenColorTextureBinding,
+          sheenColorTexture,
+        ),
+      MaterialTextureSlot.sheenRoughness => _normalizedBinding(
+          sheenRoughnessTextureBinding,
+          sheenRoughnessTexture,
         ),
     };
   }
@@ -525,6 +575,28 @@ final class MaterialPatch {
           next.specularColorTextureBinding,
           next.specularColorTexture,
         ),
+        sheenColorFactor: next.sheenColorFactor ?? sheenColorFactor,
+        sheenColorTexture: _mergedSource(
+          sheenColorTexture,
+          next.sheenColorTexture,
+          next.sheenColorTextureBinding,
+        ),
+        sheenColorTextureBinding: _mergedBinding(
+          sheenColorTextureBinding,
+          next.sheenColorTextureBinding,
+          next.sheenColorTexture,
+        ),
+        sheenRoughness: next.sheenRoughness ?? sheenRoughness,
+        sheenRoughnessTexture: _mergedSource(
+          sheenRoughnessTexture,
+          next.sheenRoughnessTexture,
+          next.sheenRoughnessTextureBinding,
+        ),
+        sheenRoughnessTextureBinding: _mergedBinding(
+          sheenRoughnessTextureBinding,
+          next.sheenRoughnessTextureBinding,
+          next.sheenRoughnessTexture,
+        ),
         visible: next.visible ?? visible,
       );
 
@@ -561,6 +633,10 @@ final class MaterialPatch {
         _rangeDiagnostic(address, 'specular', specular!),
       if (!_isNonNegativeFiniteRgb(specularColorFactor))
         _specularColorFactorDiagnostic(address, specularColorFactor!),
+      if (!_isUnitIntervalRgb(sheenColorFactor))
+        _sheenColorFactorDiagnostic(address, sheenColorFactor!),
+      if (!_isUnitInterval(sheenRoughness))
+        _rangeDiagnostic(address, 'sheenRoughness', sheenRoughness!),
       if (!_isValidIor(ior)) _iorDiagnostic(address, ior!),
       if (!_isUnitInterval(alphaCutoff))
         _rangeDiagnostic(address, 'alphaCutoff', alphaCutoff!),
@@ -576,6 +652,9 @@ final class MaterialPatch {
       if (hasSpecularOverride &&
           !support.supportFor(MaterialExtensionFeature.specular).available)
         _specularUnsupportedDiagnostic(address),
+      if (hasSheenOverride &&
+          !support.supportFor(MaterialExtensionFeature.sheen).available)
+        _sheenUnsupportedDiagnostic(address),
     ];
     if (unsupportedDiagnostics.isNotEmpty) {
       return unsupportedDiagnostics;
@@ -652,6 +731,16 @@ final class MaterialPatch {
         _textureBindingConflictDiagnostic(
           address,
           MaterialTextureSlot.specularColor,
+        ),
+      if (sheenColorTexture != null && sheenColorTextureBinding != null)
+        _textureBindingConflictDiagnostic(
+          address,
+          MaterialTextureSlot.sheenColor,
+        ),
+      if (sheenRoughnessTexture != null && sheenRoughnessTextureBinding != null)
+        _textureBindingConflictDiagnostic(
+          address,
+          MaterialTextureSlot.sheenRoughness,
         ),
     ];
   }
@@ -733,6 +822,18 @@ final class MaterialPatch {
           'specularColorTexture': specularColorTexture!.toJson(),
         if (specularColorTextureBinding != null)
           'specularColorTextureBinding': specularColorTextureBinding!.toJson(),
+        if (sheenColorFactor != null)
+          'sheenColorFactor': List<double>.of(sheenColorFactor!),
+        if (sheenColorTexture != null)
+          'sheenColorTexture': sheenColorTexture!.toJson(),
+        if (sheenColorTextureBinding != null)
+          'sheenColorTextureBinding': sheenColorTextureBinding!.toJson(),
+        if (sheenRoughness != null) 'sheenRoughness': sheenRoughness,
+        if (sheenRoughnessTexture != null)
+          'sheenRoughnessTexture': sheenRoughnessTexture!.toJson(),
+        if (sheenRoughnessTextureBinding != null)
+          'sheenRoughnessTextureBinding':
+              sheenRoughnessTextureBinding!.toJson(),
         if (visible != null) 'visible': visible,
       };
 
@@ -795,9 +896,26 @@ final class MaterialPatch {
       specularColorTexture: _textureSource(json, 'specularColorTexture'),
       specularColorTextureBinding:
           _textureBinding(json, 'specularColorTextureBinding'),
+      sheenColorFactor:
+          _doubleList(json['sheenColorFactor'], 'sheenColorFactor'),
+      sheenColorTexture: _textureSource(json, 'sheenColorTexture'),
+      sheenColorTextureBinding:
+          _textureBinding(json, 'sheenColorTextureBinding'),
+      sheenRoughness: _doubleValue(json['sheenRoughness'], 'sheenRoughness'),
+      sheenRoughnessTexture: _textureSource(json, 'sheenRoughnessTexture'),
+      sheenRoughnessTextureBinding:
+          _textureBinding(json, 'sheenRoughnessTextureBinding'),
       visible: json['visible'] as bool?,
     );
   }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is MaterialPatch && _deepEquals(toJson(), other.toJson());
+
+  @override
+  int get hashCode => _deepHash(toJson());
 
   bool _effectMaskAllowedInResolvedFamily() {
     if (hasGlassOverride) {
@@ -919,6 +1037,8 @@ String _sourceFieldFor(MaterialTextureSlot slot) => switch (slot) {
       MaterialTextureSlot.clearcoatNormal => 'clearcoatNormalTexture',
       MaterialTextureSlot.specular => 'specularTexture',
       MaterialTextureSlot.specularColor => 'specularColorTexture',
+      MaterialTextureSlot.sheenColor => 'sheenColorTexture',
+      MaterialTextureSlot.sheenRoughness => 'sheenRoughnessTexture',
     };
 
 String _bindingFieldFor(MaterialTextureSlot slot) =>
@@ -948,6 +1068,13 @@ bool _isNonNegativeFiniteRgb(List<double>? value) =>
     value == null ||
     (value.length == 3 &&
         value.every((component) => component.isFinite && component >= 0));
+
+bool _isUnitIntervalRgb(List<double>? value) =>
+    value == null ||
+    (value.length == 3 &&
+        value.every(
+          (component) => component.isFinite && component >= 0 && component <= 1,
+        ));
 
 bool _isValidIor(double? value) =>
     value == null || (value.isFinite && (value == 0 || value >= 1));
@@ -1000,6 +1127,25 @@ ViewerDiagnostic _specularColorFactorDiagnostic(
       'value': List<double>.of(value),
       'components': 3,
       'min': 0,
+    },
+  );
+}
+
+ViewerDiagnostic _sheenColorFactorDiagnostic(
+  PartAddress address,
+  List<double> value,
+) {
+  return ViewerDiagnostic(
+    code: ViewerDiagnosticCode.invalidMaterialOverride,
+    message:
+        'Sheen color factor must contain exactly three finite linear RGB values in the 0..1 range.',
+    details: <String, Object?>{
+      'part': address.debugPath,
+      'field': 'sheenColorFactor',
+      'value': List<double>.of(value),
+      'components': 3,
+      'min': 0,
+      'max': 1,
     },
   );
 }
@@ -1076,6 +1222,52 @@ ViewerDiagnostic _specularUnsupportedDiagnostic(PartAddress address) {
       'status': 'unsupported',
     },
   );
+}
+
+ViewerDiagnostic _sheenUnsupportedDiagnostic(PartAddress address) {
+  return ViewerDiagnostic(
+    code: ViewerDiagnosticCode.unsupportedMaterialFeature,
+    message:
+        'Sheen material overrides require renderer support for KHR_materials_sheen.',
+    details: <String, Object?>{
+      'part': address.debugPath,
+      'extensions': const <String>['KHR_materials_sheen'],
+      'upstreamPackage': 'flutter_scene',
+      'status': 'unsupported',
+    },
+  );
+}
+
+bool _deepEquals(Object? left, Object? right) {
+  if (identical(left, right)) {
+    return true;
+  }
+  if (left is List && right is List) {
+    return left.length == right.length &&
+        Iterable<int>.generate(left.length)
+            .every((index) => _deepEquals(left[index], right[index]));
+  }
+  if (left is Map && right is Map) {
+    return left.length == right.length &&
+        left.keys.every(
+          (key) => right.containsKey(key) && _deepEquals(left[key], right[key]),
+        );
+  }
+  return left == right;
+}
+
+int _deepHash(Object? value) {
+  if (value is List) {
+    return Object.hashAll(value.map(_deepHash));
+  }
+  if (value is Map) {
+    return Object.hashAllUnordered(
+      value.entries.map(
+        (entry) => Object.hash(_deepHash(entry.key), _deepHash(entry.value)),
+      ),
+    );
+  }
+  return value.hashCode;
 }
 
 ViewerDiagnostic _effectMaskFamilyDiagnostic(PartAddress address) {

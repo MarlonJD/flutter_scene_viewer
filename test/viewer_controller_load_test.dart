@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter_scene_viewer/flutter_scene_viewer.dart';
+import 'package:flutter_scene_viewer/src/internal/material_extension_patch_group.dart';
 import 'package:flutter_scene_viewer/src/model_load_cancellation.dart';
 import 'package:flutter_scene_viewer/src/model_loader.dart';
 import 'package:flutter_scene_viewer/src/viewer_controller.dart'
@@ -52,6 +53,270 @@ void main() {
     expect(controller.loadState.status, ViewerLoadStatus.error);
     expect(controller.loadState.diagnostic, diagnostic);
     expect(controller.diagnostics, <ViewerDiagnostic>[diagnostic]);
+  });
+
+  test('load does not re-diagnose unsupported authored sheen intent', () async {
+    final controller = FlutterSceneViewerController();
+    final sink = CompletingLoadSink();
+    controller.attach(sink);
+    final address = PartAddress(
+      nodePath: const <String>['Fabric'],
+      primitiveIndex: 0,
+    );
+    const capabilityDiagnostic = ViewerDiagnostic(
+      code: ViewerDiagnosticCode.unsupportedMaterialFeature,
+      message: 'Authored sheen is unsupported.',
+      details: <String, Object?>{
+        'feature': 'sheen',
+        'extension': 'KHR_materials_sheen',
+        'required': false,
+        'blocking': false,
+        'status': 'unsupported',
+        'fallback': 'coreMaterial',
+        'parsedIntentPreserved': true,
+      },
+    );
+    final result = ModelLoadResult.success(
+      diagnostics: const <ViewerDiagnostic>[capabilityDiagnostic],
+      authoredExtensionMaterialPatches: <PartAddress,
+          Map<MaterialExtensionPatchGroup, MaterialPatch>>{
+        address: <MaterialExtensionPatchGroup, MaterialPatch>{
+          MaterialExtensionPatchGroup.sheen:
+              const MaterialPatch(sheenRoughness: 0.6),
+        },
+      },
+    );
+
+    final load = controller.load(
+      ModelSource.bytes(Uint8List.fromList(<int>[1])),
+    );
+    sink.complete(result);
+    await load;
+
+    expect(controller.diagnostics, const <ViewerDiagnostic>[
+      capabilityDiagnostic,
+    ]);
+    expect(
+      result
+          .authoredExtensionMaterialPatches[address]![
+              MaterialExtensionPatchGroup.sheen]!
+          .sheenRoughness,
+      0.6,
+    );
+    expect(sink.materialCalls, isEmpty);
+  });
+
+  test('load suppresses only the addressed optional authored sheen', () async {
+    final controller = FlutterSceneViewerController();
+    final sink = CompletingLoadSink(
+      materialExtensionSupport:
+          const ViewerMaterialExtensionPolicy.experimentalShaders(
+                  enableSheen: true)
+              .support,
+    );
+    controller.attach(sink);
+    final failingAddress = PartAddress(
+      nodePath: const <String>['IncompatibleFabric'],
+      primitiveIndex: 0,
+    );
+    final validAddress = PartAddress(
+      nodePath: const <String>['ValidFabric'],
+      primitiveIndex: 0,
+    );
+    final diagnostic = ViewerDiagnostic(
+      code: ViewerDiagnosticCode.unsupportedMaterialFeature,
+      message: 'The requested sheen resources are incompatible.',
+      details: <String, Object?>{
+        'part': failingAddress.debugPath,
+        'partAddress': failingAddress.toJson(),
+        'feature': 'sheen',
+        'extension': 'KHR_materials_sheen',
+        'required': false,
+        'blocking': false,
+        'status': 'unsupported',
+        'fallback': 'coreMaterial',
+        'parsedIntentPreserved': true,
+      },
+    );
+    final result = ModelLoadResult.success(
+      diagnostics: <ViewerDiagnostic>[diagnostic],
+      authoredExtensionMaterialPatches: <PartAddress,
+          Map<MaterialExtensionPatchGroup, MaterialPatch>>{
+        failingAddress: <MaterialExtensionPatchGroup, MaterialPatch>{
+          MaterialExtensionPatchGroup.sheen:
+              const MaterialPatch(sheenRoughness: 0.3),
+        },
+        validAddress: <MaterialExtensionPatchGroup, MaterialPatch>{
+          MaterialExtensionPatchGroup.sheen:
+              const MaterialPatch(sheenRoughness: 0.7),
+        },
+      },
+    );
+
+    final load = controller.load(
+      ModelSource.bytes(Uint8List.fromList(<int>[1])),
+    );
+    sink.complete(result);
+    await load;
+
+    expect(controller.diagnostics, <ViewerDiagnostic>[diagnostic]);
+    expect(sink.materialCalls, <PartAddress>[validAddress]);
+  });
+
+  test('load uses structured authored sheen address when display paths collide',
+      () async {
+    final controller = FlutterSceneViewerController();
+    final sink = CompletingLoadSink(
+      materialExtensionSupport:
+          const ViewerMaterialExtensionPolicy.experimentalShaders(
+                  enableSheen: true)
+              .support,
+    );
+    controller.attach(sink);
+    final failingAddress = PartAddress(
+      nodePath: const <String>['A/B'],
+      primitiveIndex: 0,
+    );
+    final validAddress = PartAddress(
+      nodePath: const <String>['A', 'B'],
+      primitiveIndex: 0,
+    );
+    expect(failingAddress.debugPath, validAddress.debugPath);
+    final diagnostic = ViewerDiagnostic(
+      code: ViewerDiagnosticCode.unsupportedMaterialFeature,
+      message: 'The requested sheen resources are incompatible.',
+      details: <String, Object?>{
+        'part': failingAddress.debugPath,
+        'partAddress': failingAddress.toJson(),
+        'feature': 'sheen',
+        'extension': 'KHR_materials_sheen',
+        'required': false,
+        'blocking': false,
+        'status': 'unsupported',
+        'fallback': 'coreMaterial',
+        'parsedIntentPreserved': true,
+      },
+    );
+    final result = ModelLoadResult.success(
+      diagnostics: <ViewerDiagnostic>[diagnostic],
+      authoredExtensionMaterialPatches: <PartAddress,
+          Map<MaterialExtensionPatchGroup, MaterialPatch>>{
+        failingAddress: <MaterialExtensionPatchGroup, MaterialPatch>{
+          MaterialExtensionPatchGroup.sheen:
+              const MaterialPatch(sheenRoughness: 0.3),
+        },
+        validAddress: <MaterialExtensionPatchGroup, MaterialPatch>{
+          MaterialExtensionPatchGroup.sheen:
+              const MaterialPatch(sheenRoughness: 0.7),
+        },
+      },
+    );
+
+    final load = controller.load(
+      ModelSource.bytes(Uint8List.fromList(<int>[1])),
+    );
+    sink.complete(result);
+    await load;
+
+    expect(controller.diagnostics, <ViewerDiagnostic>[diagnostic]);
+    expect(sink.materialCalls, <PartAddress>[validAddress]);
+  });
+
+  test('load does not suppress sheen for malformed structured address',
+      () async {
+    final controller = FlutterSceneViewerController();
+    final sink = CompletingLoadSink(
+      materialExtensionSupport:
+          const ViewerMaterialExtensionPolicy.experimentalShaders(
+                  enableSheen: true)
+              .support,
+    );
+    controller.attach(sink);
+    final address = PartAddress(
+      nodePath: const <String>['Fabric'],
+      primitiveIndex: 0,
+    );
+    const diagnostic = ViewerDiagnostic(
+      code: ViewerDiagnosticCode.unsupportedMaterialFeature,
+      message: 'The requested sheen resources are incompatible.',
+      details: <String, Object?>{
+        'partAddress': null,
+        'feature': 'sheen',
+        'extension': 'KHR_materials_sheen',
+        'required': false,
+        'blocking': false,
+        'status': 'unsupported',
+        'fallback': 'coreMaterial',
+        'parsedIntentPreserved': true,
+      },
+    );
+    final result = ModelLoadResult.success(
+      diagnostics: <ViewerDiagnostic>[diagnostic],
+      authoredExtensionMaterialPatches: <PartAddress,
+          Map<MaterialExtensionPatchGroup, MaterialPatch>>{
+        address: <MaterialExtensionPatchGroup, MaterialPatch>{
+          MaterialExtensionPatchGroup.sheen:
+              const MaterialPatch(sheenRoughness: 0.6),
+        },
+      },
+    );
+
+    final load = controller.load(
+      ModelSource.bytes(Uint8List.fromList(<int>[1])),
+    );
+    sink.complete(result);
+    await load;
+
+    expect(controller.diagnostics, <ViewerDiagnostic>[diagnostic]);
+    expect(sink.materialCalls, <PartAddress>[address]);
+  });
+
+  test('load does not treat display-only sheen diagnostic as global', () async {
+    final controller = FlutterSceneViewerController();
+    final sink = CompletingLoadSink(
+      materialExtensionSupport:
+          const ViewerMaterialExtensionPolicy.experimentalShaders(
+                  enableSheen: true)
+              .support,
+    );
+    controller.attach(sink);
+    final address = PartAddress(
+      nodePath: const <String>['Fabric'],
+      primitiveIndex: 0,
+    );
+    final diagnostic = ViewerDiagnostic(
+      code: ViewerDiagnosticCode.unsupportedMaterialFeature,
+      message: 'The requested sheen resources are incompatible.',
+      details: <String, Object?>{
+        'part': address.debugPath,
+        'feature': 'sheen',
+        'extension': 'KHR_materials_sheen',
+        'required': false,
+        'blocking': false,
+        'status': 'unsupported',
+        'fallback': 'coreMaterial',
+        'parsedIntentPreserved': true,
+      },
+    );
+    final result = ModelLoadResult.success(
+      diagnostics: <ViewerDiagnostic>[diagnostic],
+      authoredExtensionMaterialPatches: <PartAddress,
+          Map<MaterialExtensionPatchGroup, MaterialPatch>>{
+        address: <MaterialExtensionPatchGroup, MaterialPatch>{
+          MaterialExtensionPatchGroup.sheen:
+              const MaterialPatch(sheenRoughness: 0.6),
+        },
+      },
+    );
+
+    final load = controller.load(
+      ModelSource.bytes(Uint8List.fromList(<int>[1])),
+    );
+    sink.complete(result);
+    await load;
+
+    expect(controller.diagnostics, <ViewerDiagnostic>[diagnostic]);
+    expect(sink.materialCalls, <PartAddress>[address]);
   });
 
   test('load exposes read-only part tree from successful load result',
@@ -622,7 +887,10 @@ Future<void> _verifyStaleOrdinaryFailure({
 }
 
 final class CompletingLoadSink implements ViewerCommandSink {
-  CompletingLoadSink({this.materialGate});
+  CompletingLoadSink({
+    this.materialGate,
+    this.materialExtensionSupport = MaterialExtensionSupport.unsupported,
+  });
 
   final List<Completer<ModelLoadResult>> _completers =
       <Completer<ModelLoadResult>>[];
@@ -637,8 +905,7 @@ final class CompletingLoadSink implements ViewerCommandSink {
       _completers.where((entry) => !entry.isCompleted).length;
 
   @override
-  MaterialExtensionSupport get materialExtensionSupport =>
-      MaterialExtensionSupport.unsupported;
+  final MaterialExtensionSupport materialExtensionSupport;
 
   void complete(ModelLoadResult result) {
     _completers.lastWhere((entry) => !entry.isCompleted).complete(result);
