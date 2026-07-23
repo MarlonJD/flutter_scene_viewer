@@ -12,7 +12,7 @@ Optional native BasisU/KTX2 transcoder plugin for flutter_scene_viewer.
   s.source_files     = 'Classes/**/*'
   s.preserve_paths   = 'third_party/basis_universal/LICENSE',
                        'third_party/basis_universal/NOTICE',
-                       'third_party/basis_universal/README.md',
+                       'third_party/basis_universal/UPSTREAM_README.txt',
                        'third_party/basis_universal/transcoder/*.{h,cpp}',
                        'third_party/basis_universal/transcoder/*.{inc,inl}',
                        'third_party/basis_universal/zstd/*.{h,c}',

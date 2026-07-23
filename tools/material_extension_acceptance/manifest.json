@@ -533,7 +533,7 @@
         "source": "KhronosGroup/glTF-Sample-Assets",
         "sourceCommit": "2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf",
         "license": "CC0-1.0",
-        "licensePath": "test/fixtures/meshopt/LICENSE.md",
+        "licensePath": "test/fixtures/meshopt/LICENSE.txt",
         "licenseSha256": "63fc4b5080289c3640c904dcf5adb3a6122a707928164d7520f46b3051da8ac3",
         "sourceFixtures": [
           {
@@ -562,7 +562,7 @@
         "source": "KhronosGroup/glTF-Sample-Assets",
         "sourceCommit": "2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf",
         "license": "CC-BY-4.0",
-        "licensePath": "packages/flutter_scene_viewer_draco/test/fixtures/draco/Box/LICENSE.md",
+        "licensePath": "packages/flutter_scene_viewer_draco/test/fixtures/draco/Box/LICENSE.txt",
         "licenseSha256": "634623c7bef43aa4b16a3556ac55ae71b671daf4509437d403e4f2a0273928dc",
         "sourceFixtures": [
           {

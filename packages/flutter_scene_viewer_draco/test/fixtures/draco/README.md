@@ -35,7 +35,8 @@ Tracked files and SHA-256 digests:
 | `Box/glTF-Draco/Box.gltf` | `3c46acecdfa90b012ec9052d8a1dfa61358e6d56a9e333504189cc78a2de4d1b` |
 | `Box/glTF-Draco/Box.bin` | `610dc6e08aba7c2720c8e4ec0578efd91cf2d88a5e638dab7811a22f0235bf2e` |
 | `Box.bin` buffer view 0, first 118 bytes | `1d5e57c8179d5768bcfcf3fc53da7c1833386b071146236d59eec568a99a9831` |
-| `Box/LICENSE.md` | `634623c7bef43aa4b16a3556ac55ae71b671daf4509437d403e4f2a0273928dc` |
+| `Box/LICENSE.txt` | `634623c7bef43aa4b16a3556ac55ae71b671daf4509437d403e4f2a0273928dc` |
 
-The sample is © 2017 Cesium and licensed under CC-BY-4.0; see the vendored
-`Box/LICENSE.md`.
+The sample is © 2017 Cesium and licensed under CC-BY-4.0; see the
+byte-identical vendored `Box/LICENSE.txt`. The `.txt` suffix prevents
+auto-generated upstream Markdown from being treated as repository navigation.

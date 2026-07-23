@@ -8,7 +8,7 @@ as their navigational mirror.
 | Plan | Owner | State | Updated (UTC) | Current milestone or blocker |
 | --- | --- | --- | --- | --- |
 <!-- harness:plans:active:start -->
-| [Adopt the managed agent harness](active/adopt-managed-agent-harness.md) | Repository maintainers | blocked | 2026-07-23 | Resolve whole-tree verifier scope before source/attestation certification |
+| [Adopt the managed agent harness](active/adopt-managed-agent-harness.md) | Repository maintainers | implementing | 2026-07-23 | Commit source state and create the bounded attestation overlay |
 <!-- harness:plans:active:end -->
 
 ## Completed

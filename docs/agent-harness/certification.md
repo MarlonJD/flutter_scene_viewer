@@ -29,15 +29,15 @@ reviewed, or independently certified for production.
   release, deployment, production, and product judgment require separate
   authority.
 
-## Current blocker
+## Current convergence state
 
-The 2026-07-23 external adaptive audit scans partial vendored documentation and
-ignored `tools/out/` capture trees that the repository-native documentation
-gate does not own. It reports broken upstream/fixture Markdown links.
-Additionally, the working tree contains the user's unrelated untracked
-deferred Plan 028. Until a clean source/direct-child pair and a warning-free
-independent verification path exist, certification remains `candidate-only`
-and no HMAC evidence records are presented as current proof.
+The source tree preserves partial upstream README and auto-generated fixture
+license bytes as `.txt`, so they are not misclassified as project-owned
+Markdown navigation. Certification runs from a clean clone, where ignored
+`tools/out/` captures are absent by construction. Deferred Plan 028 is now an
+authorized tracked source artifact. The remaining step is to bind fresh
+schema-v2 records to the final source commit and obtain `CERT000` from its
+clean direct-child attestation commit.
 
 ## Source and attestation procedure
 

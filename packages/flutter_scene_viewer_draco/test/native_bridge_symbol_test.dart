@@ -1907,7 +1907,7 @@ void main() {
     const fixtureRoot = 'test/fixtures/draco/Box/glTF-Draco';
     final gltfFile = File('$fixtureRoot/Box.gltf');
     final binFile = File('$fixtureRoot/Box.bin');
-    final licenseFile = File('test/fixtures/draco/Box/LICENSE.md');
+    final licenseFile = File('test/fixtures/draco/Box/LICENSE.txt');
     expect(await gltfFile.exists(), isTrue);
     expect(await binFile.exists(), isTrue);
     expect(await licenseFile.exists(), isTrue);

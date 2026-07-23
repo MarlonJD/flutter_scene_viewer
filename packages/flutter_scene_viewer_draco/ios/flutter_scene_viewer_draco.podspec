@@ -20,7 +20,7 @@ stays pure Dart; apps opt in when they need KHR_draco_mesh_compression.
   s.preserve_paths   = [
     'third_party/draco/AUTHORS',
     'third_party/draco/LICENSE',
-    'third_party/draco/README.md'
+    'third_party/draco/UPSTREAM_README.txt'
   ]
   s.public_header_files = 'Classes/FlutterSceneViewerDracoPlugin.h'
   s.dependency 'Flutter'

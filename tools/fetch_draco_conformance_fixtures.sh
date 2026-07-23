@@ -55,7 +55,7 @@ fetch_and_verify \
   '610dc6e08aba7c2720c8e4ec0578efd91cf2d88a5e638dab7811a22f0235bf2e'
 fetch_and_verify \
   'Models/Box/LICENSE.md' \
-  'Box/LICENSE.md' \
+  'Box/LICENSE.txt' \
   '634623c7bef43aa4b16a3556ac55ae71b671daf4509437d403e4f2a0273928dc'
 verify_prefix \
   'Box/glTF-Draco/Box.bin' \

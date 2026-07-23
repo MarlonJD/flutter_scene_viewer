@@ -45,7 +45,7 @@ fetch_and_verify \
   'b5947609f3d8aba58de3d43101df3b635ffaaab5849431f8518af6a98a040433'
 fetch_and_verify \
   'Models/MeshoptCubeTest/LICENSE.md' \
-  'LICENSE.md' \
+  'LICENSE.txt' \
   '63fc4b5080289c3640c904dcf5adb3a6122a707928164d7520f46b3051da8ac3'
 
 mkdir -p "${DEST_DIR}"

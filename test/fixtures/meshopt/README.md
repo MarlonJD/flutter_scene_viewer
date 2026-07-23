@@ -44,7 +44,9 @@ Tracked files and SHA-256 digests:
 | `MeshoptCubeTest/glTF/MeshoptCubeTest.bin` | `6578c1d82c5cc2b228e9513e37f348ca89cdb24b5985aa0567efef8d3c014360` |
 | `MeshoptCubeTest/glTF/MeshoptCubeTestFallback.bin` | `8d3d779653780e85a75eda988110ab235ea85cd3d174361ffb318c6b657dee07` |
 | `MeshoptCubeTest/glTF-Meshopt/MeshoptCubeTest.gltf` | `b5947609f3d8aba58de3d43101df3b635ffaaab5849431f8518af6a98a040433` |
-| `LICENSE.md` | `63fc4b5080289c3640c904dcf5adb3a6122a707928164d7520f46b3051da8ac3` |
+| `LICENSE.txt` | `63fc4b5080289c3640c904dcf5adb3a6122a707928164d7520f46b3051da8ac3` |
 
 The model files are CC0-1.0. Repository metadata and license text are
-CC-BY-4.0; see the vendored `LICENSE.md`. No textures are included.
+CC-BY-4.0; see the byte-identical vendored `LICENSE.txt`. The `.txt` suffix
+prevents auto-generated upstream Markdown from being treated as repository
+navigation. No textures are included.
