@@ -24,7 +24,6 @@ for path in [
     'docs/agent-harness/README.md',
     'docs/agent-harness/output-contract.md',
     'docs/agent-harness/entropy-cleanup-checklist.md',
-    'docs/exec-plans/active',
     'docs/exec-plans/completed',
     'docs/exec-plans/templates/EXEC_PLAN_TEMPLATE.md',
     'lib/flutter_scene_viewer.dart',
@@ -41,6 +40,9 @@ if agents.exists():
 active_dir = ROOT / 'docs/exec-plans/active'
 if active_dir.exists():
     plans = sorted(active_dir.glob('*.md'))
+    if len(plans) > 1:
+        rendered = ', '.join(str(plan.relative_to(ROOT)) for plan in plans)
+        errors.append(f'more than one active plan: {rendered}')
     for plan in plans:
         text = plan.read_text(encoding='utf-8')
         for heading in ['## Goal', '## Steps', '## Acceptance criteria', '## Progress log']:

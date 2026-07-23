@@ -547,9 +547,6 @@ void main() {
         reason: path,
       );
     }
-    final quality = File('docs/QUALITY_SCORE.md').readAsStringSync();
-    expect(quality, contains('Selected glTF extension evidence'));
-    expect(quality, contains('generated/capability_matrix.md'));
   });
 
   test('full Plan 014 payload and four live blocker changes are frozen',

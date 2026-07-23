@@ -7,7 +7,7 @@ This repo follows an agent-first engineering style.
 1. The repository is the durable source of truth.
 2. `AGENTS.md` is a map, not a manual.
 3. Plans are first-class artifacts.
-4. Mechanical checks enforce taste and architecture.
+4. Mechanical checks enforce stable quality and architecture boundaries.
 5. Docs are maintained like code.
 6. Every task has a verification loop.
 
@@ -23,14 +23,12 @@ docs/
     README.md
     output-contract.md
     entropy-cleanup-checklist.md
-  design-docs/
   exec-plans/
     active/
     completed/
     deferred/
     templates/
   generated/
-  product-specs/
   references/
 tools/
   run_checks.sh
@@ -54,6 +52,7 @@ For each active plan:
 5. stop or continue with next verifiable slice.
 
 When no work is actively selected, `docs/exec-plans/active/` may be empty.
+When work is selected, it contains at most one Markdown plan.
 Completed plans with all acceptance criteria checked belong in
 `docs/exec-plans/completed/`; future work should be promoted back into
 `active/` before implementation.

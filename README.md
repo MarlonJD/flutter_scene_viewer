@@ -37,7 +37,7 @@ scene is idle.
 import, raycast, and Flutter GPU/Impeller integration. `flutter_scene_viewer`
 exists to package those capabilities into a higher-level SDK for static GLB
 product, medical, and industrial models. The full rationale is in
-[docs/WHY.md](docs/WHY.md).
+[the project charter](docs/PROJECT_CHARTER.md).
 
 ## What Makes It Different
 
@@ -176,7 +176,6 @@ use the Flutter channel/version required by `flutter_scene`.
 
 ## Project Docs
 
-- [Why this package exists](docs/WHY.md)
 - [Project charter](docs/PROJECT_CHARTER.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Public API](docs/PUBLIC_API.md)

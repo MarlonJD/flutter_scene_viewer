@@ -9,6 +9,7 @@
 build/
 coverage/
 pubspec.lock
+__pycache__/
 
 # Node/npm dependencies for local reference-renderer harnesses
 node_modules/

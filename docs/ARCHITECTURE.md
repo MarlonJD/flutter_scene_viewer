@@ -74,3 +74,15 @@ Default target is adaptive rendering:
 
 If `flutter_scene` lacks a direct one-shot frame request API, implement the
 simplest widget-level invalidation first and document upstream needs.
+
+## Operational constraints
+
+- Keep the `flutter_scene` adapter isolated because Flutter GPU and upstream
+  APIs may change with the pinned toolchain revision.
+- Bound large model and texture work with size limits, cancellation, progress,
+  caching, and diagnostics so runtime import does not silently become a jank or
+  memory hazard.
+- Treat missing UVs, oversized textures, duplicate names, and unsupported glTF
+  extensions as asset-authoring diagnostics rather than data the viewer should
+  guess or repair.
+- Benchmark before publishing performance comparisons.

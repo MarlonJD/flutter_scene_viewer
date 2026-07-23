@@ -1,87 +1,54 @@
 # AGENTS.md
 
-This file is a map, not an encyclopedia. Keep it short. Use the linked docs for
-details. The repository is optimized for agent-assisted work: small plans,
-mechanical checks, and evidence-driven implementation.
+This file is the concise repository map. Put detailed product, architecture,
+tooling, and evidence guidance in the linked canonical documents.
 
 ## Start here
 
 1. Read `docs/PROJECT_CHARTER.md`.
 2. Read `docs/ARCHITECTURE.md`.
-3. Pick exactly one active plan from `docs/exec-plans/active/`.
-4. Implement the smallest verifiable slice.
-5. Run `bash tools/run_checks.sh`.
-6. Update the plan's progress log before stopping.
+3. Read `docs/ROADMAP.md` and the relevant ExecPlan. Promote future work from
+   `docs/exec-plans/deferred/` into `active/` before implementation.
+4. Keep at most one active plan. The directory may be empty between selected
+   work slices.
+5. Implement the smallest verifiable slice, run `bash tools/run_checks.sh`,
+   and update the active plan before stopping.
 
-Harness output and entropy rules live in `docs/agent-harness/`.
+Harness operation, output, and cleanup rules live in
+`docs/agent-harness/README.md`. Tool commands live in
+`docs/REPO_TOOLING.md`.
 
-Historical v2 planning source has been promoted into the roadmap and exec-plan
-folders. Future work should start from `docs/ROADMAP.md` and be promoted into
-`docs/exec-plans/active/` before implementation.
+## Durable constraints
 
-## Project intent
-
-Build a high-level `flutter_scene` viewer/configurator package. Do not build a
-new engine. Do not write a custom PBR renderer. Do not tessellate CAD files or
-unwrap UVs. The viewer adapts `flutter_scene` into a stable public Flutter API.
-
-## MVP boundaries
-
-In scope for v1:
-
-- static GLB loading from network/assets/bytes;
-- assembly/sub-assembly/part hierarchy from glTF nodes;
-- node path + primitive index addressing;
-- core glTF PBR texture/material overrides;
-- viewer-controlled studio lighting;
-- picking, visibility, camera controls, cache, diagnostics;
-- adaptive/on-demand render policy.
-
-Out of scope for v1:
-
-- skeletal posing, morph targets, blend shapes;
-- Draco/meshopt/KTX2;
-- imported glTF lights/cameras;
-- parallax, displacement, subsurface, world-aligned textures;
-- VR-specific features;
-- claims that this is faster than Filament without benchmarks.
-
-## Coding rules
-
-- Think before coding; state assumptions in the plan log.
-- Prefer the smallest code that satisfies the active plan.
-- Touch only files required by the plan.
+- Build a high-level `flutter_scene` viewer/configurator adapter, not a new
+  renderer, game engine, CAD tessellator, or UV authoring tool.
+- Preserve glTF node hierarchy and `nodePath` + `primitiveIndex` addressing.
+- Return typed diagnostics for missing authoring data or unsupported features;
+  do not invent UVs or fake material support.
+- State material assumptions and evidence boundaries in the active plan.
 - Add or update tests with every behavior change.
 - Do not change public API names without updating docs and tests.
-- If a model lacks UVs for texture override, return diagnostics; do not invent UVs.
-- If a material feature is unsupported, report capability diagnostics; do not fake support.
+- Do not make performance-superiority claims without benchmark evidence.
 
 ## Documentation rules
 
-- Keep `README.md` lean. Put detailed explanations in focused `.md` files and
-  link to them from the README instead of expanding the README.
+- Keep `README.md` lean and public-facing. Extend an existing canonical
+  document before creating a new authority or historical planning pack.
 - For PBR, BRDF/BTDF, material, lighting, IBL, glass, clearcoat, Filament,
   Karis, or Frostbite questions, use the repo-local `pbr-materials` skill.
 
-## Verification commands
+## Verification and completion
 
 ```sh
 bash tools/run_checks.sh
 python3 tools/repo_lint.py
+git diff --check
 ```
 
-When Flutter is unavailable, run the Python repo lints and record the missing
-Flutter toolchain in the active plan log.
+Work is complete when relevant tests and repository checks pass, the active
+plan records the observed evidence, generated documents are refreshed from
+their source, and remaining target or release gaps use the literal labels in
+`docs/agent-harness/output-contract.md`.
 
-## Key docs
-
-- Product: `docs/PROJECT_CHARTER.md`
-- Architecture: `docs/ARCHITECTURE.md`
-- Tooling: `docs/REPO_TOOLING.md`
-- Agent harness: `docs/agent-harness/README.md`
-- Public API: `docs/PUBLIC_API.md`
-- Runtime GLB: `docs/RUNTIME_GLB_PIPELINE.md`
-- Materials: `docs/MATERIALS_AND_LIGHTING.md`
-- Quality: `docs/QUALITY_SCORE.md`
-- Roadmap: `docs/ROADMAP.md`
-- Plans: `docs/exec-plans/active/`
+When Flutter is unavailable, run the Python repository lint and record the
+missing toolchain in the active plan rather than implying full verification.

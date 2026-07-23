@@ -13,9 +13,7 @@ Use this checklist when docs or plans start feeling noisy.
 
 ## Generated and score docs
 
-- `docs/QUALITY_SCORE.md` should match completed evidence, not old intentions.
-- `docs/generated/*` should either name its generator or say it is a manual
-  placeholder waiting for tooling.
+- `docs/generated/*` should name its source and regeneration command.
 - Capability matrices should not say `Planned` for behavior that has verified
   code and tests.
 
@@ -32,5 +30,7 @@ Use this checklist when docs or plans start feeling noisy.
 - Keep `AGENTS.md` as the map.
 - Keep `docs/REPO_TOOLING.md` as the tooling overview.
 - Keep this directory focused on evidence and cleanup contracts.
+- Retire planning-source documents after their decisions are represented in the
+  roadmap and active/deferred ExecPlans.
 - Promote repeated checklist items into `tools/repo_lint.py` or
   `tools/doc_garden.py` only after they are stable enough to enforce.

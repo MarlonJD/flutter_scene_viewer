@@ -759,7 +759,6 @@ pinned-renderer mip-count limit remains a typed pre-publication diagnostic.
 - Modify: `tools/generate_capability_matrix.py`
 - Modify: `docs/generated/capability_matrix.md`
 - Modify: `docs/RUNTIME_GLB_PIPELINE.md`
-- Modify: `docs/QUALITY_SCORE.md`
 - Modify: package READMEs and platform installation docs
 - Create: durable Plan 017 evidence manifests under
   `tools/material_extension_acceptance/` or a decoder-specific sibling

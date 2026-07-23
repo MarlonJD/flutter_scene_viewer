@@ -84,3 +84,6 @@ plan before they can be reported responsibly.
 - 2026-07-02: Clarified that future v1 debug stats snapshots can feed this
   benchmark harness later, but collecting local debug evidence does not
   reactivate benchmarking and does not authorize performance claims.
+- 2026-07-23: Retired the duplicate `docs/WHY.md`; current product rationale
+  and bounded comparison language live in `README.md` and
+  `docs/PROJECT_CHARTER.md`.
