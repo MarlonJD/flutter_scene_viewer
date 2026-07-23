@@ -5,10 +5,9 @@ the repository implementation and named behavior have been exercised at the
 stated local scope. `N/A` means the OpenAI case-study choice or production
 surface is inapplicable for this library and includes the reason.
 
-These prose statuses are not HMAC evidence. Before `harness-ready`, every row
-must link exactly one fresh source-commit-bound schema-v2 record and both the
-repository-native strict gate and independent verifier must return zero with
-`CERT000`.
+Each completed status links exactly one fresh source-commit-bound schema-v2
+record. The repository-native strict gate and independent verifier must both
+return zero with `CERT000` before the bounded `harness-ready` claim is used.
 
 ## Coverage
 

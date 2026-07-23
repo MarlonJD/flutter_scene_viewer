@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "repository_commit": "76c5d46f3786d0b058937c212aa03bd16250953f",
+  "repository_commit": "b25b88cacc83a417e1e0666028d1f96aef97c257",
   "repository_identity": "scm://github.com/MarlonJD/flutter_scene_viewer",
   "deployment_target_id": "harness://github.com/MarlonJD/flutter_scene_viewer/flutter-package-local-validation",
   "capabilities": [
@@ -9,13 +9,13 @@
   "environment": "local",
   "command": "python3 tools/harness_gate.py --require-harness-ready",
   "exit_code": 0,
-  "observed_at": "2026-07-23T13:48:00Z",
+  "observed_at": "2026-07-23T13:55:58Z",
   "result": "passed",
   "artifacts": [
-    "git:76c5d46f3786d0b058937c212aa03bd16250953f:tools/harness_gate.py",
-    "gate:76c5d46f3786d0b058937c212aa03bd16250953f:project-native-harness-ready"
+    "git:b25b88cacc83a417e1e0666028d1f96aef97c257:tools/harness_gate.py",
+    "gate:b25b88cacc83a417e1e0666028d1f96aef97c257:project-native-harness-ready"
   ],
   "issuer": "local-repository-harness-observer",
   "key_id": "4fdb8ebef2efb606f5b3747f933af8064986ba10375114c3e49cc030ae7feef4",
-  "signature": "f0961802094ee8520950c29fc526a00618d8aa51b00ac057dbcb4ddb2300c718"
+  "signature": "a263c6f56f740750f9b3be3c64e9b9340dcae8d631e05d704ee20bb7a39b573d"
 }

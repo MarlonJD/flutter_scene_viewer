@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "repository_commit": "76c5d46f3786d0b058937c212aa03bd16250953f",
+  "repository_commit": "b25b88cacc83a417e1e0666028d1f96aef97c257",
   "repository_identity": "scm://github.com/MarlonJD/flutter_scene_viewer",
   "deployment_target_id": "harness://github.com/MarlonJD/flutter_scene_viewer/flutter-package-local-validation",
   "capabilities": [
@@ -9,12 +9,12 @@
   "environment": "local",
   "command": "repository applicability review recorded in docs/agent-harness/coverage-matrix.md",
   "exit_code": null,
-  "observed_at": "2026-07-23T13:48:00Z",
+  "observed_at": "2026-07-23T13:55:58Z",
   "result": "not-applicable",
   "artifacts": [
-    "git:76c5d46f3786d0b058937c212aa03bd16250953f:docs/agent-harness/coverage-matrix.md#capability-31"
+    "git:b25b88cacc83a417e1e0666028d1f96aef97c257:docs/agent-harness/coverage-matrix.md#capability-31"
   ],
   "issuer": "local-repository-harness-observer",
   "key_id": "4fdb8ebef2efb606f5b3747f933af8064986ba10375114c3e49cc030ae7feef4",
-  "signature": "5424d81346e4ee5c888507f3ffab3fc084154fb3ff06b0e35ab29ad7e474cb46"
+  "signature": "0f215d3f6009af57ad1b21aa2497dd3cff11745f6b535155016e77e895c74811"
 }
