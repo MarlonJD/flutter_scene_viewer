@@ -1,36 +1,50 @@
 # Entropy cleanup checklist
 
-Use this checklist when docs or plans start feeling noisy.
+Run this lightweight sweep after documentation, planning, architecture, or
+harness changes and before completing a managed plan.
 
-## Active plans
+## Managed plans and history
 
-- There should be exactly one current execution plan for the next work slice.
-- Plans with all acceptance criteria checked should move to `completed/` unless
-  the progress log clearly says why they remain active.
-- Deferred work belongs in `deferred/`, not as a checked-off active plan.
-- Historical planning source should be promoted into roadmap or exec-plan
-  files, not kept as parallel planning packs.
+- The configured `docs/harness-plans/active/` lifecycle has at most one plan.
+- Completed managed plans passed structural validation and semantic review.
+- Historical/deferred product plans under `docs/exec-plans/` are not presented
+  as a second active lifecycle.
+- Deferred intent is promoted into a current managed plan before
+  implementation.
 
-## Generated and score docs
+## Routes and generated content
 
-- `docs/generated/*` should name its source and regeneration command.
-- Capability matrices should not say `Planned` for behavior that has verified
-  code and tests.
+- `AGENTS.md`, `docs/index.md`, the harness index, and config point to the same
+  authorities.
+- Project-owned Markdown links resolve.
+- `docs/generated/*` names its source, regeneration command, and drift check.
+- Capability documentation does not say planned when code and tests prove a
+  different state.
 
-## Claims
+## Claims and evidence
 
-- Performance claims require benchmark evidence.
-- Viewer capability claims require tests, smoke evidence, or explicit adapter
-  diagnostics.
-- Missing release, production, or device evidence should be labeled literally
-  instead of implied.
+- Performance claims have benchmark evidence.
+- Viewer capability claims have tests, target evidence, or typed diagnostics.
+- Simulator, physical-device, browser, release, and production scopes remain
+  separate.
+- `harness-ready` appears as a current result only with `CERT000`.
+- Missing release, production, target, or approval evidence uses literal output
+  labels.
 
-## Harness docs
+## Code and tooling
 
-- Keep `AGENTS.md` as the map.
-- Keep `docs/REPO_TOOLING.md` as the tooling overview.
-- Keep this directory focused on evidence and cleanup contracts.
-- Retire planning-source documents after their decisions are represented in the
-  roadmap and active/deferred ExecPlans.
-- Promote repeated checklist items into `tools/repo_lint.py` or
-  `tools/doc_garden.py` only after they are stable enough to enforce.
+- Repeated correctness boundaries are promoted into tests or lint only after
+  they are stable.
+- Temporary outputs remain under ignored paths and are not cited as immutable
+  evidence.
+- Stale suppressions, duplicated helpers, unowned debt, and abandoned plan
+  state have a bounded cleanup or revisit trigger.
+- Vendored snapshots are not edited merely to silence a generic documentation
+  scan; verifier mismatch is tracked as harness debt.
+
+Record the sweep in the active plan. Run:
+
+    python3 tools/doc_garden.py
+    python3 tools/repo_lint.py
+    python3 tools/harness_gate.py
+    git diff --check

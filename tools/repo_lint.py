@@ -20,10 +20,26 @@ for path in [
     'AGENTS.md',
     'docs/PROJECT_CHARTER.md',
     'docs/ARCHITECTURE.md',
+    'docs/index.md',
+    'docs/PLANS.md',
+    'docs/SECURITY.md',
+    'docs/RELIABILITY.md',
     'docs/REPO_TOOLING.md',
-    'docs/agent-harness/README.md',
+    'docs/agent-harness/index.md',
+    'docs/agent-harness/config.json',
+    'docs/agent-harness/registry.md',
+    'docs/agent-harness/environment-contract.md',
+    'docs/agent-harness/verification-matrix.md',
+    'docs/agent-harness/coverage-matrix.md',
+    'docs/agent-harness/certification.md',
+    'docs/agent-harness/certification.json',
     'docs/agent-harness/output-contract.md',
     'docs/agent-harness/entropy-cleanup-checklist.md',
+    'docs/harness-plans/index.md',
+    'docs/harness-plans/active',
+    'docs/harness-plans/completed',
+    'docs/harness-plans/plan-template.md',
+    'docs/harness-plans/tech-debt-tracker.md',
     'docs/exec-plans/completed',
     'docs/exec-plans/templates/EXEC_PLAN_TEMPLATE.md',
     'lib/flutter_scene_viewer.dart',
@@ -37,17 +53,20 @@ if agents.exists():
     if line_count > 140:
         errors.append(f'AGENTS.md is too long ({line_count} lines); keep it a map')
 
-active_dir = ROOT / 'docs/exec-plans/active'
-if active_dir.exists():
-    plans = sorted(active_dir.glob('*.md'))
-    if len(plans) > 1:
-        rendered = ', '.join(str(plan.relative_to(ROOT)) for plan in plans)
-        errors.append(f'more than one active plan: {rendered}')
-    for plan in plans:
-        text = plan.read_text(encoding='utf-8')
-        for heading in ['## Goal', '## Steps', '## Acceptance criteria', '## Progress log']:
-            if heading not in text:
-                errors.append(f'{plan.relative_to(ROOT)} missing {heading}')
+managed_active_dir = ROOT / 'docs/harness-plans/active'
+managed_plans = sorted(managed_active_dir.glob('*.md'))
+if len(managed_plans) > 1:
+    rendered = ', '.join(str(plan.relative_to(ROOT)) for plan in managed_plans)
+    errors.append(f'more than one active managed plan: {rendered}')
+
+legacy_active_dir = ROOT / 'docs/exec-plans/active'
+legacy_active_plans = sorted(legacy_active_dir.glob('*.md')) if legacy_active_dir.exists() else []
+if legacy_active_plans:
+    rendered = ', '.join(str(plan.relative_to(ROOT)) for plan in legacy_active_plans)
+    errors.append(
+        'historical exec-plans/active is no longer an active lifecycle; '
+        f'promote intent into docs/harness-plans/active: {rendered}'
+    )
 
 for md in ROOT.glob('docs/**/*.md'):
     text = md.read_text(encoding='utf-8')

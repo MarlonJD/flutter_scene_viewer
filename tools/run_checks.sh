@@ -6,6 +6,9 @@ cd "$ROOT"
 
 mkdir -p tools/out
 
+echo "== harness gate =="
+python3 tools/harness_gate.py | tee tools/out/harness_gate.log
+
 echo "== repo lint =="
 python3 tools/repo_lint.py | tee tools/out/repo_lint.log
 

@@ -16,15 +16,30 @@ This repo follows an agent-first engineering style.
 ```text
 AGENTS.md
 docs/
+  index.md
+  PLANS.md
   PROJECT_CHARTER.md
   ARCHITECTURE.md
+  SECURITY.md
+  RELIABILITY.md
   REPO_TOOLING.md
   agent-harness/
-    README.md
+    index.md
+    config.json
+    registry.md
+    environment-contract.md
+    verification-matrix.md
+    coverage-matrix.md
+    certification.md
     output-contract.md
     entropy-cleanup-checklist.md
-  exec-plans/
+  harness-plans/
     active/
+    completed/
+    index.md
+    plan-template.md
+    tech-debt-tracker.md
+  exec-plans/
     completed/
     deferred/
     templates/
@@ -32,6 +47,7 @@ docs/
   references/
 tools/
   run_checks.sh
+  harness_gate.py
   repo_lint.py
   doc_garden.py
 ```
@@ -43,7 +59,7 @@ important, put it in docs or an active plan.
 
 ## Quality loop
 
-For each active plan:
+For each active managed plan:
 
 1. read plan;
 2. implement smallest slice;
@@ -51,21 +67,21 @@ For each active plan:
 4. update progress log;
 5. stop or continue with next verifiable slice.
 
-When no work is actively selected, `docs/exec-plans/active/` may be empty.
-When work is selected, it contains at most one Markdown plan.
-Completed plans with all acceptance criteria checked belong in
-`docs/exec-plans/completed/`; future work should be promoted back into
-`active/` before implementation.
+When no work is selected, `docs/harness-plans/active/` may be empty. When work
+is selected, it contains at most one Markdown plan. Completion follows the
+structural and semantic gate in `docs/PLANS.md`.
 
-Historical planning source has been promoted into `docs/ROADMAP.md` and the
-exec-plan folders. Future work should be represented as a deferred or active
-exec plan before implementation.
+`docs/exec-plans/` preserves historical and deferred product planning. Promote
+its intent into a current managed plan before implementation; do not use the
+historical tree as a second active lifecycle.
 
 ## Entropy control
 
-`tools/repo_lint.py` guards basic structure. `tools/doc_garden.py` is a
-lightweight scanner for stale markers, broad claims, and missing plan updates.
-More checks can be added as repeated mistakes appear.
+`tools/harness_gate.py` guards configured authorities, managed plans, the
+canonical coverage inventory, project-owned links, and certification claim
+boundaries. `tools/repo_lint.py` guards basic repository structure.
+`tools/doc_garden.py` is a lightweight scanner for stale markers and missing
+plan updates. More checks can be added as repeated mistakes appear.
 
 `docs/agent-harness/` defines the evidence and cleanup contract. Keep executable
 orchestration in `.sh`, structured repository scanning in `.py`, and policy or

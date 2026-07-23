@@ -7,16 +7,30 @@ tooling, and evidence guidance in the linked canonical documents.
 
 1. Read `docs/PROJECT_CHARTER.md`.
 2. Read `docs/ARCHITECTURE.md`.
-3. Read `docs/ROADMAP.md` and the relevant ExecPlan. Promote future work from
-   `docs/exec-plans/deferred/` into `active/` before implementation.
-4. Keep at most one active plan. The directory may be empty between selected
-   work slices.
+3. Read `docs/ROADMAP.md` and the relevant managed ExecPlan in
+   `docs/harness-plans/`.
+4. Use `docs/PLANS.md` for cross-cutting, risky, multi-hour, or
+   context-loss-sensitive work. Historical and deferred product plans remain
+   under `docs/exec-plans/`; promote their intent into a managed active plan
+   before implementation.
 5. Implement the smallest verifiable slice, run `bash tools/run_checks.sh`,
    and update the active plan before stopping.
 
-Harness operation, output, and cleanup rules live in
-`docs/agent-harness/README.md`. Tool commands live in
-`docs/REPO_TOOLING.md`.
+Start operational work at `docs/agent-harness/index.md`. Its authority map,
+verification matrix, output contract, environment contract, certification
+boundary, and cleanup rules are the harness source of truth. Tool commands
+live in `docs/REPO_TOOLING.md` and `docs/agent-harness/registry.md`.
+
+Canonical harness routes:
+
+- [architecture](docs/ARCHITECTURE.md);
+- [planning policy](docs/PLANS.md) and
+  [managed plan registry](docs/harness-plans/index.md);
+- [capability registry](docs/agent-harness/registry.md) and
+  [environment contract](docs/agent-harness/environment-contract.md);
+- [verification matrix](docs/agent-harness/verification-matrix.md) and
+  [coverage matrix](docs/agent-harness/coverage-matrix.md);
+- [certification manifest](docs/agent-harness/certification.json).
 
 ## Durable constraints
 
@@ -41,14 +55,15 @@ Harness operation, output, and cleanup rules live in
 
 ```sh
 bash tools/run_checks.sh
+python3 tools/harness_gate.py
 python3 tools/repo_lint.py
 git diff --check
 ```
 
 Work is complete when relevant tests and repository checks pass, the active
-plan records the observed evidence, generated documents are refreshed from
-their source, and remaining target or release gaps use the literal labels in
-`docs/agent-harness/output-contract.md`.
+managed plan records the observed evidence, generated documents are refreshed
+from their source, and remaining target or release gaps use the literal labels
+in `docs/agent-harness/output-contract.md`.
 
 When Flutter is unavailable, run the Python repository lint and record the
 missing toolchain in the active plan rather than implying full verification.

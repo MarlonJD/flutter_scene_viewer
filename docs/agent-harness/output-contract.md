@@ -1,54 +1,54 @@
-# Output contract
+# Agent output contract
 
-The repository is the durable source of truth. Raw command output is useful, but
-it is not automatically durable evidence.
+The repository is the durable source of truth. Raw command output is useful,
+but it is not automatically durable evidence.
+
+## Handoff requirements
+
+1. Lead with the behavior or artifact delivered.
+2. Name material files or systems changed.
+3. Report exact commands and scoped outcomes.
+4. Separate remaining gaps, debt, and approval-dependent work.
+5. State destructive, external, release, production, or real-device work only
+   when it actually occurred with the required authority.
+
+## Evidence labels
+
+| Label | Meaning |
+| --- | --- |
+| `verified locally` | The stated command or behavior was exercised in the local task environment. |
+| `not run` | The check was intentionally not executed; include the reason. |
+| `blocked` | A named condition prevented required progress or verification. |
+| `candidate-only` | An implementation or command exists but lacks the evidence required for its intended claim. |
+| `harness-ready` | A clean source/direct-child attestation pair, all 31 rows, the project-native gate, and fresh HMAC-consistent evidence passed with `CERT000`; this grants no release or production authority. |
+| `release pending` | Local work is complete but release or deployment evidence does not exist. |
+| `production-ready` | Use only after an explicitly requested provider-backed production verifier authenticates repository, target, approval, rollback, artifact, freshness, and revocation evidence; local checks and HMAC records are insufficient. |
 
 ## Temporary output
 
-These outputs may be overwritten and should usually stay untracked:
+These outputs may be overwritten and should stay untracked:
 
-- `tools/out/*.log`;
-- local Flutter, Dart, and package caches;
-- simulator screenshots or videos produced under `/private/tmp`;
-- ad hoc smoke-test harness directories.
-
-Use temporary output for local diagnosis and for copying the relevant result
-into the active plan log.
+- `tools/out/*.log` and local capture trees;
+- Dart/Flutter/package caches and build output;
+- simulator screenshots or videos under `/private/tmp`;
+- ad hoc smoke harness directories.
 
 ## Durable evidence
 
-Durable evidence belongs in one of these places:
+Durable evidence belongs in the active managed plan, a linked canonical
+document, or a committed fixture/report reviewers need to reproduce. Summarize
+the command, result, date, target, and material flags. Do not paste long raw
+logs unless the raw text is the task deliverable.
 
-- the active exec plan's progress or verification log;
-- a focused doc that is linked from `AGENTS.md` or `docs/REPO_TOOLING.md`;
-- a committed fixture, report, or artifact when reviewers need to reproduce or
-  inspect it without local machine state.
+Commit an output artifact only when it is a test input, a stable reviewer
+report, a visual result that cannot be summarized safely, or a plan-named
+acceptance artifact. Generated capability documentation must be regenerated
+from its source and checked for drift.
 
-Plan logs should summarize command, result, date, and any important flags. They
-should not paste entire long logs unless the raw text is the product of the
-task.
+## Recommended handoff shape
 
-## Artifact rule
-
-Commit an output artifact only when at least one of these is true:
-
-- it is an input fixture used by tests;
-- it is a stable report that reviewers need;
-- it documents a visual regression or smoke result that cannot be summarized
-  safely in text;
-- a plan explicitly names it as an acceptance artifact.
-
-Otherwise, leave raw output in `tools/out/` or `/private/tmp` and record the
-important evidence in the plan log.
-
-## Naming
-
-Use stable, descriptive names for durable artifacts:
-
-```text
-reports/<plan-id>-<short-scenario>.md
-test/fixtures/<descriptive-fixture-name>.glb
-```
-
-Avoid machine-local paths in public docs except inside plan logs that describe
-local verification already completed.
+- Outcome: delivered behavior or authority.
+- Changed: material paths or systems.
+- Verification: exact commands and literal results.
+- Not verified: omitted or blocked surfaces and reasons.
+- Remaining work: explicit debt, active-plan blocker, or none.

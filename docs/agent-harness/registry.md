@@ -1,0 +1,23 @@
+# Agent capability registry
+
+Commands run from the repository root unless another working directory is
+shown.
+
+| Capability | Entry point or command | Purpose | Expected signal | Owner or update trigger | Status |
+| --- | --- | --- | --- | --- | --- |
+| Repository setup | `flutter pub get` | Resolve the root package and pinned `flutter_scene` revision | Exit zero and a resolved package graph | Repository maintainers when dependencies change | candidate until rerun in the current adoption |
+| Focused tests | `flutter test test/<focused_test>.dart` | Verify one changed behavior quickly | Exit zero with named test cases passing | Change author selects from the verification matrix | verified through the existing test surface |
+| Full validation | `bash tools/run_checks.sh` | Run harness lint, repository lint, formatting, analysis, and root tests | Each section exits zero; unavailable Flutter is reported literally | Repository maintainers when the gate changes | verified repository entry point; current outcome belongs in the active plan |
+| Project-native harness gate | `python3 tools/harness_gate.py` | Validate configured routes, managed plans, canonical coverage, claim language, and project-owned links | `harness gate passed` or actionable `HARNESS_ERROR` lines | Repository maintainers before task completion | verified after the adoption plan's controlled failure/pass probe |
+| Strict harness-ready gate | `python3 tools/harness_gate.py --require-harness-ready` with `FSV_HARNESS_ATTESTATION_KEY_FILE` set to an owner-only external key | Fail closed on incomplete records, freshness, HMAC consistency, or Git binding | Exit zero only for a current bounded attestation | Repository maintainers after implementation commit `S` and attestation commit `A` | blocked until the external whole-tree verifier and clean attestation boundary pass |
+| Safe harness convergence | Follow [`certification.md`](certification.md), update the active plan, rerun local checks, refresh records, and produce a new direct-child attestation | Repair authorized repository-local drift without granting external authority | Local gates pass and independent verifier returns `CERT000` | Repository maintainers on manual task completion | candidate; no certification recovery trace exists yet |
+| Optional production attestation | N/A for the current unpublished local package | Provider-backed production proof only when explicitly requested | N/A; no provider verifier or production target exists | A future release owner after explicit authorization | N/A because `publish_to: none` and no production deployment is owned here |
+| Repository-local skill | `.agents/skills/pbr-materials/SKILL.md` | Route PBR, glTF material, lighting, and renderer-boundary work to primary evidence | Skill instructions and matching references are discoverable | Repository maintainers when the material workflow changes | verified |
+| Source-control context | `git status --short --branch` and `git diff --check` | Inspect current work and whitespace integrity without external writes | Current branch/worktree state and zero diff-check exit | Change author before editing and handoff | verified locally |
+| Dependency/API references | [`../references/index.md`](../references/index.md), pinned source, adapters, and fixtures | Keep important upstream behavior inspectable | Exact pin, contract path, or fixture-driven test resolves | Repository maintainers when upstream behavior changes | verified |
+| Runtime start | N/A | This repository is a library and has no canonical standalone server or app | N/A with focused widget/capture tests used instead | Revisit if a maintained example application is added | N/A because no long-lived runtime is owned |
+| Runtime reset | N/A | Tests own in-process state and disposable fixtures | Test process exit and task-local temporary cleanup | Revisit if a persistent example or service is added | N/A because no database, queue, or service state exists |
+| UI exercise | `flutter test test/viewer_widget_test.dart`; target capture commands are plan-specific | Prove widget behavior and target rendering at the required evidence scope | Passing widget assertions or explicitly scoped screenshot/log artifacts | Feature owner when widget or renderer behavior changes | verified for widget tests; target rendering remains plan-scoped |
+| Logs, metrics, and traces | `tools/out/*.log` for temporary command logs; metrics/traces N/A | Diagnose local command failures without inventing service telemetry | Correlated command output; no service telemetry claim | Repository maintainers when runtime surfaces change | verified for logs; N/A for service metrics and traces |
+
+Statuses describe callable capability, not repository certification.

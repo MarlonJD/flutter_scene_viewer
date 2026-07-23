@@ -1,0 +1,30 @@
+{
+  "schema_version": 2,
+  "claim": "candidate-only",
+  "profile": "adaptive",
+  "repository_commit": "1dee52551bc986b0584ca394cf5a3b8f814c7fcd",
+  "repository_identity": "scm://github.com/MarlonJD/flutter_scene_viewer",
+  "deployment_target_id": "harness://github.com/MarlonJD/flutter_scene_viewer/flutter-package-local-validation",
+  "environment": "local",
+  "issued_at": "2026-07-23T13:11:00Z",
+  "expires_at": "2026-07-30T13:11:00Z",
+  "coverage_sha256": "d3e6612081201ffff5bc19aeaf177ab4d23cdff683492bfed094f6aa67c200e8",
+  "evidence_root": "docs/agent-harness/evidence",
+  "project_native_gate": {
+    "command": "python3 tools/harness_gate.py --require-harness-ready",
+    "evidence": "docs/agent-harness/evidence/project-native-gate.json"
+  },
+  "maintenance": {
+    "command": "python3 tools/harness_gate.py --maintain",
+    "triggers": [
+      "manual"
+    ],
+    "max_age_hours": 168,
+    "evidence": "docs/agent-harness/evidence/continuous-maintenance.json"
+  },
+  "production_authority": {
+    "owner": null,
+    "approval_evidence": null,
+    "rollback_evidence": null
+  }
+}
