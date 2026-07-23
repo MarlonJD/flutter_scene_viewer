@@ -1,0 +1,20 @@
+{
+  "schema_version": 2,
+  "repository_commit": "76c5d46f3786d0b058937c212aa03bd16250953f",
+  "repository_identity": "scm://github.com/MarlonJD/flutter_scene_viewer",
+  "deployment_target_id": "harness://github.com/MarlonJD/flutter_scene_viewer/flutter-package-local-validation",
+  "capabilities": [
+    "Scheduled Codex documentation gardening and quality-scoring agents open targeted repair pull requests"
+  ],
+  "environment": "local",
+  "command": "repository applicability review recorded in docs/agent-harness/coverage-matrix.md",
+  "exit_code": null,
+  "observed_at": "2026-07-23T13:48:00Z",
+  "result": "not-applicable",
+  "artifacts": [
+    "git:76c5d46f3786d0b058937c212aa03bd16250953f:docs/agent-harness/coverage-matrix.md#capability-30"
+  ],
+  "issuer": "local-repository-harness-observer",
+  "key_id": "4fdb8ebef2efb606f5b3747f933af8064986ba10375114c3e49cc030ae7feef4",
+  "signature": "7f809520e7728d48cb63328c9def07b00ec7f174b4333e791d27e0a612fb698d"
+}

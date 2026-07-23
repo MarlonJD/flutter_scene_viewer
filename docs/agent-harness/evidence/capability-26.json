@@ -1,0 +1,20 @@
+{
+  "schema_version": 2,
+  "repository_commit": "76c5d46f3786d0b058937c212aa03bd16250953f",
+  "repository_identity": "scm://github.com/MarlonJD/flutter_scene_viewer",
+  "deployment_target_id": "harness://github.com/MarlonJD/flutter_scene_viewer/flutter-package-local-validation",
+  "capabilities": [
+    "Victoria Logs, Metrics, and Traces with LogQL/PromQL/TraceQL"
+  ],
+  "environment": "local",
+  "command": "repository applicability review recorded in docs/agent-harness/coverage-matrix.md",
+  "exit_code": null,
+  "observed_at": "2026-07-23T13:48:00Z",
+  "result": "not-applicable",
+  "artifacts": [
+    "git:76c5d46f3786d0b058937c212aa03bd16250953f:docs/agent-harness/coverage-matrix.md#capability-26"
+  ],
+  "issuer": "local-repository-harness-observer",
+  "key_id": "4fdb8ebef2efb606f5b3747f933af8064986ba10375114c3e49cc030ae7feef4",
+  "signature": "f886c6386be1f2209274cf9cff9fd383cd303b0b11538641db622ea2390d9a2e"
+}
