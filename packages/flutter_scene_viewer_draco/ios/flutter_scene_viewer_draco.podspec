@@ -12,15 +12,15 @@ stays pure Dart; apps opt in when they need KHR_draco_mesh_compression.
   s.source           = { :path => '.' }
   s.source_files     = 'Classes/**/*'
   s.exclude_files    = [
-    'third_party/draco/src/draco/**/*_test.cc',
-    'third_party/draco/src/draco/core/draco_test_utils.cc',
-    'third_party/draco/src/draco/core/draco_test_utils.h',
-    'third_party/draco/src/draco/core/draco_test_base.h'
+    '../third_party/draco/src/draco/**/*_test.cc',
+    '../third_party/draco/src/draco/core/draco_test_utils.cc',
+    '../third_party/draco/src/draco/core/draco_test_utils.h',
+    '../third_party/draco/src/draco/core/draco_test_base.h'
   ]
   s.preserve_paths   = [
-    'third_party/draco/AUTHORS',
-    'third_party/draco/LICENSE',
-    'third_party/draco/UPSTREAM_README.txt'
+    '../third_party/draco/AUTHORS',
+    '../third_party/draco/LICENSE',
+    '../third_party/draco/UPSTREAM_README.txt'
   ]
   s.public_header_files = 'Classes/FlutterSceneViewerDracoPlugin.h'
   s.dependency 'Flutter'
@@ -29,6 +29,6 @@ stays pure Dart; apps opt in when they need KHR_draco_mesh_compression.
     'DEFINES_MODULE' => 'YES',
     'CLANG_CXX_LANGUAGE_STANDARD' => 'c++17',
     'CLANG_CXX_LIBRARY' => 'libc++',
-    'HEADER_SEARCH_PATHS' => '"$(PODS_TARGET_SRCROOT)/third_party/draco/src"'
+    'HEADER_SEARCH_PATHS' => '"$(PODS_TARGET_SRCROOT)/../third_party/draco/src"'
   }
 end

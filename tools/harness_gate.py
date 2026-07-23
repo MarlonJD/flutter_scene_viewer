@@ -433,11 +433,6 @@ def validate_manifest(authorities: dict[str, str], strict: bool) -> tuple[dict[s
         fail(f"{rel(path)}: claim must be candidate-only or harness-ready")
     if strict and payload.get("claim") != "harness-ready":
         fail(f"{rel(path)}: strict gate requires claim harness-ready")
-    if not strict and payload.get("claim") == "harness-ready":
-        fail(
-            f"{rel(path)}: harness-ready claims require the strict gate and "
-            "external attestation key"
-        )
     coverage_path = ROOT / authorities["coverage"]
     digest = hashlib.sha256(read_text(coverage_path).encode("utf-8")).hexdigest()
     if payload.get("coverage_sha256") != digest:
@@ -556,6 +551,16 @@ def run_git(*args: str) -> str:
     return completed.stdout.strip()
 
 
+def validate_git_tree_safety() -> None:
+    for line in run_git("ls-files", "-s").splitlines():
+        fields = line.split(maxsplit=3)
+        if len(fields) == 4 and fields[0] == "120000":
+            fail(
+                "git: tracked symlinks are unsupported by bounded harness "
+                f"certification: {fields[3]}"
+            )
+
+
 def strict_certification(
     payload: dict[str, Any], rows: dict[str, str], key_path: str | None
 ) -> None:
@@ -634,8 +639,10 @@ def main() -> int:
     args = parser.parse_args()
     strict = args.require_harness_ready or args.maintain
 
+    payload: dict[str, Any] = {}
     authorities, _ = validate_config()
     if authorities:
+        validate_git_tree_safety()
         validate_instruction_map(authorities)
         validate_plans(authorities)
         validate_links(authorities)
@@ -647,7 +654,15 @@ def main() -> int:
         for message in errors:
             print(f"HARNESS_ERROR: {message}")
         return 1
-    state = "harness-ready" if strict else "candidate-only"
+    state = (
+        "harness-ready"
+        if strict
+        else (
+            "not revalidated"
+            if payload.get("claim") == "harness-ready"
+            else "candidate-only"
+        )
+    )
     print(f"harness gate passed (certification state: {state})")
     return 0
 

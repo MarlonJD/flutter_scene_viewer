@@ -61,6 +61,11 @@ checks, and the external adaptive verifier.
   `LINK001` findings without changing their content or SHA-256 identities.
   Evidence: the independent check's remaining 16 findings are exclusively
   ignored `tools/out/` captures, which are absent from a clean clone.
+- Observation: The first strict source/attestation pair passed the
+  repository-native gate but the independent verifier returned `CERT014` for
+  the tracked `packages/flutter_scene_viewer_draco/ios/third_party` symlink.
+  Evidence: the verifier named that exact path as the only certification
+  error; `git ls-files -s` showed it as the repository's only `120000` entry.
 - Observation: The broad repository gate still has the same three frozen
   Plan 018 capture failures recorded before this adoption; the added harness
   tests do not widen that failure set.
@@ -96,6 +101,12 @@ checks, and the external adaptive verifier.
   Rationale: This retains exact provenance bytes and hashes while preventing a
   generic Markdown crawler from treating partial vendor trees or ignored
   generated outputs as repository navigation.
+  Date/Author: 2026-07-23 / Repository maintainers.
+- Decision: Remove the iOS Draco vendor symlink and route CocoaPods to the
+  package vendor tree through explicit `../third_party/draco` paths.
+  Rationale: The aggregate source already uses the parent-relative tree, this
+  avoids duplicating vendored code, and the certification contract rejects
+  tracked symlinks. The native gate now enforces the same boundary.
   Date/Author: 2026-07-23 / Repository maintainers.
 
 ## Outcomes & Retrospective
@@ -241,3 +252,13 @@ coverage row identities follow the invoked skill's schemas.
   the pending source/attestation certification boundary.
   Reason: Resolve every tracked whole-tree finding without rewriting external
   source text and make the final `CERT000` sequence restartable.
+- (2026-07-23 13:55Z) Change: Recorded the first independent `CERT014`,
+  parent-relative CocoaPods vendor routing, and the native tracked-symlink
+  guard.
+  Reason: Preserve the observed failed certification attempt and prevent the
+  same repository-shape drift from recurring.
+- (2026-07-23 14:02Z) Change: Kept the ordinary harness gate structural after
+  certification and made it report `not revalidated` for a harness-ready
+  manifest.
+  Reason: Preserve the keyless main repository check while ensuring only the
+  key-bound strict gate can revalidate the certification claim.

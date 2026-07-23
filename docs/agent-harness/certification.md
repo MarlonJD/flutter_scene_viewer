@@ -12,7 +12,9 @@ reviewed, or independently certified for production.
 ## Convergence ownership
 
 - Owner: Repository maintainers.
-- Structural project gate: `python3 tools/harness_gate.py`.
+- Structural project gate: `python3 tools/harness_gate.py`; when a
+  `harness-ready` manifest exists, this mode reports `not revalidated` and
+  never substitutes for the strict gate.
 - Strict project gate: `python3 tools/harness_gate.py --require-harness-ready`
   with `FSV_HARNESS_ATTESTATION_KEY_FILE` naming an owner-only external key.
 - Safe repair procedure: update the active managed plan, repair only authorized
@@ -35,9 +37,11 @@ The source tree preserves partial upstream README and auto-generated fixture
 license bytes as `.txt`, so they are not misclassified as project-owned
 Markdown navigation. Certification runs from a clean clone, where ignored
 `tools/out/` captures are absent by construction. Deferred Plan 028 is now an
-authorized tracked source artifact. The remaining step is to bind fresh
-schema-v2 records to the final source commit and obtain `CERT000` from its
-clean direct-child attestation commit.
+authorized tracked source artifact. The first bounded verifier pass exposed a
+tracked iOS Draco vendor symlink; it is replaced by explicit parent-relative
+podspec paths, and the native gate now rejects future tracked symlinks. The
+remaining step is to refresh schema-v2 records for the corrected source commit
+and obtain `CERT000` from its clean direct-child attestation commit.
 
 ## Source and attestation procedure
 
